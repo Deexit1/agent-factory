@@ -62,6 +62,10 @@ def run_proxy(ticket_id: str, config: SandboxConfig, squid_conf_host_path: str) 
     # the internet on behalf of allow-listed requests from the fully-internal network.
     _run(["network", "connect", "bridge", name])
     wait_until_execable(name)
+    # Being exec-able only means the container's shell is up, not that squid itself
+    # has finished initializing and bound its port — confirm that precisely, since a
+    # curl racing ahead of it produces zero squid log entries at all (not even a deny).
+    wait_until_port_listening(name, 3128)
     return name
 
 
@@ -77,6 +81,24 @@ def wait_until_execable(name: str, attempts: int = 30, delay: float = 0.5) -> No
             return
         time.sleep(delay)
     raise RuntimeError(f"container {name} never became exec-able")
+
+
+def wait_until_port_listening(name: str, port: int, attempts: int = 30, delay: float = 0.5) -> None:
+    """Block until the process inside `name` is actually bound to `port`.
+
+    Checks /proc/net/tcp{,6} directly rather than relying on ss/netstat/curl being
+    installed in the image — those column-format files are always present on Linux.
+    """
+    hex_port = format(port, "04X")
+    probe = f"cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | grep -qi ':{hex_port} '"
+    for _ in range(attempts):
+        result = subprocess.run(
+            ["docker", "exec", name, "sh", "-c", probe], capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            return
+        time.sleep(delay)
+    raise RuntimeError(f"{name} never started listening on port {port}")
 
 
 def run_sandbox(

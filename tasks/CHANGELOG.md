@@ -278,3 +278,31 @@ Format:
   enforce real UID/GID checks or reproduce container-startup races the way native Linux
   does, so neither bug was reproducible locally; both fixes are reasoned from the exact
   CI error messages, not reproduce-then-fix. Watch the next CI run to confirm.
+
+## fix(T-005) · Egress-log timing, round 3 — this time reproduced — 2026-07-04
+- What changed: Round 2's push-permission fix worked (that test went green in CI), but
+  the egress-logging test still came back completely empty (not even the `blocked.
+  example.com` deny, which needs no internet access to log — a strong signal the whole
+  pipeline was never seeing traffic, not that traffic was misclassified). This time
+  reproduced it directly: `wait_until_execable()` confirms the *container's shell* is
+  reachable, but Squid itself takes a bit longer to finish initializing and bind its
+  listening socket — a `docker exec <proxy> true` succeeding doesn't mean Squid is
+  actually accepting connections on 3128 yet. Curl racing ahead of that produces zero
+  Squid log lines at all, allow or deny, exactly matching the symptom. Also incidentally
+  confirmed Squid listens on `[::]:3128` (IPv6), not plain IPv4 — worth knowing if anyone
+  probes this by hand later. Added `wait_until_port_listening()`, checking
+  `/proc/net/tcp{,6}` directly (no ss/netstat/curl dependency inside the image) for the
+  hex-encoded port, called right after `wait_until_execable()` in `run_proxy()`.
+- Files touched: `apps/sandbox/src/sandbox/docker_runtime.py`
+  (`wait_until_port_listening`).
+- Test evidence: Reproduced locally this time (unlike rounds 1–2) by launching a sandbox
+  and inspecting `/proc/net/tcp6` and `docker logs <proxy>` directly — confirmed Squid's
+  own startup log ("Accepting HTTP Socket connections... listening port: 3128") lands
+  after the container becomes exec-able. Verified end-to-end against a real running API:
+  both the allowed (`pypi.org`, 200) and denied (`blocked.example.com`, 403) egress
+  attempts now land as `ticket_events` reliably. Full 19-test suite green locally.
+- Notes / follow-ups: Three rounds for one task's CI failure is a signal, not just bad
+  luck — Docker Desktop's masking of real UID/GID and container-startup-timing behavior
+  means this environment structurally can't catch these classes of bug before CI does.
+  Worth remembering for T-006+: any new sandbox-adjacent readiness assumption should be
+  treated as unverified until a real Linux run confirms it.
