@@ -243,3 +243,38 @@ Format:
 - Notes / follow-ups: Couldn't reproduce the original failure locally (Docker Desktop
   masks it), so this fix is verified by the fix's own logic and passing local tests, not
   by reproducing-then-fixing — watch the next CI run to confirm.
+
+## fix(T-005) · Sandbox tests failing on Linux CI, round 2 — 2026-07-04
+- What changed: The first fix wasn't enough — CI still failed the same two tests.
+  (1) `push_to_main_rejected...`: the round-1 chmod only widened permissions on files
+  existing at `sandbox up` time. The push test's own `git push` creates a *new*
+  `refs/remotes/origin/agent/...` ref from *inside* the container (owned by its uid
+  10001), after the host-side chmod already ran — the host-side pytest teardown then hit
+  `PermissionError: Operation not permitted` trying to remove it. Fixed by chmod'ing from
+  *inside* the sandbox container (which owns those files and can always touch them) right
+  before `cli.down()` removes it, rather than relying on a one-time host-side pass.
+  (2) `egress_attempts...`: `docker run -d` returns as soon as the proxy container is
+  *created*, not once its process is far enough along to accept `exec` — the
+  egress-forwarder subprocess's `docker exec <proxy> tail -F ...` was racing that gap and
+  losing on a loaded CI runner, dying silently (its stderr was piped to `DEVNULL`). Added
+  `docker_runtime.wait_until_execable()`, polling `docker exec <name> true` before
+  `run_proxy()` returns, so the forwarder never starts until the proxy is actually usable.
+  Also stopped swallowing the forwarder's stderr — it now goes to
+  `~/.agent-factory-sandbox/<ticket>/egress_forwarder.log`, since this is a background
+  process nothing else supervises and losing its errors is exactly how round 1's real
+  cause went unnoticed.
+- Files touched: `apps/sandbox/src/sandbox/docker_runtime.py` (`wait_until_execable`,
+  called at the end of `run_proxy`), `apps/sandbox/src/sandbox/cli.py` (`down()` chmods
+  `/workspace/repo` from inside the sandbox container before removing it; `up()` routes
+  the forwarder's stdout+stderr to a log file instead of `DEVNULL`).
+- Test evidence: Manually verified the forwarder log now surfaces real errors (drove a
+  sandbox by hand with no API running: the log correctly captured a connection-refused
+  error that round 1 would have swallowed silently). Full 19-test suite green locally
+  after clearing out stale `~/.agent-factory-sandbox/` state left over from earlier manual
+  testing — that contamination briefly looked like a regression (a fresh ephemeral test
+  API always assigns ticket `T-001`, colliding with a stale local cache from an unrelated
+  manual run) but wasn't caused by this change and can't happen on a clean CI runner.
+- Notes / follow-ups: Same caveat as round 1 — Docker Desktop's bind-mount layer doesn't
+  enforce real UID/GID checks or reproduce container-startup races the way native Linux
+  does, so neither bug was reproducible locally; both fixes are reasoned from the exact
+  CI error messages, not reproduce-then-fix. Watch the next CI run to confirm.

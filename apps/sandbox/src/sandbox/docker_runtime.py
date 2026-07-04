@@ -1,4 +1,5 @@
 import subprocess
+import time
 
 from sandbox.config import SandboxConfig
 
@@ -60,7 +61,22 @@ def run_proxy(ticket_id: str, config: SandboxConfig, squid_conf_host_path: str) 
     # Second leg: attach the proxy to the default bridge so it can actually reach
     # the internet on behalf of allow-listed requests from the fully-internal network.
     _run(["network", "connect", "bridge", name])
+    wait_until_execable(name)
     return name
+
+
+def wait_until_execable(name: str, attempts: int = 30, delay: float = 0.5) -> None:
+    """Block until `docker exec` against this container actually works.
+
+    `docker run -d` returns as soon as the container is *created*, not once its
+    process is far enough along to accept exec — on a loaded CI runner that gap
+    is wide enough for a `docker exec` racing right behind it to fail outright.
+    """
+    for _ in range(attempts):
+        if _run_ok(["exec", name, "true"]):
+            return
+        time.sleep(delay)
+    raise RuntimeError(f"container {name} never became exec-able")
 
 
 def run_sandbox(

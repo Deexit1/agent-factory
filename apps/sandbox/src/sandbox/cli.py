@@ -71,6 +71,9 @@ def up(ticket_id: str, repo_url: str, base_branch: str, config: SandboxConfig) -
         ticket_id, config, str(worktree_path), credential.token, extra_mount=extra_mount
     )
 
+    # Not DEVNULL: this is a background process nothing else supervises, so a log
+    # file is the only way its failures are ever visible after the fact.
+    forwarder_log = (state_dir / "egress_forwarder.log").open("w")
     forwarder = subprocess.Popen(
         [
             sys.executable,
@@ -80,8 +83,8 @@ def up(ticket_id: str, repo_url: str, base_branch: str, config: SandboxConfig) -
             docker_runtime.proxy_name(ticket_id),
             config.api_url,
         ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=forwarder_log,
+        stderr=subprocess.STDOUT,
     )
 
     _save_state(
@@ -109,7 +112,14 @@ def _kill(pid: int) -> None:
 def down(ticket_id: str) -> None:
     state = _load_state(ticket_id)
 
-    docker_runtime.remove_container(docker_runtime.sandbox_name(ticket_id))
+    sandbox_name = docker_runtime.sandbox_name(ticket_id)
+    if docker_runtime.container_exists(sandbox_name):
+        # Anything the container created during its life (new commits, new
+        # refs.remotes/... from a push) is owned by its own uid, not the host
+        # user's — widen permissions from the *inside* while we still can, so the
+        # host-side worktree cleanup below doesn't hit EPERM removing them.
+        docker_runtime.exec_in(sandbox_name, ["chmod", "-R", "777", "/workspace/repo"])
+    docker_runtime.remove_container(sandbox_name)
     docker_runtime.remove_container(docker_runtime.proxy_name(ticket_id))
     docker_runtime.remove_network(docker_runtime.network_name(ticket_id))
 
