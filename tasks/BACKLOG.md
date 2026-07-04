@@ -26,9 +26,16 @@ Implement `packages/schemas`: TaskSpec, AcceptanceCriterion, FailureReport, Busi
 - [x] Invalid payloads raise validation errors with field paths
 - [x] `schemas export` CLI writes JSON schema files consumed by the web app
 
-## T-003 · Ticket API & state machine — `ready`
+## T-003 · Ticket API & state machine — `done`
 **Spec:** SPEC-001  **Est:** L
 Implement SPEC-001 in `apps/api`. All six criteria from the spec apply verbatim.
+**Acceptance criteria**
+- [x] Creating a task ticket with empty `acceptance_criteria` fails 422.
+- [x] `ready → in_progress → in_qa → done` succeeds; each writes exactly one transition event.
+- [x] `in_qa → done` is refused 409 if a `bounced` transition for attempt 3 exists (must be `escalated`).
+- [x] `in_qa → bounced` increments `bounce_count`; the 4th bounce attempt is refused and state becomes `escalated`.
+- [x] Events endpoint returns append-only history; PUT/DELETE on events return 405.
+- [x] `POST /tickets/{id}/approve` by a non-approver returns 403.
 
 ## T-004 · Board UI — `ready`
 **Spec:** SPEC-002  **Est:** L

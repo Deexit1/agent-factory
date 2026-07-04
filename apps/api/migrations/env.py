@@ -4,6 +4,9 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from api.db import models  # noqa: F401  (registers tables on Base.metadata)
+from api.db.session import Base
+
 config = context.config
 
 if config.config_file_name is not None:
@@ -13,8 +16,7 @@ database_url = os.environ.get("DATABASE_URL")
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url)
 
-# Import model metadata here once packages/schemas / SQLAlchemy models exist (T-002/T-003).
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
