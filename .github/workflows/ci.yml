@@ -26,11 +26,14 @@ jobs:
 
   gitleaks:
     runs-on: ubuntu-latest
+    container:
+      image: zricethezav/gitleaks:latest
+      options: --entrypoint=""
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Full-repo scan, not a before/after-SHA diff — gitleaks-action's diff mode
+      # breaks on the very first push (root commit has no parent to diff against).
+      - run: gitleaks detect --source . --verbose --redact
