@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from api.db.models import (
+    AgentRunStatus,
     ApprovalDecision,
     ApprovalGate,
     EventKind,
@@ -115,3 +116,56 @@ class ApprovalOut(BaseModel):
     decision: ApprovalDecision
     note: str | None
     ts: datetime
+
+
+class CreateAgentRunRequest(BaseModel):
+    agent_role: str
+    model: str
+    trace_id: str | None = None
+
+
+class CompleteAgentRunRequest(BaseModel):
+    status: AgentRunStatus
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost_usd: float = Field(ge=0, default=0)
+
+    @model_validator(mode="after")
+    def _status_not_running(self) -> "CompleteAgentRunRequest":
+        if self.status is AgentRunStatus.RUNNING:
+            raise ValueError("cannot complete a run with status=running")
+        return self
+
+
+class AgentRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ticket_id: str
+    agent_role: str
+    model: str
+    started_at: datetime
+    ended_at: datetime | None
+    status: AgentRunStatus
+    tokens_in: int
+    tokens_out: int
+    cost_usd: float
+    trace_id: str | None
+
+
+class CostLedgerEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ticket_id: str
+    agent_run_id: int
+    provider: str
+    model: str
+    usd: float
+    ts: datetime
+
+
+class CostSummaryOut(BaseModel):
+    ticket_id: str
+    agent_runs_total_usd: float
+    cost_ledger_total_usd: float

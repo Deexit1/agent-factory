@@ -57,6 +57,14 @@ class ApprovalDecision(StrEnum):
     REJECTED = "rejected"
 
 
+class AgentRunStatus(StrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    BUDGET_EXCEEDED = "budget_exceeded"
+    TIMED_OUT = "timed_out"
+
+
 class Ticket(Base):
     __tablename__ = "tickets"
 
@@ -100,4 +108,34 @@ class Approval(Base):
         _pg_enum(ApprovalDecision, "approval_decision")
     )
     note: Mapped[str | None] = mapped_column()
+    ts: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ticket_id: Mapped[str] = mapped_column(ForeignKey("tickets.id"))
+    agent_role: Mapped[str] = mapped_column()
+    model: Mapped[str] = mapped_column()
+    started_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    status: Mapped[AgentRunStatus] = mapped_column(
+        _pg_enum(AgentRunStatus, "agent_run_status"), default=AgentRunStatus.RUNNING
+    )
+    tokens_in: Mapped[int] = mapped_column(default=0)
+    tokens_out: Mapped[int] = mapped_column(default=0)
+    cost_usd: Mapped[float] = mapped_column(Numeric, default=0)
+    trace_id: Mapped[str | None] = mapped_column()
+
+
+class CostLedgerEntry(Base):
+    __tablename__ = "cost_ledger"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ticket_id: Mapped[str] = mapped_column(ForeignKey("tickets.id"))
+    agent_run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id"))
+    provider: Mapped[str] = mapped_column()
+    model: Mapped[str] = mapped_column()
+    usd: Mapped[float] = mapped_column(Numeric)
     ts: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))

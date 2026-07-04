@@ -306,3 +306,56 @@ Format:
   means this environment structurally can't catch these classes of bug before CI does.
   Worth remembering for T-006+: any new sandbox-adjacent readiness assumption should be
   treated as unverified until a real Linux run confirms it.
+
+## T-006 · Dev agent integration — 2026-07-04
+- What changed: Implemented SPEC-004. Two scope calls confirmed with the human first:
+  the "recorded fixture run" in AC #1 is a hand-authored transcript (no real
+  `ANTHROPIC_API_KEY` spend), and PR creation is stubbed (no scratch GitHub repo
+  available) while the real `gh pr create` code path still exists, just untested here.
+  Extended `apps/api` with `agent_runs`/`cost_ledger` tables and a small API surface
+  (`POST .../agent-runs`, `.../agent-runs/{id}/complete`, `GET .../agent-runs`,
+  `.../cost-ledger`, `.../cost-summary`) — `cost_ledger` rows are created automatically
+  inside `complete_agent_run` whenever `cost_usd > 0`, so the AC #5 invariant
+  (`cost_ledger` total == sum of `agent_runs.cost_usd`) holds by construction rather than
+  needing separate bookkeeping. New `apps/orchestrator` package finally wires
+  `packages/schemas` as a real dependency (deferred since T-003's changelog) — added a
+  `py.typed` marker there so mypy actually resolves it instead of erroring on missing
+  stubs. `agents/dev.py` builds the prompt from a real `TaskSpec` (+ `FailureReport` on
+  bounce), streams every transcript event into `ticket_events` as it arrives via
+  `ApiClient` (HTTP only — the orchestrator never touches the DB directly, per the
+  layer-2/layer-5 split in docs/01-architecture.md), tracks cumulative cost against
+  `task_spec.budget_usd` and wall-clock against a configurable timeout, and escalates via
+  the real transition API on either breach. `ClaudeCodeRunner` and `GitHubClient` are
+  `Protocol`s with a real implementation each (subprocess `claude -p ... --output-format
+  stream-json`; `gh pr create`) plus a fixture/fake for tests — git commit+push themselves
+  are real in tests (against a local bare "origin"), only the GitHub API call is faked.
+- Files touched: `apps/api/src/api/db/models.py` (`AgentRun`, `CostLedgerEntry`,
+  `AgentRunStatus`), `apps/api/migrations/versions/e9be75d61d32_*.py` (new),
+  `apps/api/src/api/repositories/agent_run_repository.py` (new),
+  `apps/api/src/api/services/agent_run_service.py` (new),
+  `apps/api/src/api/routers/agent_runs.py` (new), `apps/api/src/api/contracts.py`,
+  `apps/api/src/api/main.py`, `apps/api/tests/integration/test_agent_runs_api.py` (new);
+  `apps/orchestrator/**` (new package); `packages/schemas/src/schemas/py.typed` (new);
+  `Makefile` (`ORCHESTRATOR_DIR`, installs `packages/schemas` editable before orchestrator
+  itself).
+- Test evidence: `apps/api` full suite 34 passed (6 new agent-run tests) — including the
+  cost_ledger==sum(agent_runs) invariant and that a zero-cost run creates no ledger entry.
+  `apps/orchestrator`: 5 integration tests, one per SPEC-004 acceptance criterion, against
+  a **real** throwaway Postgres + real migrated `apps/api` (mirrors T-005's
+  `running_api` pattern) and a **real** local git remote — only Claude Code and GitHub are
+  faked. Confirmed the budget-exceeded test actually stops mid-transcript (asserts the
+  fixture's tail-end file, `test_app.py`, was never written) and that the escalation
+  path lands the ticket in `escalated` via a real API round-trip, not just a return value.
+  Added `testpaths = ["tests"]` to orchestrator's pytest config after noticing it was
+  accidentally collecting `fixtures/*/workspace_diff/test_app.py` as a real test.
+  `ruff check` + `mypy --strict` clean on all four Python packages. `pre-commit run
+  --all-files` clean.
+- Notes / follow-ups: `SubprocessClaudeCodeRunner`'s stream-json parsing is a best-effort
+  approximation of Claude Code's actual headless output format, informed but unverified
+  against a live run — revisit once this is exercised for real. Budget/timeout checks
+  only run between transcript events, so a single very expensive or very slow tool call
+  can overshoot before the next check point; acceptable for a fixture-paced test, worth
+  revisiting for the real subprocess runner (e.g. a watchdog thread). No LangGraph yet
+  despite docs/06 naming it for orchestration — `run_dev_agent` is a plain function; the
+  per-ticket graph (exec_panel → planner → dev_loop → qa) is out of scope until those
+  other agents exist.

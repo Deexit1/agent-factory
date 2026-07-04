@@ -58,9 +58,16 @@ Implement SPEC-003 in `apps/sandbox`. All five criteria apply.
 - [x] `sandbox down` leaves no container, volume, or credential behind.
 - [x] Every egress attempt appears in ticket_events for T-123.
 
-## T-006 · Dev agent integration — `ready`
+## T-006 · Dev agent integration — `done`
 **Spec:** SPEC-004  **Est:** L
 Implement SPEC-004 in `apps/orchestrator`. All five criteria apply.
+**Acceptance criteria**
+- [x] Given a toy repo and a TaskSpec ("add /health endpoint returning 200"), the agent
+      produces a PR whose diff adds the endpoint and a test (recorded fixture run).
+- [x] Transcript events stream into ticket_events during the run (not only at the end).
+- [x] Setting budget_usd=0.01 causes escalation before completion; state == `escalated`.
+- [x] On bounce, the injected context contains the FailureReport and attempt number.
+- [x] cost_ledger total for the ticket equals the sum of agent_runs.cost_usd.
 
 ## T-007 · QA gate & bounce loop — `ready`
 **Spec:** SPEC-005  **Est:** L
