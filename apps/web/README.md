@@ -1,6 +1,55 @@
 # apps/web
 
-React 18 + TypeScript + Vite frontend. See [docs/06-tech-stack.md](../../docs/06-tech-stack.md) and
+React 18 + TypeScript + Vite frontend for the Agent Factory board. See
+[docs/06-tech-stack.md](../../docs/06-tech-stack.md) and
 [docs/07-conventions.md](../../docs/07-conventions.md).
 
-Scaffolding tracked in T-001 (`tasks/BACKLOG.md`).
+```bash
+npm install
+npm run dev            # Vite dev server on http://localhost:5173
+```
+
+By default the app talks to an API at `http://localhost:8000`. Override with
+`VITE_API_URL` if the API is running elsewhere.
+
+## What's here
+
+- **Auth** (`src/auth/`) — OIDC login gate in front of the whole app. `LoginPage` offers
+  Google sign-in (redirects to the API's `/auth/login`) and, when `AUTH_DEV_MODE` is
+  enabled on the API, a dev-login form (email + role). The API redirects back with the
+  session token in a `#token=...` URL fragment (never sent to the server or logged);
+  `AuthContext` consumes it, persists it to `localStorage`, and exposes `actor`/`role`/
+  `status` to the rest of the app.
+- **Board** (`src/board/`) — `BoardPage` renders tickets grouped into columns
+  (`columns.ts`) by `TicketState`, with drag-and-drop transitions via `@dnd-kit/core`.
+  Illegal transitions snap back and surface the API's rejection reason
+  (`ErrorBanner`/`transition-error`). Clicking a card opens `TicketDrawer`, which shows
+  acceptance criteria, bounce count, a budget bar driven by `cost_ledger` totals, the
+  approval/escalation gate for the ticket's current state (role-gated: only `approver`/
+  `admin` see it), and a live event feed.
+- **Live event feed** (`src/api/useTicketEventsFeed.ts`) — opens a WebSocket to
+  `/ws/tickets/:id` while a ticket's drawer is open and merges streamed events with the
+  ticket's `recent_events`, so new `ticket_events` (e.g. a transition) appear in the open
+  drawer without a refetch.
+- **Dashboard** (`src/dashboard/DashboardPage.tsx`) — pilot metrics tiles (first-pass QA
+  rate, median $/closed ticket, escaped defects, median cycle time, tickets closed/
+  escalated) plus a CSV export of the same data.
+- **API client** (`src/api/`) — `client.ts` wraps `fetch` with auth headers and error
+  handling; `queries.ts` wraps it in React Query hooks; `types.ts` holds the shared
+  request/response shapes.
+
+## Commands
+
+```bash
+npm run test        # Vitest unit/component tests (jsdom)
+npm run e2e          # Playwright end-to-end suite (spins up the web dev server AND a
+                     # real, migrated API against Postgres — no mocked fetch/WS)
+npm run a11y         # Lighthouse accessibility audit of the board (threshold: 90),
+                     # via a dev-login token so it doesn't get stuck on the login page
+npm run lint
+npm run typecheck
+npm run build
+```
+
+`npm run e2e` requires the API's e2e server script (`../api/scripts/e2e-server.sh`) to be
+runnable, since Playwright starts it as part of `webServer`.

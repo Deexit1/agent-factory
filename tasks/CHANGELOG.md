@@ -32,6 +32,20 @@ Format:
   that run closely. No SQLAlchemy models exist yet, so `migrations/versions/` is empty
   (T-002/T-003 will add the first real revision).
 
+## docs(web) · Update apps/web/README.md — 2026-07-05
+- What changed: `apps/web/README.md` was still the one-line T-001 scaffolding stub, from
+  before the board (T-004), auth (T-008), dashboard (T-008), and test suites existed.
+  Rewrote it to document what's actually in `src/` (auth, board, live WS event feed,
+  dashboard, API client), the `npm run` commands for dev/test/e2e/a11y/lint/typecheck/
+  build, and links to `docs/06-tech-stack.md`/`docs/07-conventions.md`, matching the level
+  of detail in `apps/orchestrator/README.md`.
+- Files touched: `apps/web/README.md`.
+- Test evidence: PILOT-01-AC1 is verified by manual review (no automated test specified);
+  cross-checked every claim in the README against the current source (`src/auth/**`,
+  `src/board/**`, `src/dashboard/DashboardPage.tsx`, `src/api/**`, `package.json` scripts,
+  `playwright.config.ts`, `scripts/lighthouse-a11y.mjs`) rather than the prior README text.
+- Notes / follow-ups: None.
+
 ## T-002 · Schemas package — 2026-07-04
 - What changed: Built `packages/schemas` (Pydantic v2, Python 3.12): `TaskSpec`,
   `AcceptanceCriterion`, `FailureReport`, `BusinessCase` (+ `MarketEvidence`, `Complexity`),
