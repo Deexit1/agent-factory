@@ -1,4 +1,4 @@
-from orchestrator.claude_runner import _parse_stream_json_line
+from orchestrator.claude_runner import _is_transient_api_error, _parse_stream_json_line
 
 # Captured verbatim from a real `claude -p ... --output-format stream-json --verbose` run
 # (T-009 pilot validation) - `_parse_stream_json_line` was never exercised against real
@@ -59,3 +59,38 @@ def test_unparseable_line_returns_none() -> None:
 
 def test_system_init_event_returns_none() -> None:
     assert _parse_stream_json_line('{"type":"system","subtype":"init"}') is None
+
+
+# Captured verbatim from a real run (T-009 pilot validation) - the API intermittently
+# 400s on the very first turn with this exact shape, reproducibly transient (identical
+# prompt succeeded on retry), which is what SubprocessClaudeCodeRunner's retry loop keys on.
+REAL_TRANSIENT_API_ERROR = {
+    "error": "unknown",
+    "message": {
+        "content": [
+            {
+                "type": "text",
+                "text": (
+                    'API Error: 400 {"type":"error","error":{"type":"invalid_request_error",'
+                    '"message":"\\"thinking.type.enabled\\" is not supported for this model."}}'
+                ),
+            }
+        ]
+    },
+}
+
+
+def test_is_transient_api_error_matches_the_observed_shape() -> None:
+    assert _is_transient_api_error(REAL_TRANSIENT_API_ERROR) is True
+
+
+def test_is_transient_api_error_false_for_normal_text_message() -> None:
+    event = _parse_stream_json_line(REAL_ASSISTANT_TEXT)
+    assert event is not None
+    assert _is_transient_api_error(event.payload) is False
+
+
+def test_is_transient_api_error_false_for_tool_use() -> None:
+    event = _parse_stream_json_line(REAL_ASSISTANT_TOOL_USE)
+    assert event is not None
+    assert _is_transient_api_error(event.payload) is False

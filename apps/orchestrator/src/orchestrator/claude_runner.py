@@ -29,6 +29,8 @@ class SubprocessClaudeCodeRunner:
     FixtureClaudeCodeRunner and tasks/CHANGELOG.md (T-006).
     """
 
+    _MAX_TRANSIENT_RETRIES = 2
+
     def run(
         self, *, prompt: str, cwd: Path, model: str, budget_usd: float, timeout_s: float
     ) -> Iterator[TranscriptEvent]:
@@ -38,40 +40,58 @@ class SubprocessClaudeCodeRunner:
                 "claude CLI not found on PATH (npm install -g @anthropic-ai/claude-code)"
             )
 
-        process = subprocess.Popen(
-            [
-                claude_bin,
-                "-p",
-                prompt,
-                "--model",
-                model,
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--permission-mode",
-                "acceptEdits",
-            ],
-            cwd=cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        assert process.stdout is not None
-
         deadline = time.monotonic() + timeout_s
-        try:
-            for line in process.stdout:
-                if time.monotonic() > deadline:
-                    break
-                line = line.strip()
-                if not line:
-                    continue
-                event = _parse_stream_json_line(line)
-                if event is not None:
+        for attempt in range(self._MAX_TRANSIENT_RETRIES + 1):
+            process = subprocess.Popen(
+                [
+                    claude_bin,
+                    "-p",
+                    prompt,
+                    "--model",
+                    model,
+                    "--output-format",
+                    "stream-json",
+                    "--verbose",
+                    "--permission-mode",
+                    "acceptEdits",
+                ],
+                cwd=cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            assert process.stdout is not None
+
+            yielded_any = False
+            retry = False
+            try:
+                for line in process.stdout:
+                    if time.monotonic() > deadline:
+                        break
+                    line = line.strip()
+                    if not line:
+                        continue
+                    event = _parse_stream_json_line(line)
+                    if event is None:
+                        continue
+                    # Observed live (T-009 pilot): the API intermittently 400s on the very
+                    # first turn with a "thinking.type.enabled not supported" error and
+                    # zero cost - reproducibly transient (same prompt succeeds on retry),
+                    # not caused by prompt content. Only retry if it's the first thing
+                    # this attempt produced, so a real mid-run failure still surfaces.
+                    if not yielded_any and event.kind == "message" and _is_transient_api_error(
+                        event.payload
+                    ):
+                        retry = attempt < self._MAX_TRANSIENT_RETRIES
+                        break
+                    yielded_any = True
                     yield event
-        finally:
-            if process.poll() is None:
-                process.terminate()
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+
+            if not retry:
+                return
 
 
 def _content_blocks(raw: dict[str, object]) -> list[dict[str, object]]:
@@ -80,6 +100,15 @@ def _content_blocks(raw: dict[str, object]) -> list[dict[str, object]]:
         return []
     content = message.get("content")
     return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
+
+
+def _is_transient_api_error(payload: dict[str, object]) -> bool:
+    blocks = _content_blocks(payload)
+    if payload.get("error") != "unknown" or len(blocks) != 1:
+        return False
+    block = blocks[0]
+    text = block.get("text")
+    return block.get("type") == "text" and isinstance(text, str) and text.startswith("API Error:")
 
 
 def _parse_stream_json_line(line: str) -> TranscriptEvent | None:
