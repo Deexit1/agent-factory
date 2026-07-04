@@ -1,12 +1,26 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { App } from "./App";
 
-describe("App", () => {
-  it("renders the Agent Factory heading", () => {
-    render(<App />);
+function renderApp() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>,
+  );
+}
 
-    expect(screen.getByRole("heading", { name: "Agent Factory" })).toBeInTheDocument();
+describe("App", () => {
+  it("renders the board heading", () => {
+    renderApp();
+
+    expect(
+      screen.getByRole("heading", { name: "Agent Factory — Board" }),
+    ).toBeInTheDocument();
   });
 });

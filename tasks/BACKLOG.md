@@ -37,9 +37,15 @@ Implement SPEC-001 in `apps/api`. All six criteria from the spec apply verbatim.
 - [x] Events endpoint returns append-only history; PUT/DELETE on events return 405.
 - [x] `POST /tickets/{id}/approve` by a non-approver returns 403.
 
-## T-004 · Board UI — `ready`
+## T-004 · Board UI — `done`
 **Spec:** SPEC-002  **Est:** L
 Implement SPEC-002 in `apps/web` against the real API. All five criteria apply.
+**Acceptance criteria**
+- [x] Board renders tickets grouped by state from the API (mock-free integration test).
+- [x] Dragging a ticket through an illegal transition snaps back and shows the API reason.
+- [x] New ticket_events appear in an open drawer within 2s (Playwright e2e with WS).
+- [x] Approver sees approval buttons on `awaiting_human_go`/`escalated`; viewer does not.
+- [x] Lighthouse a11y score ≥ 90 on the board page (95/100).
 
 ## T-005 · Sandbox runner — `ready`
 **Spec:** SPEC-003  **Est:** L

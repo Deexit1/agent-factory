@@ -1,0 +1,15 @@
+import type { TicketState } from "../api/types";
+
+export interface BoardColumn {
+  state: TicketState;
+  label: string;
+}
+
+export const BOARD_COLUMNS: BoardColumn[] = [
+  { state: "ready", label: "Ready" },
+  { state: "in_progress", label: "In Progress" },
+  { state: "in_qa", label: "In QA" },
+  { state: "bounced", label: "Bounced" },
+  { state: "escalated", label: "Escalated" },
+  { state: "done", label: "Done" },
+];

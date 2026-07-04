@@ -13,6 +13,18 @@ from api.db.models import (
 )
 from api.domain import state_machine
 from api.repositories import ticket_repository as repo
+from api.ws.broadcaster import broadcaster
+
+
+def _event_ws_payload(event: TicketEvent) -> dict[str, object]:
+    return {
+        "id": event.id,
+        "ticket_id": event.ticket_id,
+        "ts": event.ts.isoformat(),
+        "actor": event.actor,
+        "kind": event.kind.value,
+        "payload": event.payload,
+    }
 
 
 class TicketNotFound(Exception):
@@ -108,7 +120,7 @@ def request_transition(
     try:
         state_machine.validate_transition(transition_request)
     except state_machine.TransitionRejected as exc:
-        repo.append_event(
+        rejected_event = repo.append_event(
             session,
             ticket_id=ticket.id,
             actor=actor,
@@ -122,13 +134,14 @@ def request_transition(
         )
 
         auto_escalated = False
+        escalation_event = None
         if (
             from_state is TicketState.IN_QA
             and to_state is TicketState.BOUNCED
             and ticket.bounce_count >= state_machine.MAX_BOUNCES
         ):
             ticket.state = TicketState.ESCALATED
-            repo.append_event(
+            escalation_event = repo.append_event(
                 session,
                 ticket_id=ticket.id,
                 actor="system",
@@ -142,12 +155,15 @@ def request_transition(
             auto_escalated = True
 
         session.commit()
+        broadcaster.publish(ticket.id, _event_ws_payload(rejected_event))
+        if escalation_event is not None:
+            broadcaster.publish(ticket.id, _event_ws_payload(escalation_event))
         raise TransitionRefused(exc.reason, auto_escalated=auto_escalated) from exc
 
     if to_state is TicketState.BOUNCED:
         ticket.bounce_count += 1
     ticket.state = to_state
-    repo.append_event(
+    event = repo.append_event(
         session,
         ticket_id=ticket.id,
         actor=actor,
@@ -155,6 +171,7 @@ def request_transition(
         payload={"from": from_state.value, "to": to_state.value},
     )
     session.commit()
+    broadcaster.publish(ticket.id, _event_ws_payload(event))
     return ticket
 
 

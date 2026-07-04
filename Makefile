@@ -2,7 +2,7 @@ API_DIR := apps/api
 WEB_DIR := apps/web
 SCHEMAS_DIR := packages/schemas
 
-.PHONY: dev test check lint typecheck e2e migrate
+.PHONY: dev test check lint typecheck e2e a11y migrate
 
 $(API_DIR)/.venv/.stamp: $(API_DIR)/pyproject.toml
 	cd $(API_DIR) && python3 -m venv .venv
@@ -43,6 +43,9 @@ check: lint typecheck test ## Full QA gate: lint + typecheck + unit + integratio
 e2e: $(WEB_DIR)/node_modules/.stamp ## Playwright end-to-end suite
 	cd $(WEB_DIR) && npx playwright install --with-deps chromium
 	cd $(WEB_DIR) && npm run e2e
+
+a11y: $(WEB_DIR)/node_modules/.stamp ## Lighthouse accessibility audit of the board page (requires `npm run dev` running)
+	cd $(WEB_DIR) && npm run a11y
 
 migrate: $(API_DIR)/.venv/.stamp ## Apply alembic migrations
 	cd $(API_DIR) && .venv/bin/alembic upgrade head

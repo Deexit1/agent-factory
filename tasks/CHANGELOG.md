@@ -101,3 +101,54 @@ Format:
   "sandbox available" (`ready→in_progress`) and "diff non-empty" (`in_progress→in_qa`)
   are not enforced yet — those subsystems don't exist until T-005/T-006. RBAC is a stub
   header, not real auth — SPEC-006 replaces it with OIDC SSO.
+
+## T-004 · Board UI — 2026-07-04
+- What changed: Implemented SPEC-002 in `apps/web` against the real `apps/api`. Found and
+  closed a real gap first: SPEC-002 needs a live event feed over WebSocket
+  (`/ws/tickets/{id}`), which `apps/api` didn't have — added an in-process pub/sub
+  broadcaster (`api/ws/broadcaster.py`) plus the WS route, publishing on every transition
+  (including rejected ones), and a CORS policy for the Vite dev origin. On the frontend:
+  Tailwind v4 (via `@tailwindcss/vite`) + TanStack Query + dnd-kit, a typed API client
+  matching `apps/api`'s Pydantic contracts, a localStorage-backed "acting as" actor/role
+  context mirroring the backend's stub `X-Actor`/`X-Actor-Role` auth, a 6-column board
+  (Ready/In Progress/In QA/Bounced/Escalated/Done) with dnd-kit drag-drop, a ticket drawer
+  (spec, acceptance-criteria checklist, bounce counter, budget bar, live WS event feed,
+  approve/reject buttons), and a Lighthouse accessibility CLI script.
+  Scope interpretation worth flagging: rather than pre-computing which transitions are
+  "human-allowed" (docs/03's whitelist trigger column marks almost nothing on the visible
+  6 columns as literally HUMAN-triggered), the board lets any card be dragged to any column
+  and defers entirely to the API's verdict — legal drags commit, illegal ones snap back
+  with the API's rejection reason. This matches AC #2's literal behavior and reuses T-003's
+  guards as the single source of truth instead of duplicating them client-side.
+- Files touched: `apps/api/src/api/ws/**` (new), `apps/api/src/api/routers/ws_tickets.py`
+  (new), `apps/api/src/api/main.py` (lifespan hook binding the broadcaster's event loop,
+  CORS), `apps/api/src/api/services/ticket_service.py` (publish after commit),
+  `apps/api/tests/integration/test_tickets_ws.py` (new), `apps/api/scripts/e2e-server.sh`
+  (new — self-contained postgres+migrate+API bootstrap for e2e/CI), `apps/web/src/api/**`
+  (new — types, fetch client, TanStack Query hooks), `apps/web/src/auth/**` (new),
+  `apps/web/src/board/**` (new), `apps/web/src/index.css`, `apps/web/vite.config.ts`
+  (Tailwind plugin), `apps/web/src/{main,App}.tsx`, `apps/web/e2e/{api.ts,board.spec.ts}`
+  (new), `apps/web/playwright.config.ts` (second `webServer` entry for the real API),
+  `apps/web/scripts/lighthouse-a11y.mjs` (new), `Makefile` (`a11y` target),
+  `.github/workflows/ci.yml` (new `e2e` and `a11y` jobs).
+- Test evidence: `pytest` (25 passed, +2 WS tests: connect + receive on both a successful
+  and a rejected transition). `npm run typecheck|lint|test|build` clean. Playwright e2e (5
+  passed) run twice — once against manually-started servers, once from a fully cold start
+  where Playwright's `webServer` config itself brings up docker-compose postgres, runs
+  alembic, starts uvicorn, *and* the Vite dev server — covering all four testable SPEC-002
+  criteria (AC #4's `awaiting_human_go` half is untestable in Phase 1, which never reaches
+  that state; `escalated` is covered). Lighthouse accessibility: **95/100** (threshold 90).
+  Also manually drove the full stack in a real browser (screenshots): board renders live
+  ticket data, click-to-open drawer, illegal drag snaps back with the reason banner, legal
+  drag moves the card and the WS event feed updates live, and approval buttons correctly
+  appear only for the approver role on an escalated ticket (driven there via 4 real bounce
+  cycles through the actual API).
+- Notes / follow-ups: WS pub/sub is in-process (single API replica) per
+  docs/06-tech-stack.md's own caveat — move to Redis pub/sub before running multiple API
+  replicas. Used Tailwind directly with hand-built accessible primitives instead of running
+  shadcn/ui's CLI generator (no interactive scaffolding step available here); functionally
+  equivalent for this task's needs. `apps/api/scripts/e2e-server.sh` and the CI `a11y` job
+  duplicate some Makefile venv-bootstrap logic — worth consolidating if a third consumer
+  shows up. dnd-kit's `PointerSensor` needed an 8px activation distance or it swallowed
+  card click events (zero-distance "drags") — worth remembering for any future draggable
+  interactive element.

@@ -11,9 +11,19 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
-    command: "npm run dev",
-    url: "http://localhost:5173",
-    reuseExistingServer: !process.env.CI,
-  },
+  // Mock-free per SPEC-002 AC #1: both the web dev server and a real, migrated API
+  // (backed by a real Postgres) are started for the suite — no mocked fetch/WS.
+  webServer: [
+    {
+      command: "npm run dev",
+      url: "http://localhost:5173",
+      reuseExistingServer: !process.env.CI,
+    },
+    {
+      command: "bash ../api/scripts/e2e-server.sh",
+      url: "http://localhost:8000/health",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+  ],
 });
