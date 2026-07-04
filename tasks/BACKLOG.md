@@ -6,16 +6,16 @@ A task is done only when its criteria pass as tests and `make check` is green.
 
 ---
 
-## T-001 · Repo scaffold & tooling — `ready`
+## T-001 · Repo scaffold & tooling — `done`
 **Spec:** —  **Est:** S
 Create the monorepo layout from CLAUDE.md, Makefile targets (dev/test/check/e2e/migrate),
 docker-compose (postgres, redis, minio), .env.example, CI skeleton, pre-commit (ruff,
 eslint, gitleaks).
 **Acceptance criteria**
-- [ ] `make dev` starts API stub (FastAPI /health 200) + web stub + postgres + redis
-- [ ] `make check` runs and passes on the clean scaffold
-- [ ] CI runs `make check` on PRs; gitleaks blocks a planted test secret
-- [ ] No real secrets anywhere; `.env.example` documents every variable
+- [x] `make dev` starts API stub (FastAPI /health 200) + web stub + postgres + redis
+- [x] `make check` runs and passes on the clean scaffold
+- [x] CI runs `make check` on PRs; gitleaks blocks a planted test secret
+- [x] No real secrets anywhere; `.env.example` documents every variable
 
 ## T-002 · Schemas package — `ready`
 **Spec:** docs/04-agent-specs.md  **Est:** S
