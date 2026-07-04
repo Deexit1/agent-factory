@@ -47,6 +47,7 @@ class SubprocessClaudeCodeRunner:
                 model,
                 "--output-format",
                 "stream-json",
+                "--verbose",
                 "--permission-mode",
                 "acceptEdits",
             ],
@@ -73,6 +74,14 @@ class SubprocessClaudeCodeRunner:
                 process.terminate()
 
 
+def _content_blocks(raw: dict[str, object]) -> list[dict[str, object]]:
+    message = raw.get("message")
+    if not isinstance(message, dict):
+        return []
+    content = message.get("content")
+    return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
+
+
 def _parse_stream_json_line(line: str) -> TranscriptEvent | None:
     try:
         raw = json.loads(line)
@@ -81,9 +90,15 @@ def _parse_stream_json_line(line: str) -> TranscriptEvent | None:
 
     msg_type = raw.get("type")
     if msg_type == "assistant":
-        return TranscriptEvent(kind="message", payload=raw)
-    if msg_type == "tool_use" or msg_type == "tool_result":
-        return TranscriptEvent(kind="tool_call", payload=raw)
+        # Tool calls arrive nested in an assistant message's content blocks, not as a
+        # distinct top-level event type - classify by what's actually inside.
+        is_tool_call = any(b.get("type") == "tool_use" for b in _content_blocks(raw))
+        return TranscriptEvent(kind="tool_call" if is_tool_call else "message", payload=raw)
+    if msg_type == "user":
+        # Tool results come back as a "user" turn containing a tool_result block.
+        if any(b.get("type") == "tool_result" for b in _content_blocks(raw)):
+            return TranscriptEvent(kind="tool_call", payload=raw)
+        return None
     if msg_type == "result":
         usage = raw.get("usage", {})
         return TranscriptEvent(
