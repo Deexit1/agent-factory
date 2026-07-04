@@ -1,0 +1,5 @@
+# Normalize to LF in the repo and on checkout, regardless of a contributor's local
+# core.autocrlf. Without this, Windows clones with the common core.autocrlf=true
+# setting check shell scripts out with CRLF, which corrupts shebang lines and breaks
+# exec() on Linux (e.g. apps/sandbox/hooks/pre-push, apps/api/scripts/e2e-server.sh).
+* text=auto eol=lf

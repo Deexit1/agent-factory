@@ -152,3 +152,69 @@ Format:
   shows up. dnd-kit's `PointerSensor` needed an 8px activation distance or it swallowed
   card click events (zero-distance "drags") — worth remembering for any future draggable
   interactive element.
+
+## T-005 · Sandbox runner — 2026-07-04
+- What changed: Implemented SPEC-003 in `apps/sandbox`, with two deliberate substitutions
+  for real infra this environment/Phase 1 doesn't have (both confirmed with the human
+  first): standard Docker isolation instead of gVisor (`--read-only` rootfs, tmpfs
+  workspace, CPU/RAM limits, `--security-opt no-new-privileges`, no docker-socket mount,
+  one `--internal` docker network per ticket so sandboxes can't reach each other), and a
+  local stub `credential_broker.py` instead of real Vault + a GitHub App (same issue/revoke
+  shape, mints a random token for a local git remote — swap the module, not its callers,
+  when real Vault/GitHub App wiring lands). Also added a small but real extension to
+  SPEC-001's API: `POST /tickets/{id}/events`, since SPEC-003's AC #5 needs an external
+  writer (the egress-log forwarder) to append `ticket_events`, and no such endpoint existed
+  (only auto-written transition events did). A Squid container gives default-deny egress
+  (allow-list: PyPI, npm, GitHub, Anthropic API) on a network topology where the sandbox
+  only has the internal leg and the proxy bridges to the internet; every request (allowed
+  or denied) is tailed from Squid's access log and forwarded as a `tool_call` event. A
+  pre-push hook (reading `AGENT_FACTORY_TICKET_ID`) rejects any push except to
+  `refs/heads/agent/<ticket_id>`, per SPEC-003's own Phase-1 note that this is simulated
+  client-side rather than via real GitHub branch protection.
+- Files touched: `apps/api/src/api/contracts.py` (`CreateEventRequest`, rejects `kind:
+  transition`), `apps/api/src/api/services/ticket_service.py` (`record_event`),
+  `apps/api/src/api/routers/tickets.py` (new endpoint),
+  `apps/api/tests/integration/test_ticket_events_api.py` (new); `apps/sandbox/**` (new:
+  `images/Dockerfile`, `hooks/pre-push`, `src/sandbox/{cli,config,docker_runtime,
+  egress_proxy,credential_broker,worktree,egress_forwarder,events_client}.py`,
+  `tests/unit/**`, `tests/integration/**`); `.gitattributes` (new — forces LF checkout
+  repo-wide); `Makefile` (`SANDBOX_DIR` wired into test/lint/typecheck, so `make check`
+  now also covers apps/sandbox); `.pre-commit-config.yaml` (ruff now covers
+  `apps/sandbox/`).
+- Test evidence: 12 unit tests (squid config rendering, credential broker issue/get/revoke,
+  egress-log line parsing) + 7 integration tests against **real Docker** (19 total,
+  `make test` picks them up automatically now). The integration suite bootstraps its own
+  dependencies — builds the sandbox image, pulls `ubuntu/squid`, and (for the one test that
+  needs it) spins up a real throwaway Postgres + a real migrated `apps/api` via its own
+  venv — and covers all five SPEC-003 acceptance criteria directly: blocked-domain curl
+  fails / `pip install requests` succeeds through the proxy; push to `main` rejected, push
+  to `agent/<ticket>` succeeds; no docker socket, no docker CLI, two concurrent sandboxes
+  can't resolve or reach each other by name or IP; `sandbox down` leaves no container,
+  network, or credential (and no worktree directory) behind; both an allowed and a denied
+  egress attempt show up as real `ticket_events` fetched back from a real running API.
+  Also drove the entire lifecycle by hand first (before automating it) to find and fix
+  every bug below. `apps/api` full suite still green (28 passed) after the new endpoint.
+  `ruff check` + `mypy --strict` clean on all three Python packages. `pre-commit run
+  --all-files` clean.
+- Notes / follow-ups: building this surfaced (and fixed) four real, non-obvious bugs, all
+  now covered by tests or config rather than just "worked on my machine": (1) a git
+  worktree's `.git` file references the main repo by absolute host path, which breaks once
+  bind-mounted into a container's own filesystem namespace — switched to a full self-
+  contained clone instead of a literal `git worktree add`; (2) `Path.write_text()` on
+  Windows re-translates `\n` to `\r\n`, silently corrupting the pre-push hook's shebang
+  (fixed with a binary copy) — and separately, **this repo had no `.gitattributes` at
+  all**, so a fresh Windows clone with the common `core.autocrlf=true` setting would hit
+  the identical corruption on checkout regardless of any fix in Python; added
+  `* text=auto eol=lf` repo-wide and force-set the executable bit on both `.sh`/hook files
+  via `git update-index --chmod=+x` (this checkout has `core.fileMode=false`, so `chmod`
+  alone never reached git's index); (3) git's "dubious ownership" check fires on bind-
+  mounted directories not owned by the container's user — addressed with a system-wide
+  (not `/home`, which is tmpfs and wiped per container) `safe.directory *`, acceptable
+  because these containers are single-tenant and ephemeral, which is exactly the scenario
+  that check exists to rule out; (4) `os.kill(pid, SIGTERM)` raises a plain `OSError` on
+  Windows rather than `ProcessLookupError`, so a narrow `except` silently aborted teardown
+  partway through on a re-run. Separately: WS pub/sub for egress events piggybacks on
+  T-004's in-process broadcaster, so the same "single API replica only" caveat applies.
+  CPU/RAM/disk limits and the allow-listed domain list are hardcoded defaults in
+  `config.py`, not yet loaded from a config file as SPEC-003 implies ("from config") —
+  revisit if per-ticket overrides are needed.

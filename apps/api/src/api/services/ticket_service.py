@@ -98,6 +98,21 @@ def list_events(
     return repo.list_events(session, ticket_id, limit=limit, offset=offset)
 
 
+def record_event(
+    session: Session,
+    ticket_id: str,
+    *,
+    actor: str,
+    kind: EventKind,
+    payload: dict[str, object],
+) -> TicketEvent:
+    get_ticket(session, ticket_id)  # 404s if the ticket doesn't exist
+    event = repo.append_event(session, ticket_id=ticket_id, actor=actor, kind=kind, payload=payload)
+    session.commit()
+    broadcaster.publish(ticket_id, _event_ws_payload(event))
+    return event
+
+
 def _acceptance_criteria_count(ticket: Ticket) -> int:
     return len(ticket.acceptance_criteria)
 
@@ -205,6 +220,7 @@ __all__ = [
     "get_ticket_with_recent_events",
     "list_tickets",
     "list_events",
+    "record_event",
     "request_transition",
     "record_approval",
 ]

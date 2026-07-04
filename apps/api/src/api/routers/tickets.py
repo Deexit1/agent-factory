@@ -5,6 +5,7 @@ from api.auth import ActorContext, get_actor_context
 from api.contracts import (
     ApprovalOut,
     ApproveRequest,
+    CreateEventRequest,
     CreateTicketRequest,
     EventOut,
     PaginatedEvents,
@@ -103,6 +104,24 @@ def approve_ticket(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return ApprovalOut.model_validate(approval)
+
+
+@router.post("/{ticket_id}/events", response_model=EventOut, status_code=201)
+def create_ticket_event(
+    ticket_id: str, request: CreateEventRequest, db: Session = Depends(get_db)
+) -> EventOut:
+    try:
+        event = ticket_service.record_event(
+            db,
+            ticket_id,
+            actor=request.actor,
+            kind=request.kind,
+            payload=request.payload,
+        )
+    except ticket_service.TicketNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return EventOut.model_validate(event)
 
 
 @router.get("/{ticket_id}/events", response_model=PaginatedEvents)

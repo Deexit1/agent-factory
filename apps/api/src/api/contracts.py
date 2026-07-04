@@ -85,6 +85,20 @@ class TransitionRequest(BaseModel):
     actor: str
 
 
+class CreateEventRequest(BaseModel):
+    actor: str
+    kind: EventKind
+    payload: dict[str, object] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _kind_not_transition(self) -> "CreateEventRequest":
+        if self.kind is EventKind.TRANSITION:
+            raise ValueError(
+                "transition events are written by POST /tickets/{id}/transition, not this endpoint"
+            )
+        return self
+
+
 class ApproveRequest(BaseModel):
     gate: ApprovalGate
     decision: ApprovalDecision

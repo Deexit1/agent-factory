@@ -47,9 +47,16 @@ Implement SPEC-002 in `apps/web` against the real API. All five criteria apply.
 - [x] Approver sees approval buttons on `awaiting_human_go`/`escalated`; viewer does not.
 - [x] Lighthouse a11y score ≥ 90 on the board page (95/100).
 
-## T-005 · Sandbox runner — `ready`
+## T-005 · Sandbox runner — `done`
 **Spec:** SPEC-003  **Est:** L
 Implement SPEC-003 in `apps/sandbox`. All five criteria apply.
+**Acceptance criteria**
+- [x] `sandbox up` yields a container where `curl https://blocked.example.com` fails and
+      `pip install requests` succeeds.
+- [x] Push to `main` from inside the sandbox is rejected; push to `agent/T-123` succeeds.
+- [x] Container cannot see host Docker socket or other sandboxes (integration test).
+- [x] `sandbox down` leaves no container, volume, or credential behind.
+- [x] Every egress attempt appears in ticket_events for T-123.
 
 ## T-006 · Dev agent integration — `ready`
 **Spec:** SPEC-004  **Est:** L

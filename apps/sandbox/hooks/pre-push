@@ -1,0 +1,18 @@
+#!/bin/sh
+# Installed into the shared bare repo's hooks/ (git worktrees share hooks with their
+# common git dir). Rejects any push whose target ref isn't refs/heads/agent/<ticket>,
+# where <ticket> comes from AGENT_FACTORY_TICKET_ID set inside the sandbox container.
+# Simulates the server-side branch-protection check Phase 2+ will do for real (SPEC-003).
+set -e
+
+TICKET_ID="${AGENT_FACTORY_TICKET_ID:?AGENT_FACTORY_TICKET_ID not set}"
+ALLOWED_REF="refs/heads/agent/${TICKET_ID}"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" != "$ALLOWED_REF" ]; then
+    echo "pre-push: rejected -- this sandbox may only push to $ALLOWED_REF (got $remote_ref)" >&2
+    exit 1
+  fi
+done
+
+exit 0
