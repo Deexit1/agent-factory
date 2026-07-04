@@ -66,6 +66,7 @@ jobs:
           cd apps/api
           python3 -m venv .venv
           .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -e ../../packages/schemas
           .venv/bin/pip install -e ".[dev]"
           export DATABASE_URL="postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
           .venv/bin/python -m alembic upgrade head

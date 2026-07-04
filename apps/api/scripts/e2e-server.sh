@@ -30,6 +30,7 @@ if [ ! -x "$PYTHON" ]; then
 fi
 
 "$PYTHON" -m pip install --quiet --upgrade pip
+"$PYTHON" -m pip install --quiet -e "../../packages/schemas"
 "$PYTHON" -m pip install --quiet -e ".[dev]"
 "$PYTHON" -m alembic upgrade head
 exec "$PYTHON" -m uvicorn api.main:app --host 0.0.0.0 --port 8000

@@ -421,3 +421,11 @@ Format:
   felt too risky to do unverified in the same change as the Python-side gate. AC4 is
   covered for the Python packages, which is where agent-authored PRs mostly land today;
   revisit before an agent is ever asked to touch `apps/web` under this gate.
+- Fix (same day, after CI ran): `make e2e` failed in CI —
+  `ModuleNotFoundError: No module named 'schemas'` importing `api.main` — because
+  Playwright's `webServer` boots the API via `apps/api/scripts/e2e-server.sh`, which
+  builds its own venv independently of the Makefile and was never updated to install
+  `packages/schemas` first. `ci.yml`'s `a11y` job builds the api venv the exact same way
+  and had the identical latent bug (hadn't surfaced yet only because nothing under
+  `apps/api` imported `schemas` before this task). Fixed both to `pip install -e
+  ../../packages/schemas` before `pip install -e ".[dev]"`, matching the Makefile.
