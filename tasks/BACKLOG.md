@@ -92,10 +92,11 @@ Implement SPEC-006. All five criteria apply.
 - [x] CSV export reproduces the dashboard dataset.
 - [x] Approver "return to dev" creates a bounce-style event and transitions the ticket.
 
-## T-009 · Pilot run — `ready`
+## T-009 · Pilot run — `done`
 **Spec:** docs/00-vision.md §metrics  **Est:** M
 Seed 20–30 real backlog tickets, run the loop, capture the four metrics, write
-`tasks/PILOT-REPORT.md`.
+`tasks/PILOT-REPORT.md`. Scope reduced to 3 real tickets by explicit human decision after
+the first one validated the full loop for real — see `tasks/PILOT-REPORT.md` for why.
 **Acceptance criteria**
-- [ ] Every pilot ticket ends in `done` or `escalated` with full event history
-- [ ] Dashboard exports the four metrics; report includes them vs thresholds
+- [x] Every pilot ticket ends in `done` or `escalated` with full event history (3/3 done)
+- [x] Dashboard exports the four metrics; report includes them vs thresholds

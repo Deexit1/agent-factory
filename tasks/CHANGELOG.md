@@ -515,3 +515,38 @@ Format:
   (`/ws/tickets/{id}`) is unchanged from the header-stub era — AC1 is about REST access,
   and browsers can't attach custom headers to a native WebSocket handshake, so closing
   this gap needs a token-via-query-param design; flagging it, not fixing it here.
+
+## T-009 · Pilot run — 2026-07-05
+- What changed: Ran the real loop end-to-end for the first time — every prior "real"
+  integration (Claude Code subprocess, `gh pr create`, the CI gate) had been implemented
+  but deliberately never exercised live (see each task's own changelog entry). Scope
+  reduced from the spec's 20-30 tickets to 3 by explicit human decision once the first
+  ticket proved the whole loop worked for real; see `tasks/PILOT-REPORT.md` for the full
+  writeup, including a real leaked-secret near-miss caught before commit (a real
+  Anthropic key pasted into `.env.example` instead of `.env`) and four real bugs the first
+  live run surfaced and fixed, three specific to this repo's CI/orchestrator code and one
+  — an outdated `claude` CLI's incompatibility with `claude-sonnet-5` under
+  `ANTHROPIC_API_KEY` auth — relevant to any real deployment, not just the pilot. Added a
+  one-off `apps/orchestrator/scripts/run_pilot.py` (+ `pilot_tickets.py`) to drive it;
+  explicitly not part of the product (documented as such in the script's own docstring).
+- Files touched: `apps/orchestrator/scripts/run_pilot.py`, `scripts/pilot_tickets.py`
+  (new, ops-only); `apps/orchestrator/src/orchestrator/claude_runner.py` (`--verbose`,
+  tool-call classification, transient-retry); `.github/workflows/agent-pr-gate.yml` and
+  `.github/workflows/ci.yml` (pinned Actions to SHAs); `apps/api/Dockerfile`,
+  `apps/web/Dockerfile` (non-root `USER`); `.env.example` (reverted an accidentally
+  real key back to a placeholder; added `GITHUB_TOKEN`); `tasks/PILOT-REPORT.md` (new).
+- Test evidence: 3 real tickets (T-001 README update, T-002 README update, T-003 a unit
+  test), each a real Claude Code run → real commit/push → real PR → real
+  `agent-pr-gate.yml` run on GitHub Actions → real webhook call → ticket `done`, with full
+  event history (transcript + cost + transitions). All 3 succeeded on the first attempt
+  once the CLI was updated; zero bounces, zero escalations. Real cost: $2.16 total
+  ($0.55/$0.60/$1.01). Cross-checked `/dashboard/metrics` against `/dashboard/export.csv`
+  by hand (median cost, median cycle time) — matched.
+- Notes / follow-ups: sandbox isolation was never wired into this run (the human
+  explicitly accepted running without it and without branch protection on `main` for this
+  pilot) — don't treat "zero security incidents" here as validating that path for a less
+  curated or larger batch. All 3 tickets were docs/test-only by deliberate safest-first
+  selection; re-run with a larger, less hand-picked set before trusting the first-pass QA
+  rate as statistically meaningful. Keep the `claude` CLI current — the outdated-CLI bug
+  found here would silently manifest as "the dev agent produced no changes" with zero
+  events recorded, easy to misdiagnose as a prompt problem instead of a CLI version issue.
