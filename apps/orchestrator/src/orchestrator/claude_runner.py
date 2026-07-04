@@ -29,7 +29,11 @@ class SubprocessClaudeCodeRunner:
     FixtureClaudeCodeRunner and tasks/CHANGELOG.md (T-006).
     """
 
-    _MAX_TRANSIENT_RETRIES = 2
+    # Observed live during T-009: this transient 400 hits roughly 40-50% of real attempts
+    # (not correlated with prompt content or environment - confirmed by direct
+    # reproduction), and costs $0 since the API rejects it before billing. 5 retries
+    # (6 total attempts) puts cumulative failure odds under 2%.
+    _MAX_TRANSIENT_RETRIES = 5
 
     def run(
         self, *, prompt: str, cwd: Path, model: str, budget_usd: float, timeout_s: float
