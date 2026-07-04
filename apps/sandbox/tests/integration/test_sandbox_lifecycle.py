@@ -1,5 +1,7 @@
+import json
 import subprocess
 import time
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -147,8 +149,6 @@ def test_down_leaves_no_container_network_or_credential(ticket_id: str, origin_r
 def test_egress_attempts_are_logged_as_ticket_events(
     ticket_id: str, origin_repo: Path, running_api: str
 ) -> None:
-    import urllib.request
-
     create_req = urllib.request.Request(
         f"{running_api}/tickets",
         method="POST",
@@ -157,8 +157,6 @@ def test_egress_attempts_are_logged_as_ticket_events(
         b'"budget_usd":10,"acceptance_criteria":[{"id":"AC-1","description":"d","verification":"v"}]}',
     )
     with urllib.request.urlopen(create_req) as response:
-        import json
-
         real_ticket_id = json.loads(response.read())["id"]
 
     config = SandboxConfig(api_url=running_api)
@@ -169,20 +167,28 @@ def test_egress_attempts_are_logged_as_ticket_events(
         _docker_exec(
             name, "curl", "-s", "-o", "/dev/null", "--max-time", "5", "https://blocked.example.com"
         )
-        time.sleep(3)
 
-        with urllib.request.urlopen(f"{running_api}/tickets/{real_ticket_id}/events") as response:
-            import json
+        # Forwarding is async (curl -> squid access log -> tail -F -> HTTP POST), and CI
+        # runners are slower/noisier than a local box, so poll instead of a fixed sleep.
+        egress_events: list[dict[str, object]] = []
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            with urllib.request.urlopen(
+                f"{running_api}/tickets/{real_ticket_id}/events"
+            ) as response:
+                events = json.loads(response.read())["items"]
+            egress_events = [e for e in events if e["kind"] == "tool_call"]
+            domains_seen = {e["payload"]["egress"] for e in egress_events}
+            if {"pypi.org", "blocked.example.com"} <= domains_seen:
+                break
+            time.sleep(1)
 
-            events = json.loads(response.read())["items"]
-
-        egress_events = [e for e in events if e["kind"] == "tool_call"]
         assert any(
             e["payload"]["egress"] == "pypi.org" and e["payload"]["allowed"] for e in egress_events
-        )
+        ), egress_events
         assert any(
             e["payload"]["egress"] == "blocked.example.com" and not e["payload"]["allowed"]
             for e in egress_events
-        )
+        ), egress_events
     finally:
         cli.down(real_ticket_id)

@@ -218,3 +218,28 @@ Format:
   CPU/RAM/disk limits and the allow-listed domain list are hardcoded defaults in
   `config.py`, not yet loaded from a config file as SPEC-003 implies ("from config") —
   revisit if per-ticket overrides are needed.
+
+## fix(T-005) · Sandbox tests failing on Linux CI — 2026-07-04
+- What changed: The first GitHub Actions run of T-005 (real Linux, not Docker Desktop)
+  failed two of the seven sandbox integration tests that had passed locally. Root cause:
+  Docker Desktop's bind-mount layer doesn't enforce real UID/GID checks, so a permission
+  bug was invisible on this Windows dev box. On native Linux, the git clone is created on
+  the host as the CI runner's user, then bind-mounted into the sandbox container which
+  runs as a different, fixed uid (10001) — the container couldn't write
+  `.git/refs/remotes/origin/*.lock` files, so *every* push failed (both the "should be
+  rejected" and "should succeed" ones), which the "push to main rejected" assertion
+  happened to paper over while "push to agent/T-xxx succeeds" failed outright. Separately,
+  the egress-logging test used a fixed 3s sleep waiting for the async curl → squid access
+  log → `tail -F` → HTTP POST pipeline, which isn't enough headroom on a loaded CI runner.
+- Files touched: `apps/sandbox/src/sandbox/worktree.py` (new `make_writable_by_any_user`,
+  called after clone+checkout on the real worktree), `apps/sandbox/src/sandbox/cli.py`
+  (same treatment for the local-testing-only bare-cache bind mount),
+  `apps/sandbox/tests/integration/test_sandbox_lifecycle.py` (poll up to 20s instead of a
+  fixed sleep).
+- Test evidence: Full sandbox suite (19 tests) still green locally after the fix. Chmod
+  uses OR-in (`stat.st_mode | 0o777`/`0o666`) rather than overwrite, so it widens access
+  without stripping any executable bit already set on files in the checkout — relevant
+  once T-006's dev agent starts producing/running scripts inside these checkouts.
+- Notes / follow-ups: Couldn't reproduce the original failure locally (Docker Desktop
+  masks it), so this fix is verified by the fix's own logic and passing local tests, not
+  by reproducing-then-fixing — watch the next CI run to confirm.

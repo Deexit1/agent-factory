@@ -43,8 +43,28 @@ def add_worktree(
     _run(["git", "clone", "--branch", base_branch, str(bare_path), str(worktree_path)])
     _run(["git", "checkout", "-b", branch], cwd=worktree_path)
     _run(["git", "remote", "set-url", "origin", origin_url], cwd=worktree_path)
+    make_writable_by_any_user(worktree_path)
     _install_pre_push_hook(worktree_path)
     return worktree_path
+
+
+def make_writable_by_any_user(path: Path) -> None:
+    """Clone is created on the host as the host's user; the sandbox container runs
+    as a different, fixed uid. Docker Desktop's bind-mount layer doesn't enforce real
+    UID/GID checks so this is invisible on Windows/Mac, but native Linux (CI, prod)
+    does — without this, `git push` inside the container fails to write .git/refs
+    lock files with "Permission denied". Safe here: an ephemeral, single-tenant,
+    per-ticket directory that only this one sandbox ever touches.
+    """
+    path.chmod(path.stat().st_mode | 0o777)
+    for item in path.rglob("*"):
+        try:
+            # OR in rw(x) rather than overwrite: preserves existing executable bits
+            # (e.g. scripts checked into the repo), just widens who can use them.
+            mode = 0o777 if item.is_dir() else 0o666
+            item.chmod(item.stat().st_mode | mode)
+        except OSError:
+            pass
 
 
 def _install_pre_push_hook(worktree_path: Path) -> None:

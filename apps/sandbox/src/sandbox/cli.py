@@ -55,6 +55,7 @@ def up(ticket_id: str, repo_url: str, base_branch: str, config: SandboxConfig) -
         # and this branch never triggers.
         origin_url = "/mnt/upstream.git"
         extra_mount = (str(bare_path), "/mnt/upstream.git")
+        worktree.make_writable_by_any_user(bare_path)
 
     worktree.add_worktree(bare_path, worktree_path, ticket_id, base_branch, origin_url)
 
