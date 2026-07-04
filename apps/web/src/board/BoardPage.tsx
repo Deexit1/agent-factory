@@ -8,7 +8,6 @@ import {
 import { useState } from "react";
 
 import type { TicketState } from "../api/types";
-import { ActorSwitcher } from "../auth/ActorSwitcher";
 import { useTickets, useTransitionTicket } from "../api/queries";
 import { BOARD_COLUMNS } from "./columns";
 import { Column } from "./Column";
@@ -47,10 +46,9 @@ export function BoardPage(): React.JSX.Element {
   };
 
   return (
-    <main className="flex h-screen flex-col gap-4 bg-white p-4">
+    <main className="flex h-full flex-col gap-4 bg-white p-4">
       <header className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900">Agent Factory — Board</h1>
-        <ActorSwitcher />
       </header>
 
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}

@@ -65,6 +65,12 @@ class AgentRunStatus(StrEnum):
     TIMED_OUT = "timed_out"
 
 
+class UserRole(StrEnum):
+    ADMIN = "admin"
+    APPROVER = "approver"
+    VIEWER = "viewer"
+
+
 class Ticket(Base):
     __tablename__ = "tickets"
 
@@ -77,9 +83,9 @@ class Ticket(Base):
     acceptance_criteria: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list)
     assignee_agent: Mapped[str | None] = mapped_column()
     budget_usd: Mapped[float | None] = mapped_column(Numeric)
-    spent_usd: Mapped[float] = mapped_column(Numeric, default=0)
     bounce_count: Mapped[int] = mapped_column(default=0)
     created_by: Mapped[str] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
 
     events: Mapped[list["TicketEvent"]] = relationship(back_populates="ticket")
 
@@ -138,4 +144,28 @@ class CostLedgerEntry(Base):
     provider: Mapped[str] = mapped_column()
     model: Mapped[str] = mapped_column()
     usd: Mapped[float] = mapped_column(Numeric)
+    ts: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class User(Base):
+    """OIDC-authenticated humans. Role defaults to viewer at first login (T-008/SPEC-006);
+    promotion to approver/admin is a manual DB/admin action in Phase 1."""
+
+    __tablename__ = "users"
+
+    email: Mapped[str] = mapped_column(primary_key=True)
+    role: Mapped[UserRole] = mapped_column(_pg_enum(UserRole, "user_role"), default=UserRole.VIEWER)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class EscapedDefectReport(Base):
+    """Manual entry: a defect found after a ticket reached `done`, missed by QA.
+    Count feeds the pilot dashboard's "escaped defects" metric (docs/00-vision.md)."""
+
+    __tablename__ = "escaped_defect_reports"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ticket_id: Mapped[str] = mapped_column(ForeignKey("tickets.id"))
+    note: Mapped[str] = mapped_column()
+    reported_by: Mapped[str] = mapped_column()
     ts: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))

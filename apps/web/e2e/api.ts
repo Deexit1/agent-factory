@@ -1,4 +1,14 @@
+import type { Page } from "@playwright/test";
+
 const API_URL = "http://localhost:8000";
+
+// Must match apps/api/scripts/e2e-server.sh's AGENT_FACTORY_SERVICE_TOKEN default —
+// this file seeds fixtures the same way the orchestrator/sandbox call the API (SPEC-006).
+const SERVICE_TOKEN = "e2e-service-token-at-least-32-bytes";
+const SERVICE_HEADERS = {
+  "Content-Type": "application/json",
+  Authorization: `Bearer ${SERVICE_TOKEN}`,
+};
 
 interface CreatedTicket {
   id: string;
@@ -8,7 +18,7 @@ interface CreatedTicket {
 export async function createTicket(title: string, budgetUsd = 50): Promise<CreatedTicket> {
   const response = await fetch(`${API_URL}/tickets`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: SERVICE_HEADERS,
     body: JSON.stringify({
       type: "task",
       title,
@@ -30,9 +40,29 @@ export async function transition(
 ): Promise<Response> {
   return fetch(`${API_URL}/tickets/${ticketId}/transition`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: SERVICE_HEADERS,
     body: JSON.stringify({ to_state: toState, actor }),
   });
+}
+
+export async function loginAs(
+  page: Page,
+  email: string,
+  role: "viewer" | "approver" | "admin",
+): Promise<void> {
+  const response = await fetch(`${API_URL}/auth/dev-login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, role }),
+  });
+  if (!response.ok) {
+    throw new Error(`dev-login failed: ${response.status} ${await response.text()}`);
+  }
+  const { token } = (await response.json()) as { token: string };
+  await page.addInitScript(
+    ([key, value]) => window.localStorage.setItem(key, value),
+    ["agent-factory:session-token", token],
+  );
 }
 
 export async function driveToEscalated(ticketId: string): Promise<void> {

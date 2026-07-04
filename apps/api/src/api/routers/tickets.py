@@ -10,6 +10,7 @@ from api.contracts import (
     EventOut,
     PaginatedEvents,
     PaginatedTickets,
+    ReturnToDevRequest,
     TicketOut,
     TicketWithEventsOut,
     TransitionRequest,
@@ -18,7 +19,7 @@ from api.db.models import TicketState, TicketType
 from api.db.session import get_db
 from api.services import ticket_service
 
-router = APIRouter(prefix="/tickets", tags=["tickets"])
+router = APIRouter(prefix="/tickets", tags=["tickets"], dependencies=[Depends(get_actor_context)])
 
 APPROVER_ROLES = {"approver", "admin"}
 
@@ -104,6 +105,30 @@ def approve_ticket(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return ApprovalOut.model_validate(approval)
+
+
+@router.post("/{ticket_id}/return-to-dev", response_model=TicketOut)
+def return_to_dev(
+    ticket_id: str,
+    request: ReturnToDevRequest,
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
+) -> TicketOut:
+    if actor_context.role not in APPROVER_ROLES:
+        raise HTTPException(
+            status_code=403, detail="only an approver or admin may return a ticket to dev"
+        )
+
+    try:
+        ticket = ticket_service.return_to_dev(
+            db, ticket_id, actor=actor_context.actor, note=request.note
+        )
+    except ticket_service.TicketNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ticket_service.TransitionRefused as exc:
+        raise HTTPException(status_code=409, detail=exc.reason) from exc
+
+    return TicketOut.model_validate(ticket)
 
 
 @router.post("/{ticket_id}/events", response_model=EventOut, status_code=201)

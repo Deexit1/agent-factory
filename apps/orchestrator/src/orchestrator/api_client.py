@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 import httpx
@@ -6,14 +7,21 @@ import httpx
 class ApiClient:
     """Thin wrapper over the ticket API (apps/api) — the orchestrator never touches
     the database directly, matching the layer-2/layer-5 split in docs/01-architecture.md.
+
+    Authenticates as the trusted service principal (SPEC-006 AC1: every apps/api route
+    except /health, /webhooks/*, /auth/* requires a bearer token) via the shared secret
+    both sides read from AGENT_FACTORY_SERVICE_TOKEN.
     """
 
-    def __init__(self, base_url: str, actor: str = "system") -> None:
+    def __init__(
+        self, base_url: str, actor: str = "system", service_token: str | None = None
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._actor = actor
+        token = service_token or os.environ.get("AGENT_FACTORY_SERVICE_TOKEN", "")
         self._client = httpx.Client(
             base_url=self._base_url,
-            headers={"X-Actor": actor, "X-Actor-Role": "admin"},
+            headers={"Authorization": f"Bearer {token}"},
             timeout=10.0,
         )
 

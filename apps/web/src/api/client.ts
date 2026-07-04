@@ -2,7 +2,9 @@ import type {
   Approval,
   ApprovalDecision,
   ApprovalGate,
+  CostSummary,
   CreateTicketRequest,
+  DashboardMetrics,
   Paginated,
   Ticket,
   TicketEvent,
@@ -22,8 +24,15 @@ export class ApiError extends Error {
 }
 
 export interface ActorContext {
+  token: string | null;
+  actor?: string | null;
+  role?: string | null;
+}
+
+export interface Session {
+  token: string;
   actor: string;
-  role: string;
+  role: "viewer" | "approver" | "admin";
 }
 
 async function request<T>(
@@ -35,8 +44,7 @@ async function request<T>(
     ...init,
     headers: {
       "Content-Type": "application/json",
-      "X-Actor": actorContext.actor,
-      "X-Actor-Role": actorContext.role,
+      ...(actorContext.token ? { Authorization: `Bearer ${actorContext.token}` } : {}),
       ...init?.headers,
     },
   });
@@ -94,7 +102,7 @@ export function transitionTicket(
 ): Promise<Ticket> {
   return request(`/tickets/${ticketId}/transition`, actorContext, {
     method: "POST",
-    body: JSON.stringify({ to_state: toState, actor: actorContext.actor }),
+    body: JSON.stringify({ to_state: toState, actor: actorContext.actor ?? "" }),
   });
 }
 
@@ -109,6 +117,32 @@ export function approveTicket(
   });
 }
 
+export function fetchMe(token: string): Promise<Session> {
+  return request("/auth/me", { token });
+}
+
+export function devLogin(email: string, role: string): Promise<Session> {
+  return request(
+    "/auth/dev-login",
+    { token: null },
+    {
+      method: "POST",
+      body: JSON.stringify({ email, role }),
+    },
+  );
+}
+
+export function googleLoginUrl(): string {
+  return `${API_URL}/auth/login`;
+}
+
+export function fetchCostSummary(
+  actorContext: ActorContext,
+  ticketId: string,
+): Promise<CostSummary> {
+  return request(`/tickets/${ticketId}/cost-summary`, actorContext);
+}
+
 export function fetchTicketEvents(
   actorContext: ActorContext,
   ticketId: string,
@@ -119,4 +153,46 @@ export function fetchTicketEvents(
 export function ticketEventsWsUrl(ticketId: string): string {
   const wsBase = API_URL.replace(/^http/, "ws");
   return `${wsBase}/ws/tickets/${ticketId}`;
+}
+
+export function returnToDev(
+  actorContext: ActorContext,
+  ticketId: string,
+  note: string,
+): Promise<Ticket> {
+  return request(`/tickets/${ticketId}/return-to-dev`, actorContext, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+}
+
+export function fetchDashboardMetrics(actorContext: ActorContext): Promise<DashboardMetrics> {
+  return request("/dashboard/metrics", actorContext);
+}
+
+export function reportEscapedDefect(
+  actorContext: ActorContext,
+  ticketId: string,
+  note: string,
+): Promise<unknown> {
+  return request("/dashboard/escaped-defects", actorContext, {
+    method: "POST",
+    body: JSON.stringify({ ticket_id: ticketId, note }),
+  });
+}
+
+export async function downloadDashboardCsv(actorContext: ActorContext): Promise<void> {
+  const response = await fetch(`${API_URL}/dashboard/export.csv`, {
+    headers: actorContext.token ? { Authorization: `Bearer ${actorContext.token}` } : {},
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, response.statusText);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "pilot-dashboard.csv";
+  link.click();
+  URL.revokeObjectURL(url);
 }

@@ -62,6 +62,17 @@ def test_bounced_to_in_progress_allowed() -> None:
     validate_transition(_request(TicketState.BOUNCED, TicketState.IN_PROGRESS))
 
 
+def test_escalated_to_in_progress_requires_human_actor() -> None:
+    validate_transition(
+        _request(TicketState.ESCALATED, TicketState.IN_PROGRESS, actor="human:alice")
+    )
+
+    with pytest.raises(TransitionRejected):
+        validate_transition(
+            _request(TicketState.ESCALATED, TicketState.IN_PROGRESS, actor="agent:dev-1")
+        )
+
+
 def test_planning_to_ready_requires_acceptance_criteria() -> None:
     with pytest.raises(TransitionRejected):
         validate_transition(

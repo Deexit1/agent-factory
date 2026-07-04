@@ -32,6 +32,12 @@ def _transition(
     return client.post(f"/tickets/{ticket_id}/transition", json=body)
 
 
+def _dev_login(client: TestClient, email: str, role: str) -> str:
+    response = client.post("/auth/dev-login", json={"email": email, "role": role})
+    assert response.status_code == 200, response.text
+    return response.json()["token"]  # type: ignore[no-any-return]
+
+
 def test_create_task_with_empty_acceptance_criteria_fails_422(client: TestClient) -> None:
     response = client.post(
         "/tickets",
@@ -128,17 +134,19 @@ def test_approve_by_non_approver_returns_403_and_approver_succeeds(client: TestC
     ticket = _create_task(client)
     ticket_id = ticket["id"]
 
+    viewer_token = _dev_login(client, "bob@example.com", "viewer")
     forbidden = client.post(
         f"/tickets/{ticket_id}/approve",
         json={"gate": "budget", "decision": "approved"},
-        headers={"X-Actor": "human:bob", "X-Actor-Role": "viewer"},
+        headers={"Authorization": f"Bearer {viewer_token}"},
     )
     assert forbidden.status_code == 403
 
+    approver_token = _dev_login(client, "carol@example.com", "approver")
     approved = client.post(
         f"/tickets/{ticket_id}/approve",
         json={"gate": "budget", "decision": "approved", "note": "looks good"},
-        headers={"X-Actor": "human:carol", "X-Actor-Role": "approver"},
+        headers={"Authorization": f"Bearer {approver_token}"},
     )
     assert approved.status_code == 200
-    assert approved.json()["decided_by"] == "human:carol"
+    assert approved.json()["decided_by"] == "human:carol@example.com"

@@ -9,6 +9,10 @@ import pytest
 from sandbox import cli, docker_runtime
 from sandbox.config import SandboxConfig
 
+from .conftest import SERVICE_TOKEN
+
+_AUTH_HEADERS = {"Authorization": f"Bearer {SERVICE_TOKEN}"}
+
 
 def _docker_exec(container: str, *cmd: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["docker", "exec", container, *cmd], capture_output=True, text=True)
@@ -152,7 +156,7 @@ def test_egress_attempts_are_logged_as_ticket_events(
     create_req = urllib.request.Request(
         f"{running_api}/tickets",
         method="POST",
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **_AUTH_HEADERS},
         data=b'{"type":"task","title":"sandbox test","created_by":"human:test",'
         b'"budget_usd":10,"acceptance_criteria":[{"id":"AC-1","description":"d","verification":"v"}]}',
     )
@@ -173,9 +177,10 @@ def test_egress_attempts_are_logged_as_ticket_events(
         egress_events: list[dict[str, object]] = []
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
-            with urllib.request.urlopen(
-                f"{running_api}/tickets/{real_ticket_id}/events"
-            ) as response:
+            events_req = urllib.request.Request(
+                f"{running_api}/tickets/{real_ticket_id}/events", headers=_AUTH_HEADERS
+            )
+            with urllib.request.urlopen(events_req) as response:
                 events = json.loads(response.read())["items"]
             egress_events = [e for e in events if e["kind"] == "tool_call"]
             domains_seen = {e["payload"]["egress"] for e in egress_events}

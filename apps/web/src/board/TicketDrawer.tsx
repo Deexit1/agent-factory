@@ -1,9 +1,9 @@
 import { useState } from "react";
 
-import { useTicket, useApproveTicket } from "../api/queries";
+import { useApproveTicket, useCostSummary, useReturnToDev, useTicket } from "../api/queries";
 import { useTicketEventsFeed } from "../api/useTicketEventsFeed";
 import type { ApprovalGate, TicketState } from "../api/types";
-import { useActor } from "../auth/ActorContext";
+import { useAuth } from "../auth/AuthContext";
 
 const GATE_BY_STATE: Partial<Record<TicketState, ApprovalGate>> = {
   awaiting_human_go: "idea",
@@ -17,9 +17,11 @@ export function TicketDrawer({
   ticketId: string | null;
   onClose: () => void;
 }): React.JSX.Element | null {
-  const { role } = useActor();
+  const { role } = useAuth();
   const { data: ticket } = useTicket(ticketId);
+  const { data: costSummary } = useCostSummary(ticketId);
   const approve = useApproveTicket();
+  const returnToDev = useReturnToDev();
   const [note, setNote] = useState("");
 
   const { events, connected } = useTicketEventsFeed(ticketId, ticket?.recent_events ?? []);
@@ -30,10 +32,11 @@ export function TicketDrawer({
 
   const gate = GATE_BY_STATE[ticket.state];
   const canApprove = gate !== undefined && (role === "approver" || role === "admin");
+  // The budget bar reflects cost_ledger — the documented source of truth for $/ticket
+  // (docs/02-data-model.md) — not a separately-tracked running total on the ticket itself.
+  const spentUsd = costSummary?.cost_ledger_total_usd ?? 0;
   const budgetPct =
-    ticket.budget_usd && ticket.budget_usd > 0
-      ? Math.min(100, (ticket.spent_usd / ticket.budget_usd) * 100)
-      : 0;
+    ticket.budget_usd && ticket.budget_usd > 0 ? Math.min(100, (spentUsd / ticket.budget_usd) * 100) : 0;
 
   return (
     <aside
@@ -78,7 +81,7 @@ export function TicketDrawer({
           />
         </div>
         <p className="mt-1 text-xs text-gray-500">
-          ${ticket.spent_usd.toFixed(2)} / ${(ticket.budget_usd ?? 0).toFixed(2)}
+          ${spentUsd.toFixed(2)} / ${(ticket.budget_usd ?? 0).toFixed(2)}
         </p>
       </div>
 
@@ -108,7 +111,28 @@ export function TicketDrawer({
         </div>
       )}
 
-      {canApprove && gate && (
+      {canApprove && gate === "escalation" && (
+        <div className="rounded-md border border-gray-200 p-3">
+          <h3 className="mb-2 text-sm font-semibold text-gray-700">Escalation inbox</h3>
+          <textarea
+            className="mb-2 w-full rounded border border-gray-300 p-2 text-sm"
+            placeholder="Note for the dev agent's next attempt"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            aria-label="Return to dev note"
+          />
+          <button
+            type="button"
+            disabled={!note}
+            className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            onClick={() => returnToDev.mutate({ ticketId: ticket.id, note })}
+          >
+            Return to dev
+          </button>
+        </div>
+      )}
+
+      {canApprove && gate === "idea" && (
         <div className="rounded-md border border-gray-200 p-3">
           <h3 className="mb-2 text-sm font-semibold text-gray-700">Approval</h3>
           <textarea

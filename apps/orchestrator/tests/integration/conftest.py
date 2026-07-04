@@ -16,6 +16,7 @@ FIXTURES_DIR = Path(__file__).resolve().parents[2] / "fixtures"
 
 TEST_POSTGRES_PORT = 55599
 TEST_API_PORT = 18199
+SERVICE_TOKEN = "orchestrator-test-service-token-at-least-32-bytes"
 
 
 def _api_python() -> str:
@@ -57,7 +58,11 @@ def running_api() -> Iterator[str]:
     )
     try:
         python = _api_python()
-        env = {**os.environ, "DATABASE_URL": database_url}
+        env = {
+            **os.environ,
+            "DATABASE_URL": database_url,
+            "AGENT_FACTORY_SERVICE_TOKEN": SERVICE_TOKEN,
+        }
         _wait_for_postgres(python, database_url)
 
         subprocess.run(
@@ -123,7 +128,7 @@ def _wait_for_http(url: str, attempts: int = 30) -> None:
 
 @pytest.fixture
 def api(running_api: str) -> ApiClient:
-    return ApiClient(running_api)
+    return ApiClient(running_api, service_token=SERVICE_TOKEN)
 
 
 @pytest.fixture
@@ -140,7 +145,10 @@ def create_ticket(running_api: str):
         request = urllib.request.Request(
             f"{running_api}/tickets",
             method="POST",
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {SERVICE_TOKEN}",
+            },
             data=json.dumps(
                 {
                     "type": "task",
@@ -173,7 +181,10 @@ def transition(running_api: str):
         request = urllib.request.Request(
             f"{running_api}/tickets/{ticket_id}/transition",
             method="POST",
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {SERVICE_TOKEN}",
+            },
             data=json.dumps({"to_state": to_state, "actor": actor}).encode(),
         )
         urllib.request.urlopen(request)

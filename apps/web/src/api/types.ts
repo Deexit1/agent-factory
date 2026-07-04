@@ -37,9 +37,24 @@ export interface Ticket {
   acceptance_criteria: AcceptanceCriterion[];
   assignee_agent: string | null;
   budget_usd: number | null;
-  spent_usd: number;
   bounce_count: number;
   created_by: string;
+  created_at: string;
+}
+
+export interface CostSummary {
+  ticket_id: string;
+  agent_runs_total_usd: number;
+  cost_ledger_total_usd: number;
+}
+
+export interface DashboardMetrics {
+  tickets_closed: number;
+  tickets_escalated: number;
+  first_pass_qa_rate: number | null;
+  median_cost_per_closed_ticket_usd: number | null;
+  escaped_defects: number;
+  median_cycle_time_hours: number | null;
 }
 
 export interface TicketEvent {

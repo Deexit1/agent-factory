@@ -10,8 +10,14 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.postgres import PostgresContainer
 
-from api.db.session import get_db, make_session_factory
-from api.main import app
+# Auth env vars are read lazily (per-request, not at import time) by api.auth /
+# api.routers.auth, but must exist before the first request any test makes.
+os.environ.setdefault("SESSION_JWT_SECRET", "test-session-secret-at-least-32-bytes-long")
+os.environ.setdefault("AGENT_FACTORY_SERVICE_TOKEN", "test-service-token")
+os.environ.setdefault("AUTH_DEV_MODE", "true")
+
+from api.db.session import get_db, make_session_factory  # noqa: E402
+from api.main import app  # noqa: E402
 
 API_DIR = Path(__file__).resolve().parents[2]
 
@@ -41,7 +47,12 @@ def session_factory(postgres_url: str) -> sessionmaker[Session]:
 @pytest.fixture
 def db_session(session_factory: sessionmaker[Session]) -> Iterator[Session]:
     with session_factory() as session:
-        session.execute(text("TRUNCATE tickets, ticket_events, approvals RESTART IDENTITY CASCADE"))
+        session.execute(
+            text(
+                "TRUNCATE tickets, ticket_events, approvals, users "
+                "RESTART IDENTITY CASCADE"
+            )
+        )
         session.execute(text("ALTER SEQUENCE ticket_seq RESTART WITH 1"))
         session.commit()
         yield session
@@ -58,6 +69,10 @@ def client(db_session: Session, session_factory: sessionmaker[Session]) -> Itera
             session.close()
 
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
+    # Default to the trusted service principal so existing tests, which don't care about
+    # auth specifics, keep exercising their actual behavior; auth-specific tests override
+    # this header per-request (see test_auth_api.py).
+    headers = {"Authorization": f"Bearer {os.environ['AGENT_FACTORY_SERVICE_TOKEN']}"}
+    with TestClient(app, headers=headers) as test_client:
         yield test_client
     app.dependency_overrides.clear()

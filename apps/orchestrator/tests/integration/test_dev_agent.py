@@ -9,6 +9,10 @@ from orchestrator.config import DevAgentConfig
 from orchestrator.fixture_runner import FixtureClaudeCodeRunner
 from orchestrator.github_client import FakeGitHubClient
 
+from .conftest import SERVICE_TOKEN
+
+_AUTH_HEADERS = {"Authorization": f"Bearer {SERVICE_TOKEN}"}
+
 
 def _task_spec(ticket_id: str, budget_usd: float = 5.0) -> TaskSpec:
     return TaskSpec(
@@ -28,13 +32,17 @@ def _task_spec(ticket_id: str, budget_usd: float = 5.0) -> TaskSpec:
 
 
 def _get_ticket(running_api: str, ticket_id: str) -> dict[str, object]:
-    with urllib.request.urlopen(f"{running_api}/tickets/{ticket_id}") as response:
+    request = urllib.request.Request(f"{running_api}/tickets/{ticket_id}", headers=_AUTH_HEADERS)
+    with urllib.request.urlopen(request) as response:
         result: dict[str, object] = json.loads(response.read())
         return result
 
 
 def _get_events(running_api: str, ticket_id: str) -> list[dict[str, object]]:
-    with urllib.request.urlopen(f"{running_api}/tickets/{ticket_id}/events?limit=100") as response:
+    request = urllib.request.Request(
+        f"{running_api}/tickets/{ticket_id}/events?limit=100", headers=_AUTH_HEADERS
+    )
+    with urllib.request.urlopen(request) as response:
         body: dict[str, object] = json.loads(response.read())
         items = body["items"]
         assert isinstance(items, list)

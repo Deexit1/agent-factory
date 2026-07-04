@@ -13,6 +13,7 @@ SANDBOX_DIR = REPO_ROOT / "apps" / "sandbox"
 
 TEST_POSTGRES_PORT = 55499
 TEST_API_PORT = 18099
+SERVICE_TOKEN = "sandbox-test-service-token-at-least-32-bytes"
 
 
 def _api_python() -> str:
@@ -97,7 +98,15 @@ def running_api() -> Iterator[str]:
     )
     try:
         python = _api_python()
-        env = {**os.environ, "DATABASE_URL": database_url}
+        # Also set on this process's own environ, not just the api subprocess's: the
+        # sandbox egress forwarder this test suite spawns (see cli.up) is itself a
+        # subprocess of THIS process and inherits os.environ, not the dict below.
+        os.environ["AGENT_FACTORY_SERVICE_TOKEN"] = SERVICE_TOKEN
+        env = {
+            **os.environ,
+            "DATABASE_URL": database_url,
+            "AGENT_FACTORY_SERVICE_TOKEN": SERVICE_TOKEN,
+        }
         _wait_for_postgres(python, database_url)
 
         subprocess.run(

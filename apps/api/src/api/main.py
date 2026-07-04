@@ -1,11 +1,13 @@
 import asyncio
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
-from api.routers import agent_runs, health, tickets, webhooks, ws_tickets
+from api.routers import agent_runs, auth, dashboard, health, tickets, webhooks, ws_tickets
 from api.ws.broadcaster import broadcaster
 
 
@@ -26,8 +28,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Only used to hold Authlib's transient OAuth state/nonce during the /auth/login ->
+# /auth/callback round-trip - not our own session token, which is a stateless JWT.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.environ.get("SESSION_JWT_SECRET") or "insecure-dev-only-session-secret",
+)
+
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(tickets.router)
 app.include_router(agent_runs.router)
 app.include_router(webhooks.router)
+app.include_router(dashboard.router)
 app.include_router(ws_tickets.router)

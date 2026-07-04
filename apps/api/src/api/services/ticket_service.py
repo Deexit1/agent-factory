@@ -1,3 +1,4 @@
+from schemas.models import FailureReport
 from sqlalchemy.orm import Session
 
 from api.contracts import CreateTicketRequest
@@ -212,6 +213,29 @@ def record_approval(
     return approval
 
 
+def return_to_dev(session: Session, ticket_id: str, *, actor: str, note: str) -> Ticket:
+    """Escalation inbox "return to dev with note" (SPEC-006 AC5): a bounce-style event
+    carrying the human's note as a FailureReport, then escalated -> in_progress. Doesn't
+    touch bounce_count — this is a fresh restart, not one more of the 3 QA bounces."""
+    ticket = get_ticket(session, ticket_id)
+    report = FailureReport(
+        ticket_id=ticket_id,
+        failing_suite="human-escalation-review",
+        failing_tests=[],
+        expected_vs_actual=note,
+        suspect_files=[],
+        attempt_no=min(max(ticket.bounce_count, 1), 3),
+    )
+    record_event(
+        session,
+        ticket_id,
+        actor=actor,
+        kind=EventKind.TEST_RESULT,
+        payload={"conclusion": "returned_by_human", "failure_report": report.model_dump()},
+    )
+    return request_transition(session, ticket_id, TicketState.IN_PROGRESS, actor=actor)
+
+
 __all__ = [
     "TicketNotFound",
     "TransitionRefused",
@@ -223,4 +247,5 @@ __all__ = [
     "record_event",
     "request_transition",
     "record_approval",
+    "return_to_dev",
 ]

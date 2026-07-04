@@ -82,9 +82,15 @@ Implement SPEC-005 (CI workflows + webhook + distiller). All five criteria apply
       CHANGELOG note: implemented as the existing, T-003-tested `bounce_count == 3` guard —
       the 4th red pipeline escalates, matching `docs/03-state-machine.md` exactly).
 
-## T-008 · Cost, SSO & pilot dashboard — `ready`
+## T-008 · Cost, SSO & pilot dashboard — `done`
 **Spec:** SPEC-006  **Est:** M
 Implement SPEC-006. All five criteria apply.
+**Acceptance criteria**
+- [x] Unauthenticated API access (except `/health`) returns 401; viewer cannot approve (403).
+- [x] Drawer budget bar equals `cost_ledger` sum for the ticket (integration test).
+- [x] Dashboard numbers match a seeded fixture dataset exactly (golden test).
+- [x] CSV export reproduces the dashboard dataset.
+- [x] Approver "return to dev" creates a bounce-style event and transitions the ticket.
 
 ## T-009 · Pilot run — `ready`
 **Spec:** docs/00-vision.md §metrics  **Est:** M

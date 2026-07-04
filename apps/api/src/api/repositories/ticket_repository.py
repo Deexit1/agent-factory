@@ -49,9 +49,9 @@ def create_ticket(
         acceptance_criteria=acceptance_criteria,
         assignee_agent=assignee_agent,
         budget_usd=budget_usd,
-        spent_usd=0,
         bounce_count=0,
         created_by=created_by,
+        created_at=datetime.now(UTC),
     )
     session.add(ticket)
     session.flush()

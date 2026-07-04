@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from api.auth import get_actor_context
 from api.contracts import (
     AgentRunOut,
     CompleteAgentRunRequest,
@@ -11,7 +12,9 @@ from api.contracts import (
 from api.db.session import get_db
 from api.services import agent_run_service, ticket_service
 
-router = APIRouter(prefix="/tickets", tags=["agent-runs"])
+router = APIRouter(
+    prefix="/tickets", tags=["agent-runs"], dependencies=[Depends(get_actor_context)]
+)
 
 
 @router.post("/{ticket_id}/agent-runs", response_model=AgentRunOut, status_code=201)

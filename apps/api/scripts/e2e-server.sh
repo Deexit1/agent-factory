@@ -18,6 +18,11 @@ set +a
 
 cd apps/api
 export DATABASE_URL="postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
+# SPEC-006: e2e is mock-free against a real API, so it needs real auth too. Dev-login
+# stands in for the Google round-trip (see docs/06-tech-stack.md / .env.example).
+export AUTH_DEV_MODE=true
+export SESSION_JWT_SECRET="${SESSION_JWT_SECRET:-e2e-session-secret-at-least-32-bytes-long}"
+export AGENT_FACTORY_SERVICE_TOKEN="${AGENT_FACTORY_SERVICE_TOKEN:-e2e-service-token-at-least-32-bytes}"
 
 if [ ! -d .venv ]; then
   python3 -m venv .venv

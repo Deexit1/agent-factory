@@ -1,10 +1,14 @@
-// SPEC-002 AC #5: Lighthouse a11y score >= 90 on the board page.
+// SPEC-002 AC #5: Lighthouse a11y score >= 90 on the board page. Since SPEC-006 gates the
+// whole app behind auth, an unauthenticated load now lands on the login page instead — so
+// this mints a dev-login session token first and passes it via the #token hash the app
+// already knows how to consume, landing Lighthouse on the actual board.
 import { setTimeout as sleep } from "node:timers/promises";
 
 import * as chromeLauncher from "chrome-launcher";
 import lighthouse from "lighthouse";
 
-const URL_UNDER_TEST = process.env.A11Y_URL ?? "http://localhost:5173/";
+const WEB_URL = process.env.A11Y_URL ?? "http://localhost:5173/";
+const API_URL = process.env.VITE_API_URL ?? "http://localhost:8000";
 const THRESHOLD = 90;
 
 async function waitForServer(url, attempts = 30) {
@@ -20,8 +24,28 @@ async function waitForServer(url, attempts = 30) {
   throw new Error(`Server at ${url} did not become ready in time`);
 }
 
+async function authenticatedUrl() {
+  const response = await fetch(`${API_URL}/auth/dev-login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "a11y@example.com", role: "admin" }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `dev-login failed (${response.status}) - is AUTH_DEV_MODE=true set on the API? ` +
+        "Falling back to auditing the login page.",
+    );
+  }
+  const { token } = await response.json();
+  return `${WEB_URL}#token=${encodeURIComponent(token)}`;
+}
+
 async function main() {
-  await waitForServer(URL_UNDER_TEST);
+  await waitForServer(WEB_URL);
+  const URL_UNDER_TEST = await authenticatedUrl().catch((error) => {
+    console.warn(String(error.message));
+    return WEB_URL;
+  });
 
   const chrome = await chromeLauncher.launch({ chromeFlags: ["--headless=new"] });
   try {

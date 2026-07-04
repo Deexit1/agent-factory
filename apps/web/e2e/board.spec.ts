@@ -1,15 +1,10 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-import { createTicket, driveToEscalated, transition } from "./api";
+import { createTicket, driveToEscalated, loginAs, transition } from "./api";
 
-const ACTOR_STORAGE_KEY = "agent-factory:actor-context";
-
-async function setActor(page: Page, actor: string, role: "viewer" | "approver" | "admin") {
-  await page.addInitScript(
-    ([key, value]) => window.localStorage.setItem(key, value),
-    [ACTOR_STORAGE_KEY, JSON.stringify({ actor, role })],
-  );
-}
+test.beforeEach(async ({ page }) => {
+  await loginAs(page, "e2e-default@example.com", "viewer");
+});
 
 test("board renders tickets grouped by state from the real API", async ({ page }) => {
   const ticket = await createTicket(`Grouped-by-state ${Date.now()}`);
@@ -63,21 +58,21 @@ test("new ticket_events appear in an open drawer within 2s over the websocket", 
   await expect(page.getByTestId("event-feed")).toContainText("transition", { timeout: 2000 });
 });
 
-test("approver sees approval buttons on an escalated ticket; viewer does not", async ({
+test("approver sees the escalation inbox on an escalated ticket; viewer does not", async ({
   page,
 }) => {
   const ticket = await createTicket(`Escalation ${Date.now()}`);
   await driveToEscalated(ticket.id);
 
-  await setActor(page, "human:viewer-e2e", "viewer");
+  await loginAs(page, "viewer-e2e@example.com", "viewer");
   await page.goto("/");
   await page.getByTestId("column-escalated").locator(`[data-ticket-id="${ticket.id}"]`).click();
   await expect(page.getByTestId("ticket-drawer")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Return to dev" })).toHaveCount(0);
   await page.getByRole("button", { name: "Close ticket details" }).click();
 
-  await setActor(page, "human:approver-e2e", "approver");
+  await loginAs(page, "approver-e2e@example.com", "approver");
   await page.reload();
   await page.getByTestId("column-escalated").locator(`[data-ticket-id="${ticket.id}"]`).click();
-  await expect(page.getByRole("button", { name: "Approve" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Return to dev" })).toBeVisible();
 });

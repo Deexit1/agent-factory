@@ -14,6 +14,7 @@ _BASE_TRANSITIONS: dict[TicketState, set[TicketState]] = {
     TicketState.IN_PROGRESS: {TicketState.IN_QA, TicketState.ESCALATED},
     TicketState.IN_QA: {TicketState.DONE, TicketState.BOUNCED, TicketState.ESCALATED},
     TicketState.BOUNCED: {TicketState.IN_PROGRESS},
+    TicketState.ESCALATED: {TicketState.IN_PROGRESS},
 }
 
 # Every state may transition here, but only a human actor may request it.
@@ -80,3 +81,7 @@ def _check_guard(request: TransitionRequest) -> None:
                 f"bounce_count reached the max ({MAX_BOUNCES}); "
                 "ticket must be escalated, not bounced again"
             )
+
+    if request.from_state is TicketState.ESCALATED and request.to_state is TicketState.IN_PROGRESS:
+        if not is_human_actor(request.actor):
+            raise TransitionRejected("only a human may return an escalated ticket to dev")

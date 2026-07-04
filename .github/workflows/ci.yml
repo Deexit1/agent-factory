@@ -69,6 +69,10 @@ jobs:
           .venv/bin/pip install -e ../../packages/schemas
           .venv/bin/pip install -e ".[dev]"
           export DATABASE_URL="postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
+          # SPEC-006: the app is auth-gated now, so the a11y audit needs a real session —
+          # dev-login stands in for the Google round-trip (see lighthouse-a11y.mjs).
+          export AUTH_DEV_MODE=true
+          export SESSION_JWT_SECRET="ci-a11y-session-secret-at-least-32-bytes-long"
           .venv/bin/python -m alembic upgrade head
           nohup .venv/bin/python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 &
           until curl -sf http://localhost:8000/health; do sleep 1; done

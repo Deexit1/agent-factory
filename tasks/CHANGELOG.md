@@ -429,3 +429,89 @@ Format:
   and had the identical latent bug (hadn't surfaced yet only because nothing under
   `apps/api` imported `schemas` before this task). Fixed both to `pip install -e
   ../../packages/schemas` before `pip install -e ".[dev]"`, matching the Makefile.
+
+## T-008 · Cost, SSO & pilot dashboard — 2026-07-04
+- What changed: Implemented SPEC-006. Scope call confirmed with the human first: OIDC is
+  wired for real against Google (Authlib, `docs/06-tech-stack.md`'s locked choice) — a
+  live Google Cloud OAuth client isn't available here, so `/auth/login` and `/auth/callback`
+  are real code (501 until `OIDC_ISSUER_URL`/`CLIENT_ID`/`CLIENT_SECRET` are set) plus a
+  `POST /auth/dev-login` that mints the exact same session JWT without the round-trip
+  (`AUTH_DEV_MODE=true`, local/CI only) — same stub-alongside-real pattern as the sandbox's
+  credential broker and the orchestrator's GitHub client. Every route except `/health`,
+  `/webhooks/*` and `/auth/*` now requires `Authorization: Bearer <token>`
+  (`api/auth.py:get_actor_context`, applied at the router level via
+  `dependencies=[Depends(...)]` rather than per-endpoint, so a new endpoint can't
+  accidentally ship unauthenticated) — either a session JWT (human, role read from the new
+  `users` table, defaulting to viewer unless pre-seeded via `ADMIN_EMAILS`) or the shared
+  `AGENT_FACTORY_SERVICE_TOKEN` (apps/orchestrator, apps/sandbox — full trust, role=admin).
+  The old `X-Actor`/`X-Actor-Role` header stub and the web `ActorSwitcher` are gone.
+  Escalation inbox: added `escalated -> in_progress` to the state machine (human-actor-only
+  guard, `docs/03-state-machine.md` updated in this PR per the hard rule) and a
+  `POST /tickets/{id}/return-to-dev` endpoint that writes the approver's note as a
+  FailureReport-shaped `test_result` event (same shape the CI webhook's failure distiller
+  produces) before transitioning — so the dev agent's next attempt sees it the same way it
+  would see a CI failure. Cost bar: the drawer (and `TicketOut`) now derive spend from
+  `GET .../cost-summary` (`cost_ledger`'s sum) instead of a `spent_usd` ticket column that
+  was never written to after creation — removed that column outright (migration
+  `0cf581260d39`) rather than leave a permanently-zero, misleading field around, since
+  `cost_ledger` is already documented as the $/ticket source of truth. Dashboard: new
+  `dashboard_service.py` computes the four vision.md metrics from one shared per-ticket
+  row set (`dashboard_repository.list_dashboard_rows`) that the CSV export also serializes
+  directly, so re-deriving the aggregates from the CSV mathematically reproduces
+  `/dashboard/metrics` (AC4) rather than the two just happening to agree. Added
+  `tickets.created_at` (tickets start in `ready` in Phase 1, so this doubles as the cycle
+  clock's start) and `escaped_defect_reports` (manual entry, append-only) to back it.
+- Flagged rather than silently decided: `docs/00-vision.md`'s "first-pass QA rate ≥ 50%
+  (tickets closed with ≤ 1 bounce)" doesn't say what the rate is *out of*. Implemented it
+  as `count(done AND bounce_count<=1) / count(done OR escalated)` — i.e. escalated tickets
+  count against the rate rather than being excluded from the denominator, since excluding
+  QA failures from a QA-effectiveness metric would make it gameable. Say the word if you
+  want a different denominator.
+- Files touched: `apps/api/src/api/auth.py` (rewritten), `apps/api/src/api/routers/auth.py`
+  (new), `apps/api/src/api/routers/dashboard.py` (new),
+  `apps/api/src/api/services/{user,dashboard}_service.py` (new),
+  `apps/api/src/api/repositories/{user,dashboard}_repository.py` (new),
+  `apps/api/src/api/domain/state_machine.py` (`escalated -> in_progress`),
+  `apps/api/src/api/db/models.py` (`User`, `UserRole`, `EscapedDefectReport`,
+  `Ticket.created_at`, dropped `Ticket.spent_usd`), `apps/api/migrations/versions/
+  0cf581260d39_*.py` (new), `apps/api/src/api/services/ticket_service.py`
+  (`return_to_dev`), `apps/api/src/api/routers/{tickets,agent_runs}.py` (router-level auth
+  dependency), `apps/api/pyproject.toml` (`authlib`, `pyjwt`, `itsdangerous`); 9 new/updated
+  test files under `apps/api/tests/`; `apps/orchestrator/src/orchestrator/api_client.py` +
+  its test conftest, `apps/sandbox/src/sandbox/events_client.py` + its test conftest (both
+  now send the service token); `apps/web/src/auth/{AuthContext,LoginPage}.tsx` (new,
+  replace `ActorContext`/`ActorSwitcher`), `apps/web/src/dashboard/DashboardPage.tsx`
+  (new), `apps/web/src/App.tsx` (auth gate + Board/Dashboard nav), `apps/web/src/api/
+  {client,queries,types}.ts`, `apps/web/src/board/TicketDrawer.tsx` (cost bar,
+  escalation-inbox "return to dev" UI replacing the generic approve/reject for that one
+  gate), `apps/web/e2e/*` (dev-login helper replacing the old localStorage-only actor
+  stub), `apps/web/scripts/lighthouse-a11y.mjs` (mints a dev-login token so the a11y audit
+  still measures the board, not the new login gate); `docs/02-data-model.md`,
+  `docs/03-state-machine.md`.
+- Test evidence: `apps/api` full suite 63 passed (18 new: auth 401/dev-login/me/501,
+  escalation return-to-dev incl. 403 for viewer, dashboard golden-fixture test with a
+  hand-seeded 5-ticket dataset asserting exact numbers for all four metrics, CSV↔dashboard
+  cross-check, a `get_or_create_user` race-condition regression test — see below).
+  `apps/orchestrator` 5 passed, `apps/sandbox` 19 passed after wiring the service token
+  into both their real (non-fixture) HTTP calls. `ruff check` + `mypy --strict` clean on
+  all four Python packages. Web: `eslint`/`tsc -b`/`vitest` clean. Ran the real Playwright
+  suite (not just unit tests) against a live API + web dev server: all 5 e2e specs passed,
+  including the escalation-inbox role-gating test switching between two real dev-login
+  sessions mid-test. Lighthouse a11y: 100/100 on the authenticated board page (was 100/100
+  pre-auth too; confirmed the new login page separately also scores 100/100).
+- Bug found via the concurrent e2e run (not by inspection): `user_service.get_or_create_user`
+  raced under Playwright's 5 parallel workers all logging in as the same default viewer in
+  `beforeEach` — two workers' `get_user()` both returned `None` before either committed,
+  so the loser's `INSERT` hit the `users_pkey` unique constraint and 500'd. Fixed by
+  catching `IntegrityError` and re-fetching the winner's row; the same race exists in the
+  real Google OIDC callback path (two tabs, first login) and is now handled there too.
+  Added a repository-level regression test pinning the exception type Postgres actually
+  raises for this constraint, since the fix's `except IntegrityError` depends on it.
+- Notes / follow-ups: role changes take up to the session TTL (12h) to take effect for an
+  already-logged-in user, since the role is embedded in the JWT at mint time rather than
+  looked up per-request — acceptable for Phase 1's small pilot user base, revisit if that
+  becomes a real operational papercut. No admin UI to promote a user past the
+  `ADMIN_EMAILS`-seeded bootstrap set; that's a direct DB update for now. Websocket auth
+  (`/ws/tickets/{id}`) is unchanged from the header-stub era — AC1 is about REST access,
+  and browsers can't attach custom headers to a native WebSocket handshake, so closing
+  this gap needs a token-via-query-param design; flagging it, not fixing it here.

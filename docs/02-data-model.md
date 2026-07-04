@@ -13,9 +13,10 @@ All timestamps UTC. All agent payloads JSONB validated against `packages/schemas
 | spec | jsonb | TaskSpec for tasks, BusinessCase for ideas |
 | acceptance_criteria | jsonb | array of machine-checkable criteria |
 | assignee_agent | text | agent role id, nullable |
-| budget_usd / spent_usd | numeric | hard cap / running total |
+| budget_usd | numeric | hard cap; running spend is `cost_ledger`'s sum for the ticket, not a column here |
 | bounce_count | int | max 3 then `escalated` |
 | created_by | text | user id or agent id |
+| created_at | timestamptz | ticket creation time; Phase 1 tickets start in `ready`, so this doubles as the "ready" timestamp for the cycle-time metric (docs/00-vision.md) |
 
 ## ticket_events (append-only, partitioned monthly)
 | column | type | notes |
@@ -39,6 +40,16 @@ status, tokens_in, tokens_out, cost_usd, trace_id` (links to Langfuse).
 
 ## artifacts
 `id, ticket_id, kind (diff|ci_log|trace|coverage), s3_key, ts`.
+
+## users
+`email (PK), role (admin|approver|viewer), created_at` — OIDC-authenticated humans
+(SPEC-006). First login creates a `viewer` row unless the email is pre-seeded via
+`ADMIN_EMAILS`; promotion beyond that is a manual admin action in Phase 1.
+
+## escaped_defect_reports
+`id, ticket_id, note, reported_by, ts` — manual entry feeding the pilot dashboard's
+"escaped defects" metric (docs/00-vision.md); a defect found after a ticket reached
+`done` that QA didn't catch.
 
 ## Rules
 - No updates or deletes on `ticket_events` and `cost_ledger` — append-only, enforced by

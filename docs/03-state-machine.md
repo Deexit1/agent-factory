@@ -23,6 +23,7 @@ in_progress → in_qa → done` plus `bounced`, `escalated`, `blocked`, `cancell
 | bounced | in_progress | orchestrator | same agent, FailureReport injected |
 | in_qa | escalated | CI fails | bounce_count == 3 |
 | in_progress | escalated | system | budget exhausted OR wall-clock timeout |
+| escalated | in_progress | HUMAN "return to dev with note" (SPEC-006 escalation inbox) | note attached as a FailureReport-shaped event; does not reset bounce_count |
 | any | blocked / cancelled | HUMAN | |
 
 ## Phase 1 note

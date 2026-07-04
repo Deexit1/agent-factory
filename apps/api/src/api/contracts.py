@@ -10,6 +10,7 @@ from api.db.models import (
     EventKind,
     TicketState,
     TicketType,
+    UserRole,
 )
 
 
@@ -48,9 +49,9 @@ class TicketOut(BaseModel):
     acceptance_criteria: list[dict[str, object]]
     assignee_agent: str | None
     budget_usd: float | None
-    spent_usd: float
     bounce_count: int
     created_by: str
+    created_at: datetime
 
 
 class EventOut(BaseModel):
@@ -170,6 +171,47 @@ class CostSummaryOut(BaseModel):
     ticket_id: str
     agent_runs_total_usd: float
     cost_ledger_total_usd: float
+
+
+class DevLoginRequest(BaseModel):
+    """Dev/test-only stand-in for the Google OIDC round-trip (AUTH_DEV_MODE=true)."""
+
+    email: str
+    role: UserRole | None = None
+
+
+class SessionOut(BaseModel):
+    token: str
+    actor: str
+    role: UserRole
+
+
+class ReturnToDevRequest(BaseModel):
+    note: str
+
+
+class EscapedDefectReportIn(BaseModel):
+    ticket_id: str
+    note: str
+
+
+class EscapedDefectReportOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ticket_id: str
+    note: str
+    reported_by: str
+    ts: datetime
+
+
+class DashboardMetricsOut(BaseModel):
+    tickets_closed: int
+    tickets_escalated: int
+    first_pass_qa_rate: float | None
+    median_cost_per_closed_ticket_usd: float | None
+    escaped_defects: int
+    median_cycle_time_hours: float | None
 
 
 class CIResultWebhook(BaseModel):
