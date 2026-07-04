@@ -1,0 +1,41 @@
+[project]
+name = "agent-factory-schemas"
+version = "0.1.0"
+description = "Shared Pydantic contracts for Agent Factory agent hand-offs"
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic>=2.7,<3.0",
+]
+
+[project.scripts]
+schemas = "schemas.cli:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.6",
+  "mypy>=1.10",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

@@ -7,3 +7,6 @@ dist-ssr
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# Generated from packages/schemas via `schemas export` — regenerate, don't commit.
+/src/generated/

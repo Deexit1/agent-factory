@@ -31,3 +31,25 @@ Format:
   CI (Linux runners) will exercise `make check`/`make dev` for real on the first PR — watch
   that run closely. No SQLAlchemy models exist yet, so `migrations/versions/` is empty
   (T-002/T-003 will add the first real revision).
+
+## T-002 · Schemas package — 2026-07-04
+- What changed: Built `packages/schemas` (Pydantic v2, Python 3.12): `TaskSpec`,
+  `AcceptanceCriterion`, `FailureReport`, `BusinessCase` (+ `MarketEvidence`, `Complexity`),
+  each carrying a `schema_version` field (currently `"1.0"`) so future breaking changes bump
+  the version instead of mutating a shape in place. Added a `schemas export` console-script
+  CLI (argparse) that writes one JSON Schema file per model; defaults to
+  `apps/web/src/generated/schemas/` (gitignored, regenerated on demand — nothing in the web
+  app consumes it yet, that lands with T-003/T-004).
+- Files touched: `packages/schemas/**` (new), `Makefile` (added schemas venv/lint/typecheck/
+  test steps), `.pre-commit-config.yaml` (ruff hook now also covers `packages/schemas/`),
+  `apps/web/.gitignore` (ignore `/src/generated/`).
+- Test evidence: `pytest` (11 passed — round-trip via `model_dump`/`model_dump_json` for all
+  four models, validation-error tests asserting exact `loc` field paths including nested
+  errors inside `acceptance_criteria[]`/`market_evidence[]`, CLI export tests), `ruff check`
+  + `mypy --strict` (clean, using the `pydantic.mypy` plugin), `pre-commit run --all-files`
+  (clean). Manually ran both `python -m schemas.cli export` and the installed `schemas`
+  console script and inspected the generated JSON Schema output.
+- Notes / follow-ups: Not yet installed as a dependency of `apps/api` or `apps/orchestrator`
+  — that wiring happens naturally when T-003/T-006 need to validate `TaskSpec`/`FailureReport`
+  payloads. `schema_version` is a plain `Literal` field per model rather than a separate
+  versioning/migration mechanism; revisit if/when a breaking schema change is needed.

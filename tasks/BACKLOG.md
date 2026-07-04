@@ -17,14 +17,14 @@ eslint, gitleaks).
 - [x] CI runs `make check` on PRs; gitleaks blocks a planted test secret
 - [x] No real secrets anywhere; `.env.example` documents every variable
 
-## T-002 · Schemas package — `ready`
+## T-002 · Schemas package — `done`
 **Spec:** docs/04-agent-specs.md  **Est:** S
 Implement `packages/schemas`: TaskSpec, AcceptanceCriterion, FailureReport, BusinessCase
 (Pydantic v2, versioned, JSON-schema export).
 **Acceptance criteria**
-- [ ] Round-trip serialisation tests for all four models
-- [ ] Invalid payloads raise validation errors with field paths
-- [ ] `schemas export` CLI writes JSON schema files consumed by the web app
+- [x] Round-trip serialisation tests for all four models
+- [x] Invalid payloads raise validation errors with field paths
+- [x] `schemas export` CLI writes JSON schema files consumed by the web app
 
 ## T-003 · Ticket API & state machine — `ready`
 **Spec:** SPEC-001  **Est:** L
