@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import agent_runs, health, tickets, ws_tickets
+from api.routers import agent_runs, health, tickets, webhooks, ws_tickets
 from api.ws.broadcaster import broadcaster
 
 
@@ -29,4 +29,5 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(tickets.router)
 app.include_router(agent_runs.router)
+app.include_router(webhooks.router)
 app.include_router(ws_tickets.router)

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -169,3 +170,12 @@ class CostSummaryOut(BaseModel):
     ticket_id: str
     agent_runs_total_usd: float
     cost_ledger_total_usd: float
+
+
+class CIResultWebhook(BaseModel):
+    """Payload posted by the agent-pr-gate GitHub Actions workflow on completion."""
+
+    ticket_id: str
+    conclusion: Literal["success", "failure"]
+    suite: str = "ci"
+    raw_log: str = ""

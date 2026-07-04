@@ -1,0 +1,196 @@
+name: Agent PR Gate
+
+# SPEC-005: ordered, fail-fast QA gate for agent-authored PRs. apps/orchestrator (SPEC-004)
+# opens these from branches named `agent/<ticket-id>` against `main`. Human-authored PRs
+# still go through ci.yml; its gitleaks job already scans every PR (including these), so
+# secret scanning isn't duplicated here.
+#
+# Job order: smoke -> unit -> integration -> e2e, each gated on the previous one via
+# `needs`, so a failing unit test never lets integration/e2e start (AC1). semgrep,
+# dependency-audit and coverage run once `unit` is green but don't block each other.
+# report-result always runs last and posts the outcome to the API webhook, which is what
+# actually drives the ticket's in_qa -> done|bounced transition (SPEC-005 webhook receiver).
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke:
+    if: startsWith(github.head_ref, 'agent/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Smoke - API boots and answers /health
+        run: |
+          set -e
+          python3 -m venv apps/api/.venv
+          apps/api/.venv/bin/pip install --upgrade pip -q
+          apps/api/.venv/bin/pip install -e packages/schemas -q
+          apps/api/.venv/bin/pip install -e "apps/api[dev]" -q
+          apps/api/.venv/bin/pytest apps/api/tests/test_health.py -q
+
+  unit:
+    needs: smoke
+    if: startsWith(github.head_ref, 'agent/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Static gates + unit tests
+        run: |
+          set -eo pipefail
+          make lint
+          make typecheck
+          make test-unit 2>&1 | tee unit.log
+      - name: Upload log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-log-unit
+          path: unit.log
+
+  integration:
+    needs: unit
+    if: startsWith(github.head_ref, 'agent/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Docker-backed integration suites
+        run: |
+          set -eo pipefail
+          make test-integration 2>&1 | tee integration.log
+      - name: Upload log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-log-integration
+          path: integration.log
+
+  e2e:
+    needs: integration
+    if: startsWith(github.head_ref, 'agent/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+      - name: make e2e
+        run: |
+          set -eo pipefail
+          make e2e 2>&1 | tee e2e.log
+      - name: Upload log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-log-e2e
+          path: e2e.log
+
+  semgrep:
+    needs: unit
+    if: startsWith(github.head_ref, 'agent/')
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - run: semgrep scan --config auto --error
+
+  dependency-audit:
+    needs: unit
+    if: startsWith(github.head_ref, 'agent/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+      - name: pip-audit (every Python package)
+        run: |
+          set -e
+          pip install --quiet pip-audit
+          for dir in packages/schemas apps/api apps/sandbox apps/orchestrator; do
+            pip-audit --strict -r <(cd "$dir" && python3 -c "import tomllib,sys; d=tomllib.load(open('pyproject.toml','rb')); print('\n'.join(d['project']['dependencies']))")
+          done
+      - name: npm audit (web)
+        working-directory: apps/web
+        run: |
+          npm install
+          npm audit --audit-level=high
+
+  coverage:
+    needs: unit
+    if: startsWith(github.head_ref, 'agent/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Changed-lines coverage floor (80%)
+        run: make coverage-gate
+
+  report-result:
+    needs: [smoke, unit, integration, e2e, semgrep, dependency-audit, coverage]
+    if: always() && startsWith(github.head_ref, 'agent/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download failure logs (if any)
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ci-log-*
+          path: logs
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: POST CI result to the ticket webhook
+        env:
+          # Every job here only skips when an upstream `needs` job failed (the branch-name
+          # `if` guard is identical on all of them), so a skip is a red pipeline too.
+          CONCLUSION: ${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')) && 'failure' || 'success' }}
+          TICKET_ID: ${{ github.head_ref }}
+          WEBHOOK_URL: ${{ secrets.AGENT_FACTORY_API_URL }}
+          WEBHOOK_SECRET: ${{ secrets.CI_WEBHOOK_SECRET }}
+        run: |
+          set -eo pipefail
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "AGENT_FACTORY_API_URL secret not configured; skipping webhook call."
+            exit 0
+          fi
+          ticket_id="${TICKET_ID#agent/}"
+          raw_log=$(cat logs/*.log 2>/dev/null || true)
+          body=$(jq -n --arg tid "$ticket_id" --arg concl "$CONCLUSION" --arg log "$raw_log" \
+            '{ticket_id: $tid, conclusion: $concl, suite: "agent-pr-gate", raw_log: $log}')
+          if [ -n "$WEBHOOK_SECRET" ]; then
+            signature="sha256=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | sed 's/^.* //')"
+            curl -sf -X POST "$WEBHOOK_URL/webhooks/ci-result" \
+              -H "Content-Type: application/json" -H "X-Hub-Signature-256: $signature" -d "$body"
+          else
+            curl -sf -X POST "$WEBHOOK_URL/webhooks/ci-result" -H "Content-Type: application/json" -d "$body"
+          fi

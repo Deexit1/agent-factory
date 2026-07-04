@@ -359,3 +359,65 @@ Format:
   despite docs/06 naming it for orchestration — `run_dev_agent` is a plain function; the
   per-ticket graph (exec_panel → planner → dev_loop → qa) is out of scope until those
   other agents exist.
+
+## T-007 · QA gate & bounce loop — 2026-07-04
+- What changed: Implemented SPEC-005 in `apps/api` (webhook + distiller) and as a new
+  `.github/workflows/agent-pr-gate.yml` (CI job ordering + security/coverage gates).
+  `POST /webhooks/ci-result` is the receiver: HMAC-SHA256 verified (`X-Hub-Signature-256`,
+  `CI_WEBHOOK_SECRET` — unset disables verification, same Phase-1 dev-convenience pattern
+  as the other stubbed integrations), it requires the ticket be `in_qa`, then either
+  transitions straight to `done` (green) or runs the new deterministic failure distiller
+  (`services/failure_distiller.py` — regex-parses pytest `FAILED <nodeid> - <reason>`
+  summary lines / vitest `FAIL`/`✗` lines into a `packages/schemas.FailureReport`, no LLM
+  call; a haiku-class call isn't needed to extract "which tests failed" and wouldn't be
+  as testable) before requesting `bounced`. AC5's "third consecutive red pipeline escalates"
+  is implemented via the *existing*, already-tested T-003 state machine guard exactly as
+  written in docs/03-state-machine.md (`bounce_count == 3`) rather than a new one — that
+  guard fires on the 4th red pipeline (3 bounces have to happen first), which is one more
+  than SPEC-005's prose literally says. Flagging this rather than quietly picking one:
+  changing the guard to fire on the 3rd would contradict T-003's own shipped, tested
+  behavior ("the 4th bounce attempt is refused ... becomes escalated") and the state
+  machine doc; I left both as-is and treated "third consecutive red pipeline" as informal
+  shorthand for "the pipeline run that would be the 4th bounce." Human: say the word if
+  you want the guard changed instead — it's a one-line change plus a docs/03 update.
+  `agent-pr-gate.yml` runs `smoke -> unit -> integration -> e2e` gated via `needs:` (so a
+  failing unit test really does stop e2e from starting — AC1), `semgrep`/`dependency-audit`
+  (pip-audit + npm audit) as blocking checks in parallel once `unit` is green, and a
+  `coverage` job running the new `make coverage-gate` (diff-cover, 80% floor, all four
+  Python packages' coverage.xml merged, compared against `origin/main`). Secret scanning
+  (AC3) isn't duplicated here — `ci.yml`'s existing `gitleaks` job already runs on every
+  PR, agent-authored or not. A final `report-result` job always runs, collects any
+  uploaded failure logs from the unit/integration/e2e jobs, and POSTs the outcome to the
+  webhook — this is what actually drives the ticket transition; the workflow itself never
+  touches ticket state directly.
+- Files touched: `apps/api/src/api/services/failure_distiller.py` (new),
+  `apps/api/src/api/services/webhook_service.py` (new),
+  `apps/api/src/api/routers/webhooks.py` (new), `apps/api/src/api/contracts.py`
+  (`CIResultWebhook`), `apps/api/src/api/main.py`, `apps/api/tests/test_failure_distiller.py`
+  (new), `apps/api/tests/integration/test_ci_webhook_api.py` (new);
+  `.github/workflows/agent-pr-gate.yml` (new); `Makefile` (`test` split into
+  `test-unit`/`test-integration` — same combined behavior, `check`/`test` unchanged — plus
+  new `coverage-gate` target; `apps/api` venv now installs `packages/schemas` first,
+  matching the orchestrator's pattern); `apps/sandbox/pyproject.toml`,
+  `apps/orchestrator/pyproject.toml`, `packages/schemas/pyproject.toml` (added
+  `pytest-cov`, needed for the coverage gate); `.env.example` (`CI_WEBHOOK_SECRET`);
+  `.gitignore` (`.coverage`, `coverage.xml`).
+- Test evidence: `apps/api` full suite 45 passed (11 new: 5 distiller unit tests, 6 webhook
+  integration tests covering green→done, red→bounced with a FailureReport whose
+  `failing_tests` matches the injected CI log verbatim, the 4-red-pipelines→escalated
+  sequence, 404 for a missing ticket, 409 for a ticket not in `in_qa`, and signature
+  rejection/acceptance) — all against a real Postgres via testcontainers. `ruff check` +
+  `mypy --strict` clean on `apps/api`, `apps/sandbox`, `apps/orchestrator`,
+  `packages/schemas` after the pyproject changes. Manually validated the exact
+  `make coverage-gate` command sequence (pytest --cov + diff-cover) end-to-end against
+  this task's own uncommitted diff: 96% changed-line coverage, above the 80% floor.
+  `agent-pr-gate.yml` itself is untested here — no `make` binary in this dev environment
+  and no way to trigger a real `pull_request` event from `agent/*` without pushing;
+  written carefully (`pipefail` on every `tee`d step, `jq` for JSON body construction
+  instead of string interpolation) but treat it like T-005's rounds 1-3: expect to iterate
+  once it runs for real.
+- Notes / follow-ups: web-side coverage (vitest) isn't wired into `coverage-gate` yet —
+  `apps/web` has no `@vitest/coverage-v8` dependency or coverage script, and adding one
+  felt too risky to do unverified in the same change as the Python-side gate. AC4 is
+  covered for the Python packages, which is where agent-authored PRs mostly land today;
+  revisit before an agent is ever asked to touch `apps/web` under this gate.

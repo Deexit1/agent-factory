@@ -4,11 +4,12 @@ SCHEMAS_DIR := packages/schemas
 SANDBOX_DIR := apps/sandbox
 ORCHESTRATOR_DIR := apps/orchestrator
 
-.PHONY: dev test check lint typecheck e2e a11y migrate
+.PHONY: dev test test-unit test-integration check lint typecheck e2e a11y migrate coverage-gate
 
-$(API_DIR)/.venv/.stamp: $(API_DIR)/pyproject.toml
+$(API_DIR)/.venv/.stamp: $(API_DIR)/pyproject.toml $(SCHEMAS_DIR)/pyproject.toml
 	cd $(API_DIR) && python3 -m venv .venv
 	cd $(API_DIR) && .venv/bin/pip install --upgrade pip
+	cd $(API_DIR) && .venv/bin/pip install -e "../../$(SCHEMAS_DIR)"
 	cd $(API_DIR) && .venv/bin/pip install -e ".[dev]"
 	touch $@
 
@@ -38,12 +39,29 @@ $(WEB_DIR)/node_modules/.stamp: $(WEB_DIR)/package.json
 dev: ## Run the full stack via docker compose
 	docker compose up --build
 
-test: $(API_DIR)/.venv/.stamp $(SCHEMAS_DIR)/.venv/.stamp $(SANDBOX_DIR)/.venv/.stamp $(ORCHESTRATOR_DIR)/.venv/.stamp $(WEB_DIR)/node_modules/.stamp ## Unit tests (pytest + vitest)
-	cd $(API_DIR) && .venv/bin/pytest
+test: test-unit test-integration ## Unit tests (pytest + vitest)
+
+# "Unit" = everything outside tests/integration (no Docker needed). orchestrator has no
+# unit tests today — its logic is exercised end-to-end in tests/integration (see its README).
+test-unit: $(API_DIR)/.venv/.stamp $(SCHEMAS_DIR)/.venv/.stamp $(SANDBOX_DIR)/.venv/.stamp $(WEB_DIR)/node_modules/.stamp ## Fast tests only, no Docker required
+	cd $(API_DIR) && .venv/bin/pytest tests --ignore=tests/integration
 	cd $(SCHEMAS_DIR) && .venv/bin/pytest
-	cd $(SANDBOX_DIR) && .venv/bin/pytest
-	cd $(ORCHESTRATOR_DIR) && .venv/bin/pytest
+	cd $(SANDBOX_DIR) && .venv/bin/pytest tests --ignore=tests/integration
 	cd $(WEB_DIR) && npm test
+
+test-integration: $(API_DIR)/.venv/.stamp $(SANDBOX_DIR)/.venv/.stamp $(ORCHESTRATOR_DIR)/.venv/.stamp ## Docker-backed integration suites
+	cd $(API_DIR) && .venv/bin/pytest tests/integration
+	cd $(SANDBOX_DIR) && .venv/bin/pytest tests/integration
+	cd $(ORCHESTRATOR_DIR) && .venv/bin/pytest tests/integration
+
+coverage-gate: $(API_DIR)/.venv/.stamp $(SCHEMAS_DIR)/.venv/.stamp $(SANDBOX_DIR)/.venv/.stamp $(ORCHESTRATOR_DIR)/.venv/.stamp ## Changed-lines coverage floor (80%) vs origin/main
+	cd $(SCHEMAS_DIR) && .venv/bin/pytest --cov=schemas --cov-report=xml:coverage.xml
+	cd $(API_DIR) && .venv/bin/pytest --cov=api --cov-report=xml:coverage.xml tests
+	cd $(SANDBOX_DIR) && .venv/bin/pytest --cov=sandbox --cov-report=xml:coverage.xml tests
+	cd $(ORCHESTRATOR_DIR) && .venv/bin/pytest --cov=orchestrator --cov-report=xml:coverage.xml tests
+	pip install --quiet diff-cover
+	diff-cover $(SCHEMAS_DIR)/coverage.xml $(API_DIR)/coverage.xml $(SANDBOX_DIR)/coverage.xml $(ORCHESTRATOR_DIR)/coverage.xml \
+		--compare-branch=origin/main --fail-under=80
 
 lint: $(API_DIR)/.venv/.stamp $(SCHEMAS_DIR)/.venv/.stamp $(SANDBOX_DIR)/.venv/.stamp $(ORCHESTRATOR_DIR)/.venv/.stamp $(WEB_DIR)/node_modules/.stamp
 	cd $(API_DIR) && .venv/bin/ruff check .

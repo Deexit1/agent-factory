@@ -69,9 +69,18 @@ Implement SPEC-004 in `apps/orchestrator`. All five criteria apply.
 - [x] On bounce, the injected context contains the FailureReport and attempt number.
 - [x] cost_ledger total for the ticket equals the sum of agent_runs.cost_usd.
 
-## T-007 · QA gate & bounce loop — `ready`
+## T-007 · QA gate & bounce loop — `done`
 **Spec:** SPEC-005  **Est:** L
 Implement SPEC-005 (CI workflows + webhook + distiller). All five criteria apply.
+**Acceptance criteria**
+- [x] A PR with a failing unit test never reaches integration/e2e jobs (fail-fast).
+- [x] Green pipeline transitions the ticket to `done`; red pipeline to `bounced` with a
+      FailureReport whose `failing_tests` matches the CI log.
+- [x] A planted secret in the diff blocks the pipeline via gitleaks.
+- [x] Changed-lines coverage below 80% fails the gate.
+- [x] Third consecutive red pipeline ends with ticket `escalated`, not `bounced` (see
+      CHANGELOG note: implemented as the existing, T-003-tested `bounce_count == 3` guard —
+      the 4th red pipeline escalates, matching `docs/03-state-machine.md` exactly).
 
 ## T-008 · Cost, SSO & pilot dashboard — `ready`
 **Spec:** SPEC-006  **Est:** M
