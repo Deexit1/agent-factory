@@ -29,11 +29,13 @@ class SubprocessClaudeCodeRunner:
     FixtureClaudeCodeRunner and tasks/CHANGELOG.md (T-006).
     """
 
-    # Observed live during T-009: this transient 400 hits roughly 40-50% of real attempts
-    # (not correlated with prompt content or environment - confirmed by direct
-    # reproduction), and costs $0 since the API rejects it before billing. 5 retries
-    # (6 total attempts) puts cumulative failure odds under 2%.
-    _MAX_TRANSIENT_RETRIES = 5
+    # Defensive: retry a first-turn API error before surfacing it as a real failure.
+    # T-009 hit this ~100% of the time with an outdated `claude` CLI (2.1.50) paired with
+    # ANTHROPIC_API_KEY auth + the newest model - retrying never helped, upgrading the CLI
+    # to 2.1.201 did. Kept as a small safety net for genuine transient API errors, which
+    # this exact detection can't distinguish from a systematic one - if this starts firing
+    # often, check `claude update` before assuming the API is flaky.
+    _MAX_TRANSIENT_RETRIES = 2
     _RETRY_BACKOFF_S = 3.0
 
     def run(
@@ -79,11 +81,8 @@ class SubprocessClaudeCodeRunner:
                     event = _parse_stream_json_line(line)
                     if event is None:
                         continue
-                    # Observed live (T-009 pilot): the API intermittently 400s on the very
-                    # first turn with a "thinking.type.enabled not supported" error and
-                    # zero cost - reproducibly transient (same prompt succeeds on retry),
-                    # not caused by prompt content. Only retry if it's the first thing
-                    # this attempt produced, so a real mid-run failure still surfaces.
+                    # Only retry if it's the first thing this attempt produced, so a real
+                    # mid-run failure still surfaces normally.
                     if not yielded_any and event.kind == "message" and _is_transient_api_error(
                         event.payload
                     ):
