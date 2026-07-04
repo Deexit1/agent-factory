@@ -34,6 +34,7 @@ class SubprocessClaudeCodeRunner:
     # reproduction), and costs $0 since the API rejects it before billing. 5 retries
     # (6 total attempts) puts cumulative failure odds under 2%.
     _MAX_TRANSIENT_RETRIES = 5
+    _RETRY_BACKOFF_S = 3.0
 
     def run(
         self, *, prompt: str, cwd: Path, model: str, budget_usd: float, timeout_s: float
@@ -96,6 +97,7 @@ class SubprocessClaudeCodeRunner:
 
             if not retry:
                 return
+            time.sleep(self._RETRY_BACKOFF_S)
 
 
 def _content_blocks(raw: dict[str, object]) -> list[dict[str, object]]:
