@@ -1,0 +1,37 @@
+case_id: distiller-011-infra-connection-refused
+title: All tests skipped; the runner fails to connect to the test database
+
+input_meta:
+  ticket_id: EVAL-DISTILLER-011
+  suite: pytest
+  attempt_no: 1
+
+raw_log: |
+  ============================= test session starts ==============================
+  collected 8 items
+
+  test_migrations.py::test_apply_pending_migrations SKIPPED (db unavailable) [ 12%]
+  test_migrations.py::test_rollback_last_migration SKIPPED (db unavailable)  [ 25%]
+  test_migrations.py::test_migration_checksum_matches SKIPPED (db unavailable) [ 37%]
+  test_migrations.py::test_seed_data_loads SKIPPED (db unavailable)         [ 50%]
+  test_migrations.py::test_schema_version_table_exists SKIPPED (db unavailable) [ 62%]
+  test_migrations.py::test_index_created_on_users_email SKIPPED (db unavailable) [ 75%]
+  test_migrations.py::test_foreign_keys_enforced SKIPPED (db unavailable)   [ 87%]
+  test_migrations.py::test_down_migration_is_reversible SKIPPED (db unavailable) [100%]
+
+  ============================ 8 skipped in 0.21s ============================
+  psycopg2.OperationalError: could not connect to server: Connection refused
+      Is the server running on host "db" (10.0.4.12) and accepting TCP/IP connections?
+  ##[error]Container 'db' failed to become healthy within 60s.
+
+reference:
+  failing_suite: infra
+  failing_tests:
+    - none
+  expected_vs_actual: "no real test failures; all 8 tests were skipped because the test database container never became healthy (connection refused)"
+  suspect_files: []
+
+rubric_weights:
+  field_accuracy: 0.5
+  suspect_file_hit_rate: 0.1
+  ignores_noise: 0.4

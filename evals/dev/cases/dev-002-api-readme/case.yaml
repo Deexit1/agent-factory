@@ -1,0 +1,37 @@
+case_id: dev-002-api-readme
+title: Update apps/api/README.md to reflect what's actually built
+source: real
+source_pr: 4
+
+starter:
+  kind: repo_snapshot
+  ref: 46e39e86f5099a0ffa259086034ee7c39987b92e
+
+task_spec:
+  id: EVAL-DEV-002
+  title: Update apps/api/README.md to reflect what's actually built
+  context: >
+    apps/api/README.md is still the one-line T-001 scaffolding stub. Rewrite it to
+    document the routers, auth model, migrations, and test commands that actually exist
+    in the codebase today.
+  constraints:
+    - Do not invent routers, env vars, or scripts that don't exist in the repo — every
+      claim must be verifiable against the current source.
+  acceptance_criteria:
+    - id: AC-1
+      description: apps/api/README.md documents the routers, auth model, migrations, and test commands
+      verification: manual review of apps/api/README.md
+  complexity: low
+  budget_usd: 2.0
+
+verification:
+  mode: manual
+  allowed_paths:
+    - apps/api/README.md
+
+reference_diff_file: reference.patch
+
+rubric_weights:
+  criteria_coverage: 0.5
+  factual_accuracy: 0.3
+  no_out_of_scope_edits: 0.2

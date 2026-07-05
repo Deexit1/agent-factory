@@ -1,0 +1,37 @@
+case_id: dev-001-web-readme
+title: Update apps/web/README.md to reflect what's actually built
+source: real
+source_pr: 3
+
+starter:
+  kind: repo_snapshot
+  ref: 46e39e86f5099a0ffa259086034ee7c39987b92e
+
+task_spec:
+  id: EVAL-DEV-001
+  title: Update apps/web/README.md to reflect what's actually built
+  context: >
+    apps/web/README.md is still the one-line T-001 scaffolding stub, from before the
+    board, auth, dashboard, and test suites existed. Rewrite it to document what's
+    actually in src/ and the npm run commands available.
+  constraints:
+    - Do not invent commands or files that don't exist in the repo — every claim must be
+      verifiable against the current source.
+  acceptance_criteria:
+    - id: AC-1
+      description: apps/web/README.md documents the board, auth, dashboard, and test commands
+      verification: manual review of apps/web/README.md
+  complexity: low
+  budget_usd: 2.0
+
+verification:
+  mode: manual
+  allowed_paths:
+    - apps/web/README.md
+
+reference_diff_file: reference.patch
+
+rubric_weights:
+  criteria_coverage: 0.5
+  factual_accuracy: 0.3
+  no_out_of_scope_edits: 0.2

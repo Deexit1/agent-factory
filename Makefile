@@ -4,7 +4,7 @@ SCHEMAS_DIR := packages/schemas
 SANDBOX_DIR := apps/sandbox
 ORCHESTRATOR_DIR := apps/orchestrator
 
-.PHONY: dev test test-unit test-integration check lint typecheck e2e a11y migrate coverage-gate
+.PHONY: dev test test-unit test-integration check lint typecheck e2e a11y migrate coverage-gate eval
 
 $(API_DIR)/.venv/.stamp: $(API_DIR)/pyproject.toml $(SCHEMAS_DIR)/pyproject.toml
 	cd $(API_DIR) && python3 -m venv .venv
@@ -88,3 +88,6 @@ a11y: $(WEB_DIR)/node_modules/.stamp ## Lighthouse accessibility audit of the bo
 
 migrate: $(API_DIR)/.venv/.stamp ## Apply alembic migrations
 	cd $(API_DIR) && .venv/bin/alembic upgrade head
+
+eval: $(ORCHESTRATOR_DIR)/.venv/.stamp ## Golden-set eval harness (SPEC-101); pass ARGS="--only-changed" etc.
+	cd $(ORCHESTRATOR_DIR) && .venv/bin/python -m orchestrator.evals.runner run --set all $(ARGS)

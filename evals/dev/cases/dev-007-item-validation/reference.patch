@@ -1,0 +1,17 @@
+diff --git a/app.py b/app.py
+index c1d2e3f..a4b5c6d 100644
+--- a/app.py
++++ b/app.py
+@@ -7,8 +7,12 @@ def create_item():
+ def create_item():
+     data = request.get_json(force=True)
+     name = data.get("name")
+     price = data.get("price")
++    if not name:
++        return jsonify(error="name is required"), 400
++    if price is None or price < 0:
++        return jsonify(error="price must be non-negative"), 400
+     return jsonify(name=name, price=price), 201
+
+
+ if __name__ == "__main__":

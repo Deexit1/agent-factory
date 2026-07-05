@@ -1,0 +1,40 @@
+case_id: dev-003-sandbox-test
+title: Add a unit test for sandbox.events_client.post_event
+source: real
+source_pr: 5
+
+starter:
+  kind: repo_snapshot
+  ref: 46e39e86f5099a0ffa259086034ee7c39987b92e
+
+task_spec:
+  id: EVAL-DEV-003
+  title: Add a unit test for sandbox.events_client.post_event
+  context: >
+    sandbox.events_client.post_event (posts egress-violation events to the ticket API)
+    has no direct unit test today - it's only exercised indirectly through the
+    Docker-heavy integration suite. Add a focused unit test that monkeypatches the HTTP
+    call instead of hitting a real server.
+  constraints:
+    - Do not modify apps/sandbox/src/sandbox/events_client.py itself; this is a
+      test-only addition.
+  acceptance_criteria:
+    - id: AC-1
+      description: a new unit test asserts post_event sends the correct Authorization header and payload
+      verification: apps/sandbox/tests/unit/test_events_client.py
+  complexity: low
+  budget_usd: 2.0
+
+verification:
+  mode: pytest
+  test_command: "tests/unit/test_events_client.py -q"
+  working_dir: apps/sandbox
+  allowed_paths:
+    - apps/sandbox/tests/unit/test_events_client.py
+
+reference_diff_file: reference.patch
+
+rubric_weights:
+  tests_pass: 0.5
+  criteria_test_mapping: 0.3
+  no_out_of_scope_edits: 0.2

@@ -1,0 +1,45 @@
+case_id: dev-006-duplicate-refactor
+title: Refactor duplicated validation logic into a shared helper
+source: synthetic
+
+starter:
+  kind: standalone
+  dir: starter
+
+task_spec:
+  id: EVAL-DEV-006
+  title: Deduplicate validate_username/validate_password into one length-validation helper
+  context: >
+    validate_username and validate_password in registration.py each hand-roll the same
+    "required, then max length" check with only the field name, error text, and length
+    limit varying. Extract a private helper, e.g. _validate_length(field_name, value,
+    max_len), and have both public functions call it. test_registration.py already
+    covers both functions and must keep passing unchanged - this is a pure refactor,
+    not a behavior change.
+  constraints:
+    - Do not modify test_registration.py; behavior must be identical before and after.
+    - Keep validate_username and validate_password as the public entry points.
+  acceptance_criteria:
+    - id: AC-1
+      description: >
+        the duplicated required/max-length logic is extracted into one shared helper
+        used by both validate_username and validate_password
+      verification: test_registration.py::test_validate_username_rejects_too_long
+    - id: AC-2
+      description: all six existing tests continue to pass without modification
+      verification: test_registration.py::test_validate_password_rejects_too_long
+  complexity: low
+  budget_usd: 2.0
+
+verification:
+  mode: pytest
+  test_command: "-q"
+  allowed_paths:
+    - registration.py
+
+reference_diff_file: reference.patch
+
+rubric_weights:
+  tests_pass: 0.5
+  criteria_test_mapping: 0.3
+  no_out_of_scope_edits: 0.2

@@ -1,4 +1,10 @@
-from orchestrator.claude_runner import _is_transient_api_error, _parse_stream_json_line
+from pathlib import Path
+
+from orchestrator.claude_runner import (
+    SubprocessClaudeCodeRunner,
+    _is_transient_api_error,
+    _parse_stream_json_line,
+)
 
 # Captured verbatim from a real `claude -p ... --output-format stream-json --verbose` run
 # (T-009 pilot validation) - `_parse_stream_json_line` was never exercised against real
@@ -94,3 +100,47 @@ def test_is_transient_api_error_false_for_tool_use() -> None:
     event = _parse_stream_json_line(REAL_ASSISTANT_TOOL_USE)
     assert event is not None
     assert _is_transient_api_error(event.payload) is False
+
+
+class _FakePopen:
+    """Records the argv it was constructed with; yields no stdout lines."""
+
+    def __init__(self, argv: list[str], **_kwargs: object) -> None:
+        _FakePopen.last_argv = argv
+        self.stdout = iter(())
+        self.stderr = None
+
+    def poll(self) -> int:
+        return 0
+
+    def terminate(self) -> None:
+        pass
+
+
+def test_run_appends_the_current_dev_agent_prompt_to_the_cli_invocation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # T-101: prompts/dev-agent.md must actually reach the CLI, or a golden-set eval
+    # degrading it could never change a real run's behaviour.
+    prompt_path = tmp_path / "dev-agent.md"
+    prompt_path.write_text("# System prompt · Dev Agent · v0.2\n\nBe careful.", encoding="utf-8")
+
+    monkeypatch.setattr("orchestrator.claude_runner.shutil.which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr("orchestrator.claude_runner.subprocess.Popen", _FakePopen)
+
+    runner = SubprocessClaudeCodeRunner(system_prompt_path=prompt_path)
+    list(
+        runner.run(
+            prompt="do the task",
+            cwd=tmp_path,
+            model="claude-sonnet-5",
+            budget_usd=1.0,
+            timeout_s=60.0,
+        )
+    )
+
+    argv = _FakePopen.last_argv
+    assert "--append-system-prompt" in argv
+    assert argv[argv.index("--append-system-prompt") + 1] == prompt_path.read_text(
+        encoding="utf-8"
+    )

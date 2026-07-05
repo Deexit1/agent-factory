@@ -1,0 +1,64 @@
+diff --git a/apps/sandbox/tests/unit/test_events_client.py b/apps/sandbox/tests/unit/test_events_client.py
+new file mode 100644
+index 0000000..24efc5a
+--- /dev/null
++++ b/apps/sandbox/tests/unit/test_events_client.py
+@@ -0,0 +1,58 @@
++import httpx
++
++from sandbox import events_client
++
++
++class _FakeResponse:
++    def raise_for_status(self) -> None:
++        pass
++
++
++def test_post_event_sends_expected_auth_header_and_payload(monkeypatch) -> None:
++    monkeypatch.setenv("AGENT_FACTORY_SERVICE_TOKEN", "s3cr3t-token")
++
++    captured = {}
++
++    def fake_post(url, *, json, headers, timeout):
++        captured["url"] = url
++        captured["json"] = json
++        captured["headers"] = headers
++        captured["timeout"] = timeout
++        return _FakeResponse()
++
++    monkeypatch.setattr(httpx, "post", fake_post)
++
++    events_client.post_event(
++        "https://api.example.com",
++        "T-123",
++        actor="sandbox",
++        kind="egress_violation",
++        payload={"domain": "blocked.example.com"},
++    )
++
++    assert captured["url"] == "https://api.example.com/tickets/T-123/events"
++    assert captured["headers"] == {"Authorization": "Bearer s3cr3t-token"}
++    assert captured["json"] == {
++        "actor": "sandbox",
++        "kind": "egress_violation",
++        "payload": {"domain": "blocked.example.com"},
++    }
++    assert captured["timeout"] == 5.0
++
++
++def test_post_event_uses_empty_token_when_env_var_unset(monkeypatch) -> None:
++    monkeypatch.delenv("AGENT_FACTORY_SERVICE_TOKEN", raising=False)
++
++    captured = {}
++
++    def fake_post(url, *, json, headers, timeout):
++        captured["headers"] = headers
++        return _FakeResponse()
++
++    monkeypatch.setattr(httpx, "post", fake_post)
++
++    events_client.post_event(
++        "https://api.example.com", "T-124", actor="sandbox", kind="egress_violation", payload={}
++    )
++
++    assert captured["headers"] == {"Authorization": "Bearer "}

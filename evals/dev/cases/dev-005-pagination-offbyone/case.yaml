@@ -1,0 +1,41 @@
+case_id: dev-005-pagination-offbyone
+title: Fix off-by-one bug in a 1-indexed pagination helper
+source: synthetic
+
+starter:
+  kind: standalone
+  dir: starter
+
+task_spec:
+  id: EVAL-DEV-005
+  title: Fix paginate() returning the wrong slice for 1-indexed pages
+  context: >
+    paginate(items, page, page_size) is documented as 1-indexed (page 1 is the first
+    page) but currently computes start = page * page_size, which skips the first
+    page_size items on page 1. test_paginate.py already encodes the expected behavior
+    and is failing against the current implementation. Fix the off-by-one so both
+    tests pass.
+  constraints:
+    - Do not modify test_paginate.py; the fix belongs entirely in paginate.py.
+  acceptance_criteria:
+    - id: AC-1
+      description: paginate(items, 1, 3) returns the first 3 items
+      verification: test_paginate.py::test_first_page_returns_first_slice
+    - id: AC-2
+      description: paginate(items, 2, 3) returns the next 3 items
+      verification: test_paginate.py::test_second_page_returns_second_slice
+  complexity: low
+  budget_usd: 1.5
+
+verification:
+  mode: pytest
+  test_command: "-q"
+  allowed_paths:
+    - paginate.py
+
+reference_diff_file: reference.patch
+
+rubric_weights:
+  tests_pass: 0.5
+  criteria_test_mapping: 0.3
+  no_out_of_scope_edits: 0.2

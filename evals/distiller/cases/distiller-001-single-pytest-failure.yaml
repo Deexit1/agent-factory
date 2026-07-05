@@ -1,0 +1,41 @@
+case_id: distiller-001-single-pytest-failure
+title: Single pytest assertion failure, no noise
+
+input_meta:
+  ticket_id: EVAL-DISTILLER-001
+  suite: pytest
+  attempt_no: 1
+
+raw_log: |
+  ============================= test session starts ==============================
+  collected 3 items
+
+  test_app.py::test_health_returns_200 PASSED                            [ 33%]
+  test_app.py::test_version_returns_200 FAILED                           [ 66%]
+  test_app.py::test_root_returns_200 PASSED                              [100%]
+
+  =================================== FAILURES ====================================
+  ___________________________ test_version_returns_200 ____________________________
+
+      def test_version_returns_200():
+          client = app.test_client()
+          response = client.get("/version")
+  >       assert response.status_code == 200
+  E       assert 404 == 200
+
+  test_app.py:12: AssertionError
+  FAILED test_app.py::test_version_returns_200 - assert 404 == 200
+  ========================= 1 failed, 2 passed in 0.08s ===========================
+
+reference:
+  failing_suite: pytest
+  failing_tests:
+    - test_app.py::test_version_returns_200
+  expected_vs_actual: "assert 404 == 200"
+  suspect_files:
+    - test_app.py
+
+rubric_weights:
+  field_accuracy: 0.6
+  suspect_file_hit_rate: 0.3
+  ignores_noise: 0.1

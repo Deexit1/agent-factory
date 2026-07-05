@@ -14,6 +14,9 @@ __pycache__/
 .coverage
 coverage.xml
 
+# make eval output (SPEC-101) - regenerated every run, not source data
+evals/results/
+
 # Node
 node_modules/
 

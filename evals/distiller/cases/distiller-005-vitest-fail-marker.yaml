@@ -1,0 +1,33 @@
+case_id: distiller-005-vitest-fail-marker
+title: Single vitest failure using the "FAIL" marker style
+
+input_meta:
+  ticket_id: EVAL-DISTILLER-005
+  suite: vitest
+  attempt_no: 1
+
+raw_log: |2
+   RUN  v1.4.0 /repo
+
+   ✓ src/utils/formatCurrency.test.ts (3)
+   FAIL  src/components/Button.test.tsx > Button > renders the label prop
+
+   FAIL  src/components/Button.test.tsx > Button > renders the label prop
+  AssertionError: expected 'Submit' to be 'submit'
+   ❯ src/components/Button.test.tsx:14:22
+
+   Test Files  1 failed | 1 passed (2)
+        Tests  1 failed | 3 passed (4)
+
+reference:
+  failing_suite: vitest
+  failing_tests:
+    - src/components/Button.test.tsx
+  expected_vs_actual: "AssertionError: expected 'Submit' to be 'submit'"
+  suspect_files:
+    - src/components/Button.test.tsx
+
+rubric_weights:
+  field_accuracy: 0.6
+  suspect_file_hit_rate: 0.3
+  ignores_noise: 0.1
