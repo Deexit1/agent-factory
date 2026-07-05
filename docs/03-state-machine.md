@@ -1,32 +1,34 @@
-# 03 — Ticket State Machine
+# 03 — Ticket State Machine (Phase 2: planning states ACTIVE)
 
 The orchestrator owns transitions. Agents REQUEST; orchestrator VALIDATES and APPLIES.
 Illegal requests are logged (`kind=transition`, `payload.rejected=true`) and refused.
 
 ## States
 `proposed → exec_review → awaiting_human_go → approved → planning → ready →
-in_progress → in_qa → done` plus `bounced`, `escalated`, `blocked`, `cancelled`.
+in_progress → in_review → in_qa → done` plus `bounced`, `escalated`, `blocked`,
+`cancelled`.
+
+> Phase 2 change: `approved → planning → ready` is now live (Planner + Delivery
+> Manager). `proposed/exec_review/awaiting_human_go` remain Phase 3 — ideas enter at
+> `approved` via a human. NEW state `in_review` inserted between dev and QA.
 
 ## Transition whitelist
 | from | to | trigger | guard |
 |---|---|---|---|
-| proposed | exec_review | orchestrator | exec panel available |
-| exec_review | awaiting_human_go | exec panel done | BusinessCase attached |
-| awaiting_human_go | approved | HUMAN approves | approval row written |
-| awaiting_human_go | cancelled | HUMAN rejects | |
-| approved | planning | orchestrator | |
-| planning | ready | planner done | every task has acceptance_criteria |
-| ready | in_progress | assignment | budget > 0, sandbox available |
-| in_progress | in_qa | dev agent opens PR | diff non-empty |
-| in_qa | done | ALL CI suites pass | human deploy gate still applies |
+| approved | planning | orchestrator | idea has a human-approved budget |
+| planning | ready | Planner done | every task has acceptance_criteria + verification hints; TaskSpec[] passes schema + eval sanity checks |
+| planning | escalated | Planner outputs questions[] | human answers, then re-plan |
+| ready | in_progress | Delivery Manager assigns | budget > 0, sandbox available, dependencies done |
+| in_progress | in_review | dev agent opens PR | diff non-empty |
+| in_review | in_qa | Review agent approves OR human overrides | review comments recorded |
+| in_review | bounced | Review agent blocks | bounce_count < 3; review notes attached as FailureReport(kind=review) |
+| in_qa | done | ALL CI suites pass | merge-queue slot acquired; human deploy gate still applies |
 | in_qa | bounced | any CI suite fails | bounce_count < 3; FailureReport attached |
-| bounced | in_progress | orchestrator | same agent, FailureReport injected |
-| in_qa | escalated | CI fails | bounce_count == 3 |
+| bounced | in_progress | orchestrator | same agent profile, FailureReport injected |
+| in_review / in_qa | escalated | block/fail | bounce_count == 3 |
 | in_progress | escalated | system | budget exhausted OR wall-clock timeout |
-| escalated | in_progress | HUMAN "return to dev with note" (SPEC-006 escalation inbox) | note attached as a FailureReport-shaped event; does not reset bounce_count |
 | any | blocked / cancelled | HUMAN | |
 
-## Phase 1 note
-In Phase 1 there is no exec/planning layer: tickets are created directly in `ready`
-by humans, with hand-written acceptance criteria. States before `ready` activate in
-Phases 2–3 without schema changes.
+## Bounce accounting
+Review blocks and QA failures share the same `bounce_count` (a ticket gets 3 total
+attempts, not 3 per gate).
