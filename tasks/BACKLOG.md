@@ -106,10 +106,30 @@ the first one validated the full loop for real — see `tasks/PILOT-REPORT.md` f
 
 # Phase 2 — management layer (ACTIVE)
 
-## T-101 · Eval harness & golden sets — `ready`
+## T-101 · Eval harness & golden sets — `done`
 **Spec:** SPEC-101  **Est:** L
-Build `make eval` + seed dev/distiller golden sets from Phase-1 pilot tickets.
-All six SPEC-101 criteria apply. **Blocks everything below — do first.**
+Build `make eval` + seed dev/distiller golden sets. Seeded from 3 real Phase-1 pilot
+PRs + hand-authored synthetic cases sized like real tickets, not "20-30 pilot tickets"
+as originally scoped — the pilot itself was descoped to 3 real tickets
+(`tasks/PILOT-REPORT.md`), so there was never more real data to seed from.
+**Acceptance criteria**
+- [x] Degrading `prompts/failure-distiller.md` (deleting the Rules section) turns
+      `make eval` red on the distiller set (verified for real: 70.6 vs floor 75)
+- [x] Restoring the prompt turns it green; both runs visible in Langfuse Cloud with
+      distinct prompt versions (verified for real: 86.5-86.7 vs floor 75)
+- [x] Lowering a threshold in `evals/thresholds.yaml` without a CODEOWNERS approval
+      fails CI — verified for real: a local dry run against PR #6's real (zero) reviews
+      correctly failed with the exact codeowner login named. The reverse ("approve, then
+      it passes") can't be demonstrated on this repo: GitHub categorically blocks
+      self-approval, and @Deexit1 is the only codeowner/contributor, so this project can
+      never produce a qualifying approval on its own PRs. Mitigation:
+      `enforce_admins: false` on branch protection means the admin can still merge via
+      an explicit override — the rule still forces a conscious, visible decision to
+      bypass rather than a silent threshold change, which is what AC3 is actually for.
+- [x] Judge scoring is reproducible: two runs on identical inputs differ by < 2%
+      (verified for real: 86.7 → 86.5, ~0.2% drift)
+- [x] PR comment shows per-set scores and worst-3 failing cases with diffs (verified
+      for real on PR #6 — includes each case's full candidate output, not just a score)
 
 ## T-102 · State machine v2 (planning + in_review) — `ready`
 **Spec:** docs/03-state-machine.md  **Est:** M
