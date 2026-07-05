@@ -47,11 +47,14 @@ services:
 
   api:
     build:
-      context: ./apps/api
+      context: .
+      dockerfile: apps/api/Dockerfile
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      # Internal docker-network hostnames — distinct from the host-side values in .env
-      # used by Makefile targets (make migrate, local pytest integration runs).
+      # Internal docker-network hostnames — override the host-side values env_file just
+      # loaded from .env (used by Makefile targets: make migrate, local pytest runs).
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT_URL: http://minio:9000

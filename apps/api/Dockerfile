@@ -2,8 +2,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY pyproject.toml ./
-COPY src ./src
+# Build context is the repo root (see docker-compose.yml) so this can reach
+# packages/schemas — apps/api has depended on it since T-006/T-007's webhook +
+# failure-distiller code, same as the local Makefile venv already does.
+COPY packages/schemas /packages/schemas
+RUN pip install --no-cache-dir -e /packages/schemas
+
+COPY apps/api/pyproject.toml ./
+COPY apps/api/src ./src
 
 RUN pip install --no-cache-dir -e .
 
