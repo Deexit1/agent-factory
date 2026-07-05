@@ -35,7 +35,7 @@ def _lowered_sets(old: dict[str, object], new: dict[str, object]) -> list[str]:
 def _codeowners_logins() -> set[str]:
     codeowners_path = _REPO_ROOT / "CODEOWNERS"
     logins = set()
-    for line in codeowners_path.read_text().splitlines():
+    for line in codeowners_path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "evals/thresholds.yaml" not in line:
             continue
@@ -64,14 +64,20 @@ def main() -> int:
     pr_number = os.environ["PR_NUMBER"]
     repo = os.environ["REPO"]
 
-    old_text = subprocess.run(
+    # check=False: evals/thresholds.yaml may not exist on the base ref at all yet (its
+    # first-ever introduction) - that's "nothing to compare against", not an error.
+    old_result = subprocess.run(
         ["git", "show", f"origin/{base_ref}:evals/thresholds.yaml"],
         capture_output=True,
         text=True,
-        check=True,
-    ).stdout
-    old = yaml.safe_load(old_text) or {}
-    new = yaml.safe_load((_REPO_ROOT / "evals" / "thresholds.yaml").read_text()) or {}
+        check=False,
+    )
+    old = yaml.safe_load(old_result.stdout) if old_result.returncode == 0 else {}
+    old = old or {}
+    new = (
+        yaml.safe_load((_REPO_ROOT / "evals" / "thresholds.yaml").read_text(encoding="utf-8"))
+        or {}
+    )
 
     lowered = _lowered_sets(old, new)
     if not lowered:
