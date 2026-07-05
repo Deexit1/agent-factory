@@ -8,12 +8,16 @@ _REPO_ROOT = Path(__file__).resolve().parents[5]
 RESULTS_DIR = _REPO_ROOT / "evals" / "results"
 
 
+_DETAIL_EXCERPT_CHARS = 1500
+
+
 @dataclass(frozen=True)
 class CaseScore:
     case_id: str
     title: str
     score: float
     rationale: str
+    detail: str = ""  # dev: the candidate diff; distiller: the candidate FailureReport JSON
 
 
 @dataclass(frozen=True)
@@ -78,6 +82,13 @@ def write_markdown_summary(set_reports: list[SetReport], path: Path) -> str:
                 lines.append(
                     f"- `{case.case_id}` ({case.title}): {case.score:.1f} — {case.rationale}"
                 )
+                if case.detail.strip():
+                    excerpt = case.detail.strip()[:_DETAIL_EXCERPT_CHARS]
+                    lines.append("  <details><summary>diff</summary>\n")
+                    lines.append("  ```diff")
+                    lines.extend(f"  {line}" for line in excerpt.splitlines())
+                    lines.append("  ```")
+                    lines.append("  </details>")
         lines.append("")
     text = "\n".join(lines)
     path.parent.mkdir(parents=True, exist_ok=True)

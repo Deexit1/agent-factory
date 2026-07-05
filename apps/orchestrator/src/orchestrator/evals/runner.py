@@ -46,7 +46,9 @@ def run_dev_set(*, floor: float | None, langfuse: LangfuseClient) -> report.SetR
             rationale=result.rationale,
         )
         scores.append(
-            report.CaseScore(result.case_id, result.title, result.score, result.rationale)
+            report.CaseScore(
+                result.case_id, result.title, result.score, result.rationale, detail=result.diff
+            )
         )
     return report.SetReport(set_name="dev", floor=floor, scores=scores)
 
@@ -64,8 +66,11 @@ def run_distiller_set(*, floor: float | None, langfuse: LangfuseClient) -> repor
             score=result.score,
             rationale=result.rationale,
         )
+        detail = result.candidate.model_dump_json(indent=2) if result.candidate else ""
         scores.append(
-            report.CaseScore(result.case_id, result.title, result.score, result.rationale)
+            report.CaseScore(
+                result.case_id, result.title, result.score, result.rationale, detail=detail
+            )
         )
     return report.SetReport(set_name="distiller", floor=floor, scores=scores)
 
