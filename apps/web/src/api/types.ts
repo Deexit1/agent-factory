@@ -16,7 +16,14 @@ export type TicketState =
   | "blocked"
   | "cancelled";
 
-export type EventKind = "message" | "tool_call" | "test_result" | "transition" | "cost" | "edit";
+export type EventKind =
+  | "message"
+  | "tool_call"
+  | "test_result"
+  | "transition"
+  | "cost"
+  | "edit"
+  | "assignment";
 
 export type ApprovalGate = "idea" | "budget" | "deploy" | "escalation";
 
@@ -101,6 +108,16 @@ export interface Approval {
 
 export interface Descendants {
   items: Ticket[];
+}
+
+export interface ProfileUtilisation {
+  profile: string;
+  in_progress_count: number;
+  max_parallel: number;
+}
+
+export interface Utilisation {
+  items: ProfileUtilisation[];
 }
 
 export interface UpdateTaskRequest {

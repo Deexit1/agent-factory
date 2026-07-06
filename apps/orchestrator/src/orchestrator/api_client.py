@@ -61,6 +61,22 @@ class ApiClient:
         response.raise_for_status()
         return response.json()["items"]  # type: ignore[no-any-return]
 
+    def list_tickets(
+        self,
+        *,
+        state: str | None = None,
+        ticket_type: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"limit": limit}
+        if state is not None:
+            params["state"] = state
+        if ticket_type is not None:
+            params["type"] = ticket_type
+        response = self._client.get("/tickets", params=params)
+        response.raise_for_status()
+        return response.json()["items"]  # type: ignore[no-any-return]
+
     def append_event(
         self, ticket_id: str, *, actor: str, kind: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
@@ -104,11 +120,20 @@ class ApiClient:
         return response.json()  # type: ignore[no-any-return]
 
     def transition(
-        self, ticket_id: str, *, to_state: str, actor: str | None = None
+        self,
+        ticket_id: str,
+        *,
+        to_state: str,
+        actor: str | None = None,
+        assignee_agent: str | None = None,
     ) -> dict[str, Any]:
         response = self._client.post(
             f"/tickets/{ticket_id}/transition",
-            json={"to_state": to_state, "actor": actor or self._actor},
+            json={
+                "to_state": to_state,
+                "actor": actor or self._actor,
+                "assignee_agent": assignee_agent,
+            },
         )
         response.raise_for_status()
         return response.json()  # type: ignore[no-any-return]
@@ -117,6 +142,11 @@ class ApiClient:
         response = self._client.get(f"/tickets/{ticket_id}/cost-summary")
         response.raise_for_status()
         return response.json()  # type: ignore[no-any-return]
+
+    def utilisation(self) -> list[dict[str, Any]]:
+        response = self._client.get("/capability-registry/utilisation")
+        response.raise_for_status()
+        return response.json()["items"]  # type: ignore[no-any-return]
 
     def close(self) -> None:
         self._client.close()

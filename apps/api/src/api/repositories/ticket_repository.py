@@ -118,6 +118,41 @@ def get_descendants(session: Session, ticket_id: str, *, org_id: str) -> list[Ti
     return descendants
 
 
+def get_root_ancestor(session: Session, ticket_id: str, *, org_id: str) -> Ticket:
+    """Walk `parent_id` up to the top of the tree (a task's idea, via its epic)."""
+    ticket = session.get(Ticket, ticket_id)
+    assert ticket is not None and ticket.org_id == org_id
+    while ticket.parent_id is not None:
+        parent = session.get(Ticket, ticket.parent_id)
+        assert parent is not None
+        ticket = parent
+    return ticket
+
+
+def count_in_progress_by_assignee(session: Session, *, org_id: str, assignee_agent: str) -> int:
+    return session.execute(
+        select(func.count())
+        .select_from(Ticket)
+        .where(
+            Ticket.org_id == org_id,
+            Ticket.state == TicketState.IN_PROGRESS,
+            Ticket.assignee_agent == assignee_agent,
+        )
+    ).scalar_one()
+
+
+def count_in_progress_by_repo(session: Session, *, org_id: str, repo: str) -> int:
+    return session.execute(
+        select(func.count())
+        .select_from(Ticket)
+        .where(
+            Ticket.org_id == org_id,
+            Ticket.state == TicketState.IN_PROGRESS,
+            Ticket.spec["repo"].astext == repo,
+        )
+    ).scalar_one()
+
+
 def has_approval(
     session: Session,
     ticket_id: str,

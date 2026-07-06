@@ -9,6 +9,7 @@ import {
   fetchDescendants,
   fetchTicket,
   fetchTickets,
+  fetchUtilisation,
   reportEscapedDefect,
   returnToDev,
   transitionTicket,
@@ -25,6 +26,7 @@ import type {
   Ticket,
   TicketState,
   UpdateTaskRequest,
+  Utilisation,
 } from "./types";
 
 export const ticketsQueryKey = ["tickets"] as const;
@@ -103,6 +105,15 @@ export function useDashboardMetrics() {
   return useQuery<DashboardMetrics>({
     queryKey: ["dashboard-metrics"],
     queryFn: () => fetchDashboardMetrics(actorContext),
+  });
+}
+
+export function useUtilisation() {
+  const actorContext = useAuth();
+  return useQuery<Utilisation>({
+    queryKey: ["utilisation"],
+    queryFn: () => fetchUtilisation(actorContext),
+    refetchInterval: 5000,
   });
 }
 

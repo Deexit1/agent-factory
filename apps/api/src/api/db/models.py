@@ -45,6 +45,7 @@ class EventKind(StrEnum):
     TRANSITION = "transition"
     COST = "cost"
     EDIT = "edit"
+    ASSIGNMENT = "assignment"
 
 
 class ApprovalGate(StrEnum):

@@ -7,7 +7,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from api.routers import agent_runs, auth, dashboard, health, tickets, webhooks, ws_tickets
+from api.routers import (
+    agent_runs,
+    auth,
+    capability_registry,
+    dashboard,
+    health,
+    tickets,
+    webhooks,
+    ws_tickets,
+)
 from api.ws.broadcaster import broadcaster
 
 
@@ -42,3 +51,4 @@ app.include_router(agent_runs.router)
 app.include_router(webhooks.router)
 app.include_router(dashboard.router)
 app.include_router(ws_tickets.router)
+app.include_router(capability_registry.router)

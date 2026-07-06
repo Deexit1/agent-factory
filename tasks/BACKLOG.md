@@ -135,9 +135,60 @@ tickets enter directly at `approved`, epics/tasks stored as real child tickets
       `test_idea_planning_workflow.py::test_update_task_versions_an_edit_event_with_before_and_after`
       (new `EventKind.EDIT` + `PATCH /tickets/{id}`, approver/admin-gated)
 
-## T-104 · Capability registry + Delivery Manager — `ready`
+## T-104 · Capability registry + Delivery Manager — `done`
 **Spec:** SPEC-103  **Est:** M
-All five criteria apply. Requires T-102.
+New `capability_registry.yaml` (repo root; profile → model/base_image/skills/
+max_parallel, plus a `repo_concurrency_limit`), loaded by a small, intentionally
+duplicated loader in each of `apps/api` and `apps/orchestrator` (separate
+deployables, same precedent as `orchestrator/json_utils.py`). Seeded with one
+`dev-generalist` profile — real multi-profile skill-matching is T-105's job.
+Hard gates enforced in `apps/api`'s `state_machine.py`/`ticket_service.py` (code,
+not the prompt), so the Delivery Manager's LLM call can propose an invalid
+assignment and the API refuses it regardless. "Sandbox available" is treated as
+identical to "profile at `max_parallel` capacity" — no separate sandbox-pool
+subsystem exists in the architecture to model separately. The Delivery Manager
+(`apps/orchestrator/src/orchestrator/agents/delivery_manager.py`) makes ONE sonnet
+call per invocation for the WHOLE `ready` queue at once (matching the pre-existing
+`prompts/delivery-manager.md` v0.1 batch contract), not one call per task.
+**Acceptance criteria**
+- [x] A dependent task (`depends_on` a sibling not yet `done`) cannot start even if
+      proposed — verified:
+      `apps/api/tests/integration/test_delivery_manager_gates.py::test_dependent_task_cannot_start_before_its_dependency_is_done`
+      (API-level 409 + "dependencies are not done") and
+      `apps/orchestrator/tests/integration/test_delivery_manager_agent.py::test_dependent_task_is_refused_by_the_api_and_recorded_not_crashed`
+      (agent-level: the DM proposes it anyway, the API refuses, the DM records the
+      refusal instead of crashing, then re-runs once the dependency completes and
+      confirms the gate lifts)
+- [x] A profile at its registry `max_parallel` has zero eligible profiles computed
+      in Python (before any LLM call), and a ready task with no eligible profile is
+      left `ready` with a `human_only` decision recorded, never assigned — verified:
+      `apps/api/tests/integration/test_delivery_manager_gates.py::test_profile_max_parallel_defers_a_third_assignment`
+      (API-level 409) and
+      `test_delivery_manager_agent.py::test_task_deferred_to_human_when_profile_already_at_capacity`
+      (agent-level: asserts `route()` is never even called, then frees capacity and
+      confirms the task is picked up on the next run)
+- [x] Every assignment decision (`assigned`/`refused`/`deferred`/`human_only`) is
+      recorded as a `kind=assignment` ticket event carrying the model's reason and
+      the profiles considered — verified:
+      `test_delivery_manager_agent.py::test_successful_assignment_event_always_records_reason_and_considered`
+- [x] Reassignment is refused once a task's own `cost_ledger` spend already meets
+      its budget, even when the Delivery Manager (or anyone) proposes it again —
+      verified:
+      `test_delivery_manager_gates.py::test_reassignment_refused_once_task_has_already_spent_its_budget`
+      and `test_delivery_manager_agent.py::test_reassignment_over_budget_is_refused_not_crashed`
+      (real fault injection: escalate a fully-spent task, requeue it to `ready` via
+      the new human-only `escalated → ready` transition, confirm reassignment is
+      refused, not retried)
+- [x] `GET /capability-registry/utilisation` reports real per-profile in-progress
+      counts against each profile's `max_parallel` — verified:
+      `test_delivery_manager_gates.py::test_utilisation_endpoint_matches_real_in_progress_counts`
+      and surfaced in the web UI's new Assignments view
+      (`apps/web/src/assignments/AssignmentQueuePage.tsx`)
+
+Known gaps, disclosed: the batch LLM call's cost is attributed entirely to the
+first considered ready task's `agent_run` (no proportional split — `agent_runs` has
+no "not tied to one ticket" concept); `llm_router` had no `claude-sonnet-5` pricing
+entry until now (fixed, since the DM is the first caller that needs it).
 
 ## T-105 · Specialised dev-agent profiles — `ready`
 **Spec:** SPEC-104  **Est:** L

@@ -95,6 +95,7 @@ class PaginatedEvents(BaseModel):
 class TransitionRequest(BaseModel):
     to_state: TicketState
     actor: str
+    assignee_agent: str | None = None
 
 
 class CreateEventRequest(BaseModel):
@@ -212,6 +213,16 @@ class UpdateTaskRequest(BaseModel):
 
 class DescendantsOut(BaseModel):
     items: list[TicketOut]
+
+
+class ProfileUtilisationOut(BaseModel):
+    profile: str
+    in_progress_count: int
+    max_parallel: int
+
+
+class UtilisationOut(BaseModel):
+    items: list[ProfileUtilisationOut]
 
 
 class EscapedDefectReportIn(BaseModel):

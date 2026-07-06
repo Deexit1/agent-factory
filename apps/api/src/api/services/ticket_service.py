@@ -1,6 +1,7 @@
-from schemas.models import FailureReport
+from schemas.models import DEFAULT_REPO, FailureReport
 from sqlalchemy.orm import Session
 
+from api.capability_registry import load_registry
 from api.contracts import CreateTicketRequest
 from api.db.models import (
     Approval,
@@ -13,6 +14,7 @@ from api.db.models import (
     TicketType,
 )
 from api.domain import state_machine
+from api.repositories import agent_run_repository
 from api.repositories import ticket_repository as repo
 from api.ws.broadcaster import broadcaster
 
@@ -195,6 +197,61 @@ def _plan_fields(
     return task_count, has_cycle, child_budget_total, has_budget_approval
 
 
+def _deps_done(session: Session, ticket: Ticket, *, org_id: str) -> bool:
+    """Resolves `ticket.spec["depends_on"]` (TaskSpec-id space) against sibling
+    tickets sharing the same idea ancestor, and checks they're all `done`. Empty/no
+    `depends_on` is trivially satisfied."""
+    spec = ticket.spec or {}
+    depends_on = spec.get("depends_on")
+    if not isinstance(depends_on, list) or not depends_on:
+        return True
+
+    root = repo.get_root_ancestor(session, ticket.id, org_id=org_id)
+    siblings = repo.get_descendants(session, root.id, org_id=org_id)
+    by_task_spec_id = {
+        sibling.spec["id"]: sibling
+        for sibling in siblings
+        if sibling.spec and isinstance(sibling.spec.get("id"), str)
+    }
+    for dep_id in depends_on:
+        dep_ticket = by_task_spec_id.get(dep_id)
+        if dep_ticket is None or dep_ticket.state is not TicketState.DONE:
+            return False
+    return True
+
+
+def _spent_usd(session: Session, ticket: Ticket, *, org_id: str) -> float:
+    return agent_run_repository.sum_cost_ledger(session, ticket.id, org_id=org_id)
+
+
+def _capacity_fields(
+    session: Session, ticket: Ticket, *, org_id: str, assignee_agent: str | None
+) -> tuple[bool, bool]:
+    """Only meaningful when `assignee_agent` is proposed on the request (a Delivery
+    Manager-mediated assignment attempt) — profile max_parallel and per-repo
+    concurrency, both from capability_registry.yaml (SPEC-103)."""
+    repo_str = (ticket.spec or {}).get("repo", DEFAULT_REPO)
+    if not isinstance(repo_str, str):
+        repo_str = DEFAULT_REPO
+
+    registry = load_registry()
+    repo_in_progress = repo.count_in_progress_by_repo(session, org_id=org_id, repo=repo_str)
+    repo_at_capacity = repo_in_progress >= registry.repo_concurrency_limit
+
+    if assignee_agent is None:
+        return False, repo_at_capacity
+
+    profile = registry.profiles.get(assignee_agent)
+    if profile is None:
+        return True, repo_at_capacity  # unknown profile is never eligible
+
+    profile_in_progress = repo.count_in_progress_by_assignee(
+        session, org_id=org_id, assignee_agent=assignee_agent
+    )
+    profile_at_capacity = profile_in_progress >= profile.max_parallel
+    return profile_at_capacity, repo_at_capacity
+
+
 def _cascade_plan_to_ready(session: Session, ticket: Ticket, *, org_id: str) -> None:
     """Once an idea's plan is approved, its descendant epic/task tickets (created
     directly into `planning`, mirroring the parent, since nothing else reaches them
@@ -216,7 +273,13 @@ def _cascade_plan_to_ready(session: Session, ticket: Ticket, *, org_id: str) -> 
 
 
 def request_transition(
-    session: Session, ticket_id: str, to_state: TicketState, actor: str, *, org_id: str
+    session: Session,
+    ticket_id: str,
+    to_state: TicketState,
+    actor: str,
+    *,
+    org_id: str,
+    assignee_agent: str | None = None,
 ) -> Ticket:
     ticket = get_ticket(session, ticket_id, org_id=org_id)
     from_state = ticket.state
@@ -225,6 +288,15 @@ def request_transition(
         (0, False, 0.0, False)
         if not (from_state is TicketState.PLANNING and to_state is TicketState.READY)
         else _plan_fields(session, ticket, org_id=org_id)
+    )
+
+    is_assignment_attempt = from_state is TicketState.READY and to_state is TicketState.IN_PROGRESS
+    deps_done = _deps_done(session, ticket, org_id=org_id) if is_assignment_attempt else True
+    spent_usd = _spent_usd(session, ticket, org_id=org_id) if is_assignment_attempt else 0.0
+    profile_at_capacity, repo_at_capacity = (
+        _capacity_fields(session, ticket, org_id=org_id, assignee_agent=assignee_agent)
+        if is_assignment_attempt
+        else (False, False)
     )
 
     transition_request = state_machine.TransitionRequest(
@@ -238,6 +310,11 @@ def request_transition(
         plan_has_cycle=plan_has_cycle,
         plan_child_budget_total=plan_child_budget_total,
         plan_has_budget_approval=plan_has_budget_approval,
+        deps_done=deps_done,
+        spent_usd=spent_usd,
+        assignee_agent=assignee_agent,
+        profile_at_capacity=profile_at_capacity,
+        repo_at_capacity=repo_at_capacity,
     )
 
     try:
@@ -287,6 +364,8 @@ def request_transition(
 
     if to_state is TicketState.BOUNCED:
         ticket.bounce_count += 1
+    if is_assignment_attempt and assignee_agent is not None:
+        ticket.assignee_agent = assignee_agent
     ticket.state = to_state
     event = repo.append_event(
         session,
