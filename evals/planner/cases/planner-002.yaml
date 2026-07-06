@@ -1,0 +1,51 @@
+case_id: planner-002
+title: Email notification on ticket escalation
+source: synthetic
+idea:
+  title: Notify the on-call approver by email when a ticket escalates
+  description: >
+    When a ticket transitions to `escalated`, send an email to the configured
+    on-call approver with the ticket id, title, and reason. Use the existing SMTP
+    config already in .env.example.
+  budget_usd: 60.0
+reference:
+  epics:
+    - id: epic-1
+      title: Escalation email notifications
+      description: Send and test the escalation email.
+      budget_usd: 55.0
+  tasks:
+    - id: task-1
+      title: Add an email sender utility
+      context: A small wrapper around smtplib configured from env vars, with a fake
+        transport for tests.
+      acceptance_criteria:
+        - id: AC-1
+          description: send_email() delivers via the configured SMTP transport
+          verification: test_email.py::test_send_email_uses_configured_transport
+      complexity: low
+      budget_usd: 20.0
+      depends_on: []
+      estimate_days: 0.25
+      epic_id: epic-1
+    - id: task-2
+      title: Send the escalation email on transition
+      context: Hook into the escalation transition path and send the email with
+        ticket id/title/reason.
+      acceptance_criteria:
+        - id: AC-1
+          description: escalating a ticket sends exactly one email to the approver
+          verification: test_escalation_email.py::test_escalation_sends_one_email
+        - id: AC-2
+          description: the email body includes the ticket id and rejection reason
+          verification: test_escalation_email.py::test_email_body_includes_reason
+      complexity: medium
+      budget_usd: 35.0
+      depends_on: [task-1]
+      estimate_days: 0.75
+      epic_id: epic-1
+rubric_weights:
+  schema_valid: 0.25
+  dag_valid: 0.25
+  budget_within_idea: 0.25
+  verification_hints_present: 0.25

@@ -5,11 +5,13 @@ import type {
   CostSummary,
   CreateTicketRequest,
   DashboardMetrics,
+  Descendants,
   Paginated,
   Ticket,
   TicketEvent,
   TicketState,
   TicketWithEvents,
+  UpdateTaskRequest,
 } from "./types";
 
 const API_URL: string = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
@@ -178,6 +180,35 @@ export function reportEscapedDefect(
   return request("/dashboard/escaped-defects", actorContext, {
     method: "POST",
     body: JSON.stringify({ ticket_id: ticketId, note }),
+  });
+}
+
+export function fetchDescendants(
+  actorContext: ActorContext,
+  ticketId: string,
+): Promise<Descendants> {
+  return request(`/tickets/${ticketId}/descendants`, actorContext);
+}
+
+export function updateTask(
+  actorContext: ActorContext,
+  ticketId: string,
+  body: UpdateTaskRequest,
+): Promise<Ticket> {
+  return request(`/tickets/${ticketId}`, actorContext, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function answerPlanningQuestions(
+  actorContext: ActorContext,
+  ticketId: string,
+  answers: string,
+): Promise<Ticket> {
+  return request(`/tickets/${ticketId}/answer-planning-questions`, actorContext, {
+    method: "POST",
+    body: JSON.stringify({ answers }),
   });
 }
 

@@ -1,0 +1,36 @@
+case_id: planner-004
+title: Search and filter tickets by title
+source: synthetic
+idea:
+  title: Add a search box to the board to filter tickets by title
+  description: >
+    A text input above the board that filters visible ticket cards to those whose
+    title contains the search text (case-insensitive), client-side only.
+  budget_usd: 40.0
+reference:
+  epics:
+    - id: epic-1
+      title: Board title search
+      description: Client-side filtering of the ticket list.
+      budget_usd: 35.0
+  tasks:
+    - id: task-1
+      title: Add a search input and client-side filter
+      context: A controlled input whose value filters the tickets shown per column.
+      acceptance_criteria:
+        - id: AC-1
+          description: typing text hides cards whose title doesn't match, case-insensitively
+          verification: board.spec.ts::search_filters_cards_by_title_case_insensitively
+        - id: AC-2
+          description: clearing the search shows all cards again
+          verification: board.spec.ts::clearing_search_restores_all_cards
+      complexity: low
+      budget_usd: 35.0
+      depends_on: []
+      estimate_days: 0.5
+      epic_id: epic-1
+rubric_weights:
+  schema_valid: 0.25
+  dag_valid: 0.25
+  budget_within_idea: 0.25
+  verification_hints_present: 0.25

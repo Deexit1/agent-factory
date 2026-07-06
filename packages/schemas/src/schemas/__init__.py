@@ -3,8 +3,11 @@ from schemas.models import (
     AcceptanceCriterion,
     BusinessCase,
     Complexity,
+    Epic,
     FailureReport,
     MarketEvidence,
+    PlannerPlan,
+    PlannerQuestions,
     TaskSpec,
 )
 
@@ -13,7 +16,10 @@ __all__ = [
     "AcceptanceCriterion",
     "BusinessCase",
     "Complexity",
+    "Epic",
     "FailureReport",
     "MarketEvidence",
+    "PlannerPlan",
+    "PlannerQuestions",
     "TaskSpec",
 ]

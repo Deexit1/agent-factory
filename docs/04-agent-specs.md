@@ -15,8 +15,13 @@ must pass the golden-set eval in CI before merge.
 | Review agent | sonnet-class | PR diff, style guide, Semgrep output | PR → comments + block/approve recommendation (human may override) |
 
 ## Shared schema contracts (`packages/schemas`)
-- `TaskSpec`: id, title, context, constraints, acceptance_criteria[], complexity, budget_usd
+- `TaskSpec`: id, title, context, constraints, acceptance_criteria[], complexity,
+  budget_usd, depends_on[] (sibling task ids), estimate_days (nullable; >1 is a
+  non-blocking review flag, not a hard gate), epic_id (nullable)
 - `AcceptanceCriterion`: id, description, verification ("test name/pattern that proves it")
+- `Epic` (T-103): id, title, description, budget_usd
+- `PlannerPlan` (T-103): epics[], tasks[] — the Planner's normal output
+- `PlannerQuestions` (T-103): questions[] — Planner output when the idea is under-specified
 - `FailureReport`: ticket_id, failing_suite, failing_tests[], expected_vs_actual, suspect_files[], attempt_no
 - `BusinessCase`: idea_id, opportunity, market_evidence[cited], cost_estimate, risks[], recommendation
 

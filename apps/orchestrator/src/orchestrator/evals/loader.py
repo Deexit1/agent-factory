@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from schemas import AcceptanceCriterion, Complexity, TaskSpec
+from schemas import AcceptanceCriterion, Complexity, Epic, PlannerPlan, TaskSpec
 
 # apps/orchestrator/src/orchestrator/evals/loader.py -> repo root is 5 parents up.
 _REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -108,6 +108,75 @@ def load_dev_cases(evals_root: Path = EVALS_ROOT) -> list[DevCase]:
                 ),
                 rubric_weights=dict(raw["rubric_weights"]),
                 case_dir=case_dir,
+            )
+        )
+    return cases
+
+
+@dataclass(frozen=True)
+class PlannerIdea:
+    title: str
+    description: str
+    budget_usd: float
+
+
+@dataclass(frozen=True)
+class PlannerCase:
+    case_id: str
+    title: str
+    source: str  # "synthetic" — no real ideas exist to seed this set from (see T-103)
+    idea: PlannerIdea
+    reference: PlannerPlan
+    rubric_weights: dict[str, float]
+
+
+def _load_task_spec_with_planning_fields(raw: dict[str, Any]) -> TaskSpec:
+    return TaskSpec(
+        id=raw["id"],
+        title=raw["title"],
+        context=raw["context"],
+        constraints=raw.get("constraints", []),
+        acceptance_criteria=[
+            AcceptanceCriterion(
+                id=c["id"], description=c["description"], verification=c["verification"]
+            )
+            for c in raw["acceptance_criteria"]
+        ],
+        complexity=Complexity(raw["complexity"]),
+        budget_usd=float(raw["budget_usd"]),
+        depends_on=raw.get("depends_on", []),
+        estimate_days=raw.get("estimate_days"),
+        epic_id=raw.get("epic_id"),
+    )
+
+
+def load_planner_cases(evals_root: Path = EVALS_ROOT) -> list[PlannerCase]:
+    cases_dir = evals_root / "planner" / "cases"
+    if not cases_dir.exists():
+        return []
+
+    cases = []
+    for case_file in sorted(cases_dir.glob("*.yaml")):
+        raw = yaml.safe_load(case_file.read_text(encoding="utf-8"))
+        idea_raw = raw["idea"]
+        reference_raw = raw["reference"]
+        cases.append(
+            PlannerCase(
+                case_id=raw["case_id"],
+                title=raw["title"],
+                source=raw["source"],
+                idea=PlannerIdea(
+                    title=idea_raw["title"],
+                    description=idea_raw["description"],
+                    budget_usd=float(idea_raw["budget_usd"]),
+                ),
+                reference=PlannerPlan(
+                    epics=[Epic(**e) for e in reference_raw["epics"]],
+                    tasks=[
+                        _load_task_spec_with_planning_fields(t) for t in reference_raw["tasks"]
+                    ],
+                ),
+                rubric_weights=dict(raw["rubric_weights"]),
             )
         )
     return cases

@@ -32,7 +32,7 @@ row to it; real per-request org resolution (invites, per-org membership) is T-20
 | ticket_id | text FK | |
 | ts | timestamptz | |
 | actor | text | `agent:dev-1` \| `human:uid` \| `system` |
-| kind | enum | `message` \| `tool_call` \| `test_result` \| `transition` \| `cost` |
+| kind | enum | `message` \| `tool_call` \| `test_result` \| `transition` \| `cost` \| `edit` (T-103: human edits to a Planner-produced TaskSpec, before/after payload) |
 | payload | jsonb | |
 
 ## agent_runs

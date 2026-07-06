@@ -2,14 +2,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAuth } from "../auth/AuthContext";
 import {
+  answerPlanningQuestions,
   approveTicket,
   fetchCostSummary,
   fetchDashboardMetrics,
+  fetchDescendants,
   fetchTicket,
   fetchTickets,
   reportEscapedDefect,
   returnToDev,
   transitionTicket,
+  updateTask,
   type ApiError,
 } from "./client";
 import type {
@@ -18,8 +21,10 @@ import type {
   ApprovalGate,
   CostSummary,
   DashboardMetrics,
+  Descendants,
   Ticket,
   TicketState,
+  UpdateTaskRequest,
 } from "./types";
 
 export const ticketsQueryKey = ["tickets"] as const;
@@ -98,6 +103,42 @@ export function useDashboardMetrics() {
   return useQuery<DashboardMetrics>({
     queryKey: ["dashboard-metrics"],
     queryFn: () => fetchDashboardMetrics(actorContext),
+  });
+}
+
+export function useDescendants(ticketId: string | null) {
+  const actorContext = useAuth();
+  return useQuery<Descendants>({
+    queryKey: ["descendants", ticketId],
+    queryFn: () => fetchDescendants(actorContext, ticketId as string),
+    enabled: ticketId !== null,
+  });
+}
+
+export function useUpdateTask() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation<Ticket, ApiError, { ticketId: string; ideaId: string } & UpdateTaskRequest>({
+    mutationFn: ({ ticketId, title, spec, acceptance_criteria, budget_usd }) =>
+      updateTask(actorContext, ticketId, { title, spec, acceptance_criteria, budget_usd }),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ["descendants", variables.ideaId] });
+      void queryClient.invalidateQueries({ queryKey: ticketQueryKey(variables.ticketId) });
+    },
+  });
+}
+
+export function useAnswerPlanningQuestions() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation<Ticket, ApiError, { ticketId: string; answers: string }>({
+    mutationFn: ({ ticketId, answers }) => answerPlanningQuestions(actorContext, ticketId, answers),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ticketQueryKey(variables.ticketId) });
+      void queryClient.invalidateQueries({ queryKey: ticketsQueryKey });
+    },
   });
 }
 

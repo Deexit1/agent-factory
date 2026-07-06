@@ -5,25 +5,14 @@ Temperature 0 for reproducibility (AC4: two runs on identical input must differ 
 agents, the judge has no production counterpart to reuse, so this is eval-only code.
 """
 
-import json
-import re
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Protocol
 
 from llm_router import route
 
+from orchestrator.json_utils import extract_json_object
+
 _MAX_TOKENS = 300
-_CODE_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
-
-
-def extract_json_object(text: str) -> dict[str, Any]:
-    """Haiku sometimes wraps JSON in a ```json ... ``` fence despite instructions not to."""
-    fenced = _CODE_FENCE_RE.search(text)
-    payload = fenced.group(1) if fenced else text
-    result = json.loads(payload)
-    if not isinstance(result, dict):
-        raise ValueError(f"expected a JSON object, got {type(result).__name__}")
-    return result
 
 _RUBRIC_PROMPTS = {
     "dev": """You are grading a coding agent's diff against a reference (known-good) diff \
@@ -40,6 +29,22 @@ FailureReport for the same raw CI log. Score 0-100 on:
 - suspect_files overlaps meaningfully with the reference
 - warnings, flaky-marked skips, and infra noise were correctly ignored unless nothing
   else failed (in which case failing_suite should be "infra")""",
+    "planner": """You are grading a Planner agent's epic/task decomposition of an idea
+against a reference decomposition. Score 0-100 on:
+- Does the candidate cover the same functional scope as the reference (even if the
+  exact epic/task split differs)?
+- Are acceptance criteria specific and machine-verifiable, not vague?
+- Is the task breakdown a reasonable, independently-shippable slicing, not arbitrary?
+A candidate that slices the work differently but sensibly should score highly. A
+candidate that copies reference wording without a coherent decomposition should score
+low.
+If the candidate is a list of clarifying questions instead of a decomposition: the
+reference successfully produced a full plan from the same idea input, so the idea was
+NOT actually under-specified. Score low (0-25) unless the questions identify a real,
+material gap a competent planner genuinely could not have proceeded without (in which
+case score higher in proportion to how essential the missing information truly was).
+Being needlessly conservative about a well-specified idea is the failure mode this
+rubric exists to catch.""",
 }
 
 
@@ -58,7 +63,7 @@ class JudgeFn(Protocol):
 def haiku_judge(
     *, set_name: str, case_title: str, reference: str, candidate: str
 ) -> JudgeVerdict:
-    text = route(
+    result = route(
         "eval-judge",
         system=_RUBRIC_PROMPTS[set_name],
         messages=[
@@ -75,5 +80,8 @@ def haiku_judge(
         ],
         max_tokens=_MAX_TOKENS,
     )
-    parsed = extract_json_object(text)
+    parsed = extract_json_object(result.text)
     return JudgeVerdict(score=float(parsed["score"]), rationale=str(parsed["rationale"]))
+
+
+__all__ = ["JudgeVerdict", "JudgeFn", "haiku_judge", "extract_json_object"]

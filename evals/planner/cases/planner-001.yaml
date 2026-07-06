@@ -1,0 +1,52 @@
+case_id: planner-001
+title: CRUD API for a widgets resource
+source: synthetic
+idea:
+  title: Add a CRUD API for widgets
+  description: >
+    Users need to create, read, update, and delete "widget" records through a REST
+    API. Widgets have a name, a quantity, and a price. No auth changes needed —
+    reuse the existing session middleware.
+  budget_usd: 120.0
+reference:
+  epics:
+    - id: epic-1
+      title: Widgets CRUD endpoints
+      description: All four REST operations plus the persistence layer.
+      budget_usd: 100.0
+  tasks:
+    - id: task-1
+      title: Add widgets table + create/read endpoints
+      context: Add a widgets table (name, quantity, price) and POST/GET endpoints.
+      acceptance_criteria:
+        - id: AC-1
+          description: POST /widgets creates a widget and returns 201
+          verification: test_widgets_api.py::test_create_widget_returns_201
+        - id: AC-2
+          description: GET /widgets/{id} returns the created widget
+          verification: test_widgets_api.py::test_get_widget_returns_the_created_widget
+      complexity: low
+      budget_usd: 50.0
+      depends_on: []
+      estimate_days: 0.5
+      epic_id: epic-1
+    - id: task-2
+      title: Add update/delete endpoints
+      context: Add PUT and DELETE endpoints for widgets, building on task-1's model.
+      acceptance_criteria:
+        - id: AC-1
+          description: PUT /widgets/{id} updates fields and returns 200
+          verification: test_widgets_api.py::test_update_widget_returns_200
+        - id: AC-2
+          description: DELETE /widgets/{id} removes the widget and returns 204
+          verification: test_widgets_api.py::test_delete_widget_returns_204
+      complexity: low
+      budget_usd: 50.0
+      depends_on: [task-1]
+      estimate_days: 0.5
+      epic_id: epic-1
+rubric_weights:
+  schema_valid: 0.25
+  dag_valid: 0.25
+  budget_within_idea: 0.25
+  verification_hints_present: 0.25

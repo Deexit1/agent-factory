@@ -1,0 +1,49 @@
+case_id: planner-005
+title: Rate limit the ticket creation endpoint
+source: synthetic
+idea:
+  title: Rate-limit POST /tickets per actor
+  description: >
+    Prevent a single actor from creating more than 10 tickets per minute, returning
+    429 with a Retry-After header once the limit is hit. In-memory limiter is fine
+    for now.
+  budget_usd: 70.0
+reference:
+  epics:
+    - id: epic-1
+      title: Ticket-creation rate limiting
+      description: A reusable limiter plus wiring it into the create-ticket route.
+      budget_usd: 65.0
+  tasks:
+    - id: task-1
+      title: Add a per-actor sliding-window rate limiter
+      context: A small in-memory limiter keyed by actor, injectable for tests.
+      acceptance_criteria:
+        - id: AC-1
+          description: an 11th request within 60s from the same actor is rejected
+          verification: test_rate_limiter.py::test_eleventh_request_within_window_is_rejected
+      complexity: medium
+      budget_usd: 35.0
+      depends_on: []
+      estimate_days: 0.75
+      epic_id: epic-1
+    - id: task-2
+      title: Wire the limiter into POST /tickets
+      context: Return 429 + Retry-After when the limiter rejects the actor.
+      acceptance_criteria:
+        - id: AC-1
+          description: the 11th create-ticket request in a minute returns 429
+          verification: test_tickets_api.py::test_rate_limited_create_returns_429
+        - id: AC-2
+          description: the 429 response includes a Retry-After header
+          verification: test_tickets_api.py::test_rate_limited_response_has_retry_after
+      complexity: low
+      budget_usd: 30.0
+      depends_on: [task-1]
+      estimate_days: 0.5
+      epic_id: epic-1
+rubric_weights:
+  schema_valid: 0.25
+  dag_valid: 0.25
+  budget_within_idea: 0.25
+  verification_hints_present: 0.25

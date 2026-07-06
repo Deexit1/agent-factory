@@ -1,0 +1,50 @@
+case_id: planner-015
+title: Per-org API key management for BYOK
+source: synthetic
+idea:
+  title: Let an org admin store and rotate their own Anthropic API key
+  description: >
+    Ahead of full BYOK (SPEC-202), add a minimal per-org settings screen where an
+    org admin can paste in their own Anthropic API key, stored encrypted, with a
+    "rotate" action that replaces it. Not wired into the router yet — storage and
+    UI only for this idea.
+  budget_usd: 110.0
+reference:
+  epics:
+    - id: epic-1
+      title: Org API key storage
+      description: Encrypted storage plus the admin-only settings screen.
+      budget_usd: 100.0
+  tasks:
+    - id: task-1
+      title: Add encrypted storage for a per-org API key
+      context: A new table storing an encrypted key per org, admin-only read/write.
+      acceptance_criteria:
+        - id: AC-1
+          description: an admin can set the org's key and it round-trips encrypted at rest
+          verification: test_org_keys.py::test_set_key_round_trips_encrypted_at_rest
+        - id: AC-2
+          description: a non-admin cannot read or set the key
+          verification: test_org_keys.py::test_non_admin_cannot_read_or_set_key
+      complexity: medium
+      budget_usd: 60.0
+      depends_on: []
+      estimate_days: 1.0
+      epic_id: epic-1
+    - id: task-2
+      title: Add an admin settings screen to set/rotate the key
+      context: A form to paste a new key and a rotate button, admin-role-gated.
+      acceptance_criteria:
+        - id: AC-1
+          description: an admin can submit a new key from the settings screen
+          verification: settings.spec.ts::admin_can_submit_a_new_key
+      complexity: low
+      budget_usd: 40.0
+      depends_on: [task-1]
+      estimate_days: 0.75
+      epic_id: epic-1
+rubric_weights:
+  schema_valid: 0.25
+  dag_valid: 0.25
+  budget_within_idea: 0.25
+  verification_hints_present: 0.25

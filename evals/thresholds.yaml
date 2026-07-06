@@ -27,10 +27,26 @@ distiller:
     so it can hold a slightly higher bar than the dev set from the start.
 
 planner:
-  floor: null
-  not_yet_enforced: true
-  updated_by: T-101
-  rationale: "Planner agent doesn't exist until T-103 seeds this set for real."
+  floor: 70
+  not_yet_enforced: false
+  updated_by: T-103
+  rationale: >
+    A real run against live opus first surfaced two bugs, both fixed: (1)
+    planner_scorer.invoke_planner crashed on a questions[] response instead of
+    scoring it (fixed - now scores it via the judge, deterministic=0, since every
+    reference in this set is a full plan and questions[] here means the idea was
+    incorrectly treated as under-specified); (2) prompts/planner.md never specified
+    the exact JSON shape, so the model returned rich question objects instead of
+    plain strings and asked unnecessary questions on well-specified ideas (fixed in
+    v0.2 - explicit output-shape section + "prefer a default over a question"
+    guidance). After both fixes, a full real run over all 15 cases: 15/15 valid
+    plans, zero errors, zero questions, deterministic_score 100 on every case
+    (schema/DAG/budget/verification all pass), combined score avg 88.6, min 76.8,
+    max 96.8. Floor set to 70, matching the dev set's initial-floor reasoning: a
+    buffer below the observed minimum (76.8) so normal judge-scoring variance
+    doesn't trip it, while still catching a real regression. Revisit once more
+    real usage/cases exist. Run-to-run reproducibility (AC4-style, <2% drift) not
+    yet separately verified for this set.
 
 review:
   floor: null

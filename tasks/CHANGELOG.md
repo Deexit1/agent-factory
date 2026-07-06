@@ -701,3 +701,103 @@ Format:
   grep-gate cannot and does not cover `claude_runner.py`'s CLI-subprocess path to the
   `claude` binary — a known, disclosed gap; T-202 (BYOK) will need a different
   mechanism there (e.g. per-org env injection into the subprocess), not a grep gate.
+
+## T-103 · Planner agent + planning review UI — 2026-07-06
+- What changed: First real LangGraph adoption in the repo (`docs/06-tech-stack.md`) —
+  `apps/orchestrator/src/orchestrator/agents/planner.py` is a single-node `StateGraph`
+  (no `PostgresSaver` checkpointing yet; nothing to resume across with one node,
+  revisit when T-104+ chains multiple agents into a real multi-step graph). Built the
+  actual idea/epic/task workflow the state machine only had enum placeholders for:
+  idea tickets now enter directly at `approved` (contracts.py requires `budget_usd` >
+  0 for `IDEA` tickets); `approved -> planning` guard reuses the existing
+  budget-positive check; `planning -> escalated` and `escalated -> planning` are new
+  whitelist entries for the Planner's questions[] round trip
+  (`ticket_service.answer_planning_questions`); `planning -> ready`'s guard now checks
+  a real DAG-cycle test (DFS with a recursion stack over the TaskSpec-id space each
+  task's `spec` JSONB carries — deliberately not the real Ticket.id space, since the
+  Planner assigns its own scratch ids before any Ticket row exists), a task-budget-sum
+  check, and a recorded `Approval(gate=BUDGET, decision=APPROVED)` — resolving two
+  different "budget" concepts in SPEC-102 by re-reading docs/00-vision.md's two human
+  checkpoints (idea go/budget at creation vs. plan-budget approval before the dev
+  queue). Epics/tasks are stored as real child `Ticket` rows (`parent_id` chaining
+  idea -> epic -> task), not a JSON blob, reusing every existing piece of ticket
+  infrastructure (events, org_id scoping, dashboard, board) for free; on
+  `planning -> ready`, descendant epic/task tickets cascade from `planning` to `ready`
+  in the same transaction. Extended `packages/schemas.TaskSpec` with `depends_on`/
+  `estimate_days`/`epic_id`, and added `Epic`/`PlannerPlan`/`PlannerQuestions`.
+  Extended `packages/llm_router.route()` to return a `RouteResult` (text + model +
+  tokens + cost) instead of a bare string — needed to record real `agent_runs`/
+  `cost_ledger` rows for the planner, which (unlike the dev agent's CLI-transcript-cost
+  events) has no other way to learn its own token usage — and added a `"planner"` role
+  routed to an opus-class model. Added `EventKind.EDIT` + `PATCH /tickets/{id}`
+  (approver/admin-gated) so human inline-edits to a Planner-produced TaskSpec are
+  versioned as before/after events (AC6). Added a new third web view ("Planning") in
+  the existing `useState<View>` switch (no router in this app) with a review screen:
+  idea list -> descendant epic/task tree -> inline task edit -> "Approve & start".
+  Seeded `evals/planner/` with 15 synthetic idea fixtures (no real ideas exist to seed
+  from, same honesty precedent as T-101's dev set) and a real scorer
+  (`planner_scorer.py`, 60/40 deterministic/judge blend matching the dev set).
+- Real bug found via a real API call, not a unit test: `claude-opus-4-8` rejects the
+  `temperature` parameter outright ("`temperature` is deprecated for this model") —
+  `llm_router.route()` now omits it for opus-class models while still sending it for
+  haiku (needed for AC4-style reproducibility on the judge). Would have silently
+  broken every real planner call had it shipped unnoticed.
+- Files touched: `packages/schemas/src/schemas/models.py` (+tests),
+  `packages/llm_router/src/llm_router/__init__.py` (`RouteResult`, `planner` role,
+  temperature fix, +tests), `apps/orchestrator/src/orchestrator/evals/{judge.py,
+  distiller_scorer.py}` (updated for `RouteResult`), `apps/orchestrator/src/
+  orchestrator/json_utils.py` (new, shared JSON-fence extraction, judge.py re-exports
+  it), `apps/orchestrator/src/orchestrator/agents/planner.py` (new),
+  `apps/orchestrator/src/orchestrator/api_client.py` (`create_ticket`, `descendants`),
+  `apps/orchestrator/src/orchestrator/evals/{loader.py,planner_scorer.py,runner.py}`
+  (planner set wiring), `apps/orchestrator/pyproject.toml` (`langgraph` dep),
+  `apps/orchestrator/tests/integration/test_planner_agent.py` (new),
+  `apps/api/src/api/domain/state_machine.py`, `apps/api/src/api/services/
+  ticket_service.py` (initial-state logic, plan sanity gates, cascade, edit
+  versioning, `answer_planning_questions`), `apps/api/src/api/repositories/
+  ticket_repository.py` (`get_descendants`, `has_approval`, `update_ticket_fields`),
+  `apps/api/src/api/routers/tickets.py` (`descendants`, `answer-planning-questions`,
+  `PATCH`), `apps/api/src/api/contracts.py`, `apps/api/src/api/db/models.py`
+  (`EventKind.EDIT`), `apps/api/migrations/versions/c3d4e5f6a7b8_*.py` (new,
+  `EventKind.EDIT` value, chained after T-102's `b2c3d4e5f6a7`), `apps/api/tests/integration/
+  test_idea_planning_workflow.py` (new), `apps/web/src/planning/
+  PlanningReviewPage.tsx` (new), `apps/web/src/App.tsx`, `apps/web/src/board/
+  columns.ts`, `apps/web/src/api/{types.ts,client.ts,queries.ts}`,
+  `evals/planner/**` (new cases + README), `evals/thresholds.yaml`.
+- Test evidence: `packages/schemas` 18/18, `packages/llm_router` 4/4 (incl. the
+  temperature-omission regression test), `apps/api` 84/84 (unit + integration against
+  a real Postgres 16 testcontainer — includes the full idea -> planning -> epics/
+  tasks -> ready flow, the DAG-cycle rejection, the budget-sum rejection, the
+  questions -> escalated -> planning round trip, and the edit-event versioning),
+  `apps/orchestrator` 37 unit + 7 integration (including the new planner-agent tests,
+  against a real Postgres + API with a mocked LLM response for cost control). `apps/web`
+  `npm run typecheck`/`lint` clean. All of the above: zero real API spend. Separately,
+  ran the real Planner against live opus for 2 of the 15 `evals/planner/` cases (not
+  the full set, and not through `make eval` — a targeted ad-hoc check to bound API
+  spend under a mid-session credit constraint): both real calls returned
+  `questions[]` instead of a plan, and `planner_scorer.invoke_planner` doesn't handle
+  that response shape — it raises instead of scoring gracefully.
+- **Follow-up (same day): AC5 fixed and `evals/planner` enforced for real.** Two real
+  bugs, both fixed: (1) `planner_scorer.invoke_planner`/`score_case` now branches on
+  `PlannerQuestions` vs `PlannerPlan` instead of assuming a plan — a `questions[]`
+  response is scored (deterministic=0, judge-rated) instead of raising;
+  `judge.py`'s `"planner"` rubric prompt gained explicit guidance to score a
+  needlessly-conservative `questions[]` response low, since every reference in this
+  set is a full plan (the idea was demonstrably plannable). (2) `prompts/planner.md`
+  (v0.1 → v0.2) never specified the exact output JSON shape — the live model
+  responded with rich `{id, topic, question}` objects instead of `PlannerQuestions`'
+  flat `list[str]`, and asked unnecessary clarifying questions on well-specified
+  ideas; v0.2 adds an explicit "Output shape" section for both the plan and
+  questions responses, plus "prefer a reasonable default over a question" guidance.
+  Re-ran all 15 cases for real after both fixes: 15/15 valid plans, zero errors,
+  zero questions, `deterministic_score` 100 on every case (schema/DAG/budget/
+  verification all pass), combined score avg 88.6 (min 76.8, max 96.8). Set
+  `evals/thresholds.yaml`'s `planner.floor: 70` (same reasoning as the dev set's
+  initial floor — a buffer below the observed minimum) and flipped
+  `not_yet_enforced` to `false`. AC5 is now genuinely satisfied, not just built.
+- Notes / follow-ups: `run_planner_agent` has no auto-dispatch trigger (invoked by
+  tests/an ops script only) — matches `run_dev_agent`'s own precedent; real dispatch
+  is T-104 (Delivery Manager)'s job. Not building T-104's capability registry or
+  Delivery Manager here — this ticket stops at `planning -> ready`. Planner-set
+  run-to-run reproducibility (AC4-style, <2% drift) has not been separately measured
+  — only one real pass over the 15 cases was run, to bound API spend.

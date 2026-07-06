@@ -10,6 +10,10 @@ dependencies = [
   # to Langfuse Cloud, and loads evals/**/*.yaml case files.
   "langfuse>=4.0,<5.0",
   "pyyaml>=6.0,<7.0",
+  # T-103 (SPEC-102): first real LangGraph adoption (docs/06-tech-stack.md) - a
+  # single-node StateGraph for the Planner agent. No PostgresSaver checkpointing yet;
+  # nothing to resume across with one node.
+  "langgraph>=0.2,<0.3",
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,46 @@
+case_id: planner-013
+title: Health-metrics widget on the dashboard
+source: synthetic
+idea:
+  title: Show p50/p95 API latency on the pilot dashboard
+  description: >
+    Add a small widget to the existing dashboard showing p50 and p95 latency for
+    the ticket API over the last 24 hours, sourced from existing request-timing
+    data already logged.
+  budget_usd: 90.0
+reference:
+  epics:
+    - id: epic-1
+      title: API latency dashboard widget
+      description: A latency-percentile endpoint plus the dashboard widget.
+      budget_usd: 85.0
+  tasks:
+    - id: task-1
+      title: Add GET /dashboard/latency-metrics
+      context: Computes p50/p95 over the last 24h from existing request-timing logs.
+      acceptance_criteria:
+        - id: AC-1
+          description: the endpoint returns p50 and p95 computed from seeded timing data
+          verification: test_latency_metrics.py::test_returns_correct_p50_and_p95
+      complexity: medium
+      budget_usd: 45.0
+      depends_on: []
+      estimate_days: 1.0
+      epic_id: epic-1
+    - id: task-2
+      title: Add the latency widget to the dashboard page
+      context: A small card showing p50/p95 numbers, refetched periodically.
+      acceptance_criteria:
+        - id: AC-1
+          description: the dashboard shows the p50/p95 numbers from the endpoint
+          verification: dashboard.spec.ts::dashboard_shows_p50_and_p95_numbers
+      complexity: low
+      budget_usd: 40.0
+      depends_on: [task-1]
+      estimate_days: 0.5
+      epic_id: epic-1
+rubric_weights:
+  schema_valid: 0.25
+  dag_valid: 0.25
+  budget_within_idea: 0.25
+  verification_hints_present: 0.25

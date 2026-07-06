@@ -1,0 +1,53 @@
+case_id: planner-012
+title: Archive done tickets older than 90 days
+source: synthetic
+idea:
+  title: Soft-archive done tickets so the board stays fast
+  description: >
+    Tickets `done` for more than 90 days should be hidden from the default board
+    view (an `archived` flag, not deleted), with a "show archived" toggle for
+    anyone who needs to look them up.
+  budget_usd: 75.0
+reference:
+  epics:
+    - id: epic-1
+      title: Ticket archiving
+      description: An archived flag, an archiving job, and a board toggle.
+      budget_usd: 70.0
+  tasks:
+    - id: task-1
+      title: Add an archived flag and an archiving job
+      context: A boolean column plus a script that sets it for done tickets older
+        than 90 days.
+      acceptance_criteria:
+        - id: AC-1
+          description: a done ticket older than 90 days is archived by the job
+          verification: test_archiving.py::test_old_done_ticket_gets_archived
+        - id: AC-2
+          description: a done ticket newer than 90 days is left unarchived
+          verification: test_archiving.py::test_recent_done_ticket_stays_unarchived
+      complexity: low
+      budget_usd: 35.0
+      depends_on: []
+      estimate_days: 0.5
+      epic_id: epic-1
+    - id: task-2
+      title: Hide archived tickets by default with a board toggle
+      context: The default ticket list excludes archived; a toggle switches it back on.
+      acceptance_criteria:
+        - id: AC-1
+          description: the board excludes archived tickets by default
+          verification: board.spec.ts::board_excludes_archived_tickets_by_default
+        - id: AC-2
+          description: toggling "show archived" reveals them
+          verification: board.spec.ts::toggle_show_archived_reveals_archived_tickets
+      complexity: low
+      budget_usd: 35.0
+      depends_on: [task-1]
+      estimate_days: 0.5
+      epic_id: epic-1
+rubric_weights:
+  schema_valid: 0.25
+  dag_valid: 0.25
+  budget_within_idea: 0.25
+  verification_hints_present: 0.25

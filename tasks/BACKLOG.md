@@ -90,9 +90,50 @@ real remaining state-machine work was inserting `in_review` between dev and QA.
       invocation of the `claude` binary has no SDK import for the grep-gate to catch —
       BYOK key-injection into that path is T-202's job, not this skeleton's
 
-## T-103 · Planner agent + planning review UI — `ready`
+## T-103 · Planner agent + planning review UI — `done`
 **Spec:** SPEC-102  **Est:** L
-All six criteria apply. Requires T-101, T-102.
+First real LangGraph adoption (single-node StateGraph, no checkpointing yet); idea
+tickets enter directly at `approved`, epics/tasks stored as real child tickets
+(`parent_id` tree), planner routes through `packages/llm_router`'s new `planner` role
+(opus-class).
+**Acceptance criteria**
+- [x] A seeded idea fixture yields TaskSpecs that all pass schema + sanity gates
+      (golden test) — verified via
+      `apps/orchestrator/tests/integration/test_planner_agent.py::test_seeded_idea_yields_a_valid_plan_with_epics_and_tasks`
+      against a real Postgres + API (mocked LLM response for cost control): parses a
+      `PlannerPlan`, creates real epic/task tickets with correct `parent_id`s, `spec`
+      (including `depends_on`), and `planning` state; `agent_runs`/`cost_ledger` land
+      real numbers from `llm_router`'s usage reporting
+- [x] An under-specified idea fixture yields questions[], ticket -> escalated, and the
+      human-answer round-trip produces a full plan — verified:
+      `test_planner_agent.py::test_under_specified_idea_yields_questions_and_escalates`
+      (planner side) +
+      `apps/api/tests/integration/test_idea_planning_workflow.py::test_planning_questions_round_trip_to_escalated_and_back`
+      (the full escalated -> answer -> planning round trip via the new
+      `POST /tickets/{id}/answer-planning-questions` endpoint)
+- [x] A cyclic-dependency plan (fault-injected) is rejected by the DAG gate with a
+      clear event — verified:
+      `test_idea_planning_workflow.py::test_planning_to_ready_blocked_by_a_cyclic_dependency_graph`
+      (real DFS-with-recursion-stack cycle check in `ticket_service.py`, over the
+      TaskSpec-id space each task's `spec` JSONB carries)
+- [x] Task budgets exceeding the idea budget block `planning -> ready` — verified:
+      `test_idea_planning_workflow.py::test_planning_to_ready_blocked_when_task_budgets_exceed_idea_budget`
+- [x] Planner prompt changes are blocked by CI unless `make eval` (planner set) is
+      green — verified: `evals/thresholds.yaml`'s `planner.not_yet_enforced` is now
+      `false` (floor 70), same `eval-gate.yml`/`threshold-governance` CI mechanism as
+      dev/distiller. Getting here required fixing two real bugs a first real run
+      exposed: `planner_scorer.invoke_planner` crashed on a `questions[]` response
+      instead of scoring it (fixed — scored via the judge, deterministic=0, since
+      every reference in this set is a full plan); and `prompts/planner.md` (bumped
+      v0.1 → v0.2) never specified the exact output JSON shape, so the live model
+      returned rich question objects instead of plain strings and asked unnecessary
+      questions on well-specified ideas. After both fixes, a full real run over all 15
+      cases: 15/15 valid plans, zero errors, zero questions, deterministic_score 100
+      on every case, combined score avg 88.6 (min 76.8, max 96.8).
+- [x] Human edits to a TaskSpec are versioned as ticket_events (before/after payload)
+      — verified:
+      `test_idea_planning_workflow.py::test_update_task_versions_an_edit_event_with_before_and_after`
+      (new `EventKind.EDIT` + `PATCH /tickets/{id}`, approver/admin-gated)
 
 ## T-104 · Capability registry + Delivery Manager — `ready`
 **Spec:** SPEC-103  **Est:** M

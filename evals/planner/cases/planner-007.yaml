@@ -1,0 +1,38 @@
+case_id: planner-007
+title: Audit log for approval decisions
+source: synthetic
+idea:
+  title: Keep a queryable audit log of every approval decision
+  description: >
+    Approvals are already recorded, but there's no easy way to see "who approved
+    what, when" across the whole system. Add a read-only /audit/approvals endpoint
+    with pagination.
+  budget_usd: 55.0
+reference:
+  epics:
+    - id: epic-1
+      title: Approval audit log
+      description: A single paginated read endpoint over existing approval rows.
+      budget_usd: 50.0
+  tasks:
+    - id: task-1
+      title: Add GET /audit/approvals with pagination
+      context: Returns approvals ordered by ts desc, with limit/offset like other
+        list endpoints.
+      acceptance_criteria:
+        - id: AC-1
+          description: the endpoint returns approvals newest-first
+          verification: test_audit_api.py::test_approvals_ordered_newest_first
+        - id: AC-2
+          description: limit/offset paginate correctly across pages
+          verification: test_audit_api.py::test_pagination_returns_correct_pages
+      complexity: low
+      budget_usd: 50.0
+      depends_on: []
+      estimate_days: 0.5
+      epic_id: epic-1
+rubric_weights:
+  schema_valid: 0.25
+  dag_valid: 0.25
+  budget_within_idea: 0.25
+  verification_hints_present: 0.25

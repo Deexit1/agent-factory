@@ -4,8 +4,11 @@ from schemas.models import (
     AcceptanceCriterion,
     BusinessCase,
     Complexity,
+    Epic,
     FailureReport,
     MarketEvidence,
+    PlannerPlan,
+    PlannerQuestions,
     TaskSpec,
 )
 
@@ -30,6 +33,26 @@ def task_spec(acceptance_criterion: AcceptanceCriterion) -> TaskSpec:
         complexity=Complexity.LOW,
         budget_usd=25.0,
     )
+
+
+@pytest.fixture
+def epic() -> Epic:
+    return Epic(
+        id="E-001",
+        title="Repo scaffold",
+        description="Bootstrap the monorepo and tooling.",
+        budget_usd=100.0,
+    )
+
+
+@pytest.fixture
+def planner_plan(epic: Epic, task_spec: TaskSpec) -> PlannerPlan:
+    return PlannerPlan(epics=[epic], tasks=[task_spec])
+
+
+@pytest.fixture
+def planner_questions() -> PlannerQuestions:
+    return PlannerQuestions(questions=["What's the target user for this idea?"])
 
 
 @pytest.fixture

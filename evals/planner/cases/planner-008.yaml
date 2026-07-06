@@ -1,0 +1,50 @@
+case_id: planner-008
+title: Attach files to a ticket
+source: synthetic
+idea:
+  title: Let a human attach a small file to a ticket
+  description: >
+    Approvers should be able to upload a small file (e.g. a screenshot or log
+    excerpt) to a ticket, stored in the existing S3/MinIO bucket, with a download
+    link shown in the ticket drawer.
+  budget_usd: 130.0
+reference:
+  epics:
+    - id: epic-1
+      title: Ticket file attachments
+      description: Upload endpoint, storage, and the drawer's download link.
+      budget_usd: 120.0
+  tasks:
+    - id: task-1
+      title: Add POST /tickets/{id}/attachments
+      context: Accepts a small multipart upload, stores it in the artifacts bucket,
+        records an artifacts row.
+      acceptance_criteria:
+        - id: AC-1
+          description: uploading a file under the size limit returns 201 with a download url
+          verification: test_attachments_api.py::test_upload_returns_201_with_download_url
+        - id: AC-2
+          description: a file over the size limit returns 413
+          verification: test_attachments_api.py::test_oversized_upload_returns_413
+      complexity: medium
+      budget_usd: 70.0
+      depends_on: []
+      estimate_days: 1.0
+      epic_id: epic-1
+    - id: task-2
+      title: Show attachments in the ticket drawer
+      context: List uploaded attachments with a download link in the existing drawer.
+      acceptance_criteria:
+        - id: AC-1
+          description: an uploaded attachment appears in the drawer with a working link
+          verification: board.spec.ts::uploaded_attachment_appears_with_a_working_link
+      complexity: low
+      budget_usd: 50.0
+      depends_on: [task-1]
+      estimate_days: 0.5
+      epic_id: epic-1
+rubric_weights:
+  schema_valid: 0.25
+  dag_valid: 0.25
+  budget_within_idea: 0.25
+  verification_hints_present: 0.25

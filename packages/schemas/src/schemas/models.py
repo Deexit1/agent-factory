@@ -32,6 +32,38 @@ class TaskSpec(BaseModel):
     acceptance_criteria: list[AcceptanceCriterion]
     complexity: Complexity
     budget_usd: float = Field(gt=0)
+    depends_on: list[str] = Field(
+        default_factory=list, description="Sibling task ids this task depends on"
+    )
+    estimate_days: float | None = Field(
+        default=None, gt=0, description="Planner's estimate; >1 is a non-blocking review flag"
+    )
+    epic_id: str | None = Field(default=None, description="Parent epic id, set by the Planner")
+
+
+class Epic(BaseModel):
+    """A Planner-produced grouping of TaskSpecs under an approved idea."""
+
+    schema_version: Literal["1.0"] = SCHEMA_VERSION
+    id: str
+    title: str
+    description: str
+    budget_usd: float = Field(gt=0)
+
+
+class PlannerPlan(BaseModel):
+    """Planner -> human review hand-off: a full decomposition of an approved idea."""
+
+    schema_version: Literal["1.0"] = SCHEMA_VERSION
+    epics: list[Epic]
+    tasks: list[TaskSpec]
+
+
+class PlannerQuestions(BaseModel):
+    """Planner output when the idea is under-specified; ticket -> escalated."""
+
+    schema_version: Literal["1.0"] = SCHEMA_VERSION
+    questions: list[str] = Field(min_length=1)
 
 
 class FailureReport(BaseModel):

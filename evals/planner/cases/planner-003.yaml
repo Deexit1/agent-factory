@@ -1,0 +1,46 @@
+case_id: planner-003
+title: CSV export of the ticket board
+source: synthetic
+idea:
+  title: Let approvers export the current ticket board as CSV
+  description: >
+    Add a "Download board CSV" button that exports every visible ticket's id,
+    title, state, and budget as a CSV file, matching the dashboard's existing
+    export pattern.
+  budget_usd: 50.0
+reference:
+  epics:
+    - id: epic-1
+      title: Board CSV export
+      description: Backend endpoint plus the frontend button.
+      budget_usd: 45.0
+  tasks:
+    - id: task-1
+      title: Add GET /tickets/export.csv
+      context: Reuse the dashboard export.csv pattern for the full ticket list.
+      acceptance_criteria:
+        - id: AC-1
+          description: GET /tickets/export.csv returns text/csv with one row per ticket
+          verification: test_tickets_export.py::test_export_csv_returns_one_row_per_ticket
+      complexity: low
+      budget_usd: 20.0
+      depends_on: []
+      estimate_days: 0.5
+      epic_id: epic-1
+    - id: task-2
+      title: Add the download button to the board toolbar
+      context: A button that triggers a file download from the new endpoint.
+      acceptance_criteria:
+        - id: AC-1
+          description: clicking "Download board CSV" triggers a file download
+          verification: board.spec.ts::download_board_csv_triggers_a_file_download
+      complexity: low
+      budget_usd: 25.0
+      depends_on: [task-1]
+      estimate_days: 0.5
+      epic_id: epic-1
+rubric_weights:
+  schema_valid: 0.25
+  dag_valid: 0.25
+  budget_within_idea: 0.25
+  verification_hints_present: 0.25

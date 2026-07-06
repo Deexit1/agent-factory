@@ -9,13 +9,13 @@ _BASE_TRANSITIONS: dict[TicketState, set[TicketState]] = {
     TicketState.EXEC_REVIEW: {TicketState.AWAITING_HUMAN_GO},
     TicketState.AWAITING_HUMAN_GO: {TicketState.APPROVED, TicketState.CANCELLED},
     TicketState.APPROVED: {TicketState.PLANNING},
-    TicketState.PLANNING: {TicketState.READY},
+    TicketState.PLANNING: {TicketState.READY, TicketState.ESCALATED},
     TicketState.READY: {TicketState.IN_PROGRESS},
     TicketState.IN_PROGRESS: {TicketState.IN_REVIEW, TicketState.ESCALATED},
     TicketState.IN_REVIEW: {TicketState.IN_QA, TicketState.BOUNCED, TicketState.ESCALATED},
     TicketState.IN_QA: {TicketState.DONE, TicketState.BOUNCED, TicketState.ESCALATED},
     TicketState.BOUNCED: {TicketState.IN_PROGRESS},
-    TicketState.ESCALATED: {TicketState.IN_PROGRESS},
+    TicketState.ESCALATED: {TicketState.IN_PROGRESS, TicketState.PLANNING},
 }
 
 # Every state may transition here, but only a human actor may request it.
@@ -30,6 +30,12 @@ class TransitionRequest:
     bounce_count: int
     budget_usd: float | None
     acceptance_criteria_count: int
+    # Idea-plan sanity gates (SPEC-102), computed by the service layer from the idea's
+    # descendant epic/task tickets — state_machine.py stays a pure function, no I/O.
+    plan_task_count: int = 0
+    plan_has_cycle: bool = False
+    plan_child_budget_total: float = 0.0
+    plan_has_budget_approval: bool = False
 
 
 class TransitionRejected(Exception):
@@ -70,9 +76,36 @@ def _check_bounce_guard(request: TransitionRequest) -> None:
 
 
 def _check_guard(request: TransitionRequest) -> None:
+    if request.from_state is TicketState.APPROVED and request.to_state is TicketState.PLANNING:
+        if not request.budget_usd or request.budget_usd <= 0:
+            raise TransitionRejected("idea must have a human-approved budget before planning")
+
     if request.from_state is TicketState.PLANNING and request.to_state is TicketState.READY:
-        if request.acceptance_criteria_count == 0:
-            raise TransitionRejected("every task must have acceptance_criteria before ready")
+        # Per-task acceptance_criteria/verification is already enforced at task-creation
+        # time (schema + CreateTicketRequest validators) — the ticket-level
+        # acceptance_criteria_count only matters for non-idea tickets that reach this
+        # transition directly (e.g. a task with no plan of its own).
+        if request.acceptance_criteria_count == 0 and request.plan_task_count == 0:
+            raise TransitionRejected("plan has no tasks; nothing to make ready")
+        if request.plan_has_cycle:
+            raise TransitionRejected("task dependency graph contains a cycle")
+        if request.budget_usd and request.plan_child_budget_total > request.budget_usd:
+            raise TransitionRejected(
+                f"sum of task budgets (${request.plan_child_budget_total:.2f}) exceeds "
+                f"the idea's budget (${request.budget_usd:.2f})"
+            )
+        if request.plan_task_count > 0 and not request.plan_has_budget_approval:
+            raise TransitionRejected("idea plan requires an approved budget gate before ready")
+
+    if request.from_state is TicketState.PLANNING and request.to_state is TicketState.ESCALATED:
+        if not is_human_actor(request.actor) and not request.actor.startswith("agent:planner"):
+            raise TransitionRejected(
+                "only the planner or a human may escalate an under-specified idea"
+            )
+
+    if request.from_state is TicketState.ESCALATED and request.to_state is TicketState.PLANNING:
+        if not is_human_actor(request.actor):
+            raise TransitionRejected("only a human may return an escalated idea to planning")
 
     if request.from_state is TicketState.READY and request.to_state is TicketState.IN_PROGRESS:
         if not request.budget_usd or request.budget_usd <= 0:

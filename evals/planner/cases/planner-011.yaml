@@ -1,0 +1,47 @@
+case_id: planner-011
+title: Comments on a ticket
+source: synthetic
+idea:
+  title: Let humans leave free-text comments on a ticket
+  description: >
+    Approvers and viewers should be able to leave a short text comment on a
+    ticket, shown in the drawer's event feed alongside existing events, newest
+    last.
+  budget_usd: 55.0
+reference:
+  epics:
+    - id: epic-1
+      title: Ticket comments
+      description: A comment-posting endpoint plus display in the drawer feed.
+      budget_usd: 50.0
+  tasks:
+    - id: task-1
+      title: Add POST /tickets/{id}/comments
+      context: Records a message-kind event carrying the comment text and author.
+      acceptance_criteria:
+        - id: AC-1
+          description: posting a comment appends one message event with the comment text
+          verification: test_comments_api.py::test_post_comment_appends_one_event
+      complexity: low
+      budget_usd: 25.0
+      depends_on: []
+      estimate_days: 0.5
+      epic_id: epic-1
+    - id: task-2
+      title: Add a comment box to the ticket drawer
+      context: A textarea + submit button that posts to the new endpoint and shows
+        the comment in the feed.
+      acceptance_criteria:
+        - id: AC-1
+          description: submitting a comment shows it in the event feed
+          verification: board.spec.ts::submitted_comment_appears_in_the_event_feed
+      complexity: low
+      budget_usd: 30.0
+      depends_on: [task-1]
+      estimate_days: 0.5
+      epic_id: epic-1
+rubric_weights:
+  schema_valid: 0.25
+  dag_valid: 0.25
+  budget_within_idea: 0.25
+  verification_hints_present: 0.25

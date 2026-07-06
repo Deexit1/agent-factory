@@ -6,7 +6,7 @@
 | Backend API | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 + Alembic |
 | Live updates | WebSockets fed by Redis pub/sub |
 | Auth | OIDC SSO (Authlib); RBAC: admin / approver / viewer |
-| Orchestration | LangGraph (Python) + PostgresSaver checkpointing |
+| Orchestration | LangGraph (Python) + PostgresSaver checkpointing (adopted T-103 — single-node StateGraph for the Planner so far; checkpointing lands with the first real multi-step graph, T-104+) |
 | LLM | Anthropic API. Routing: sonnet default, opus for planning/complex, haiku for classification & log distillation. Prompt caching on. |
 | Dev agents | Claude Code headless (Claude Agent SDK), per-profile base images |
 | Database | PostgreSQL 16 (JSONB payloads), Redis 7 |

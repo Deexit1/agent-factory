@@ -1,0 +1,50 @@
+case_id: planner-010
+title: Nightly job to flag stale in_progress tickets
+source: synthetic
+idea:
+  title: Flag tickets stuck in_progress for more than 48 hours
+  description: >
+    A scheduled job that finds tickets in `in_progress` with no event in the last
+    48 hours and records a "stale" message event on them, so approvers notice
+    silently-stuck work.
+  budget_usd: 60.0
+reference:
+  epics:
+    - id: epic-1
+      title: Stale in-progress ticket detection
+      description: A scheduled script plus its query.
+      budget_usd: 55.0
+  tasks:
+    - id: task-1
+      title: Add a query for stale in_progress tickets
+      context: Tickets in_progress whose latest event is older than 48h.
+      acceptance_criteria:
+        - id: AC-1
+          description: a ticket with no events in 49h is returned as stale
+          verification: test_stale_tickets.py::test_ticket_with_no_recent_events_is_stale
+        - id: AC-2
+          description: a ticket with a recent event is not returned
+          verification: test_stale_tickets.py::test_ticket_with_recent_event_is_not_stale
+      complexity: low
+      budget_usd: 30.0
+      depends_on: []
+      estimate_days: 0.5
+      epic_id: epic-1
+    - id: task-2
+      title: Record a stale-flag event and wire a scheduled entrypoint
+      context: A small script entrypoint that appends a message event per stale
+        ticket found.
+      acceptance_criteria:
+        - id: AC-1
+          description: running the job appends one stale-flag event per stale ticket
+          verification: test_stale_tickets.py::test_job_appends_one_event_per_stale_ticket
+      complexity: low
+      budget_usd: 25.0
+      depends_on: [task-1]
+      estimate_days: 0.5
+      epic_id: epic-1
+rubric_weights:
+  schema_valid: 0.25
+  dag_valid: 0.25
+  budget_within_idea: 0.25
+  verification_hints_present: 0.25

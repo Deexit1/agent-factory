@@ -96,6 +96,72 @@ def list_tickets(
     return list(items), total
 
 
+def get_descendants(session: Session, ticket_id: str, *, org_id: str) -> list[Ticket]:
+    """BFS over `parent_id` — small, bounded tree depth (idea -> epic -> task), so a
+    handful of queries beats standing up a recursive CTE for this."""
+    descendants: list[Ticket] = []
+    frontier = [ticket_id]
+    while frontier:
+        children = (
+            session.execute(
+                select(Ticket)
+                .where(Ticket.org_id == org_id, Ticket.parent_id.in_(frontier))
+                .order_by(Ticket.id)
+            )
+            .scalars()
+            .all()
+        )
+        if not children:
+            break
+        descendants.extend(children)
+        frontier = [child.id for child in children]
+    return descendants
+
+
+def has_approval(
+    session: Session,
+    ticket_id: str,
+    *,
+    org_id: str,
+    gate: ApprovalGate,
+    decision: ApprovalDecision,
+) -> bool:
+    return (
+        session.execute(
+            select(func.count())
+            .select_from(Approval)
+            .where(
+                Approval.ticket_id == ticket_id,
+                Approval.org_id == org_id,
+                Approval.gate == gate,
+                Approval.decision == decision,
+            )
+        ).scalar_one()
+        > 0
+    )
+
+
+def update_ticket_fields(
+    session: Session,
+    ticket: Ticket,
+    *,
+    title: str | None,
+    spec: dict[str, object] | None,
+    acceptance_criteria: list[dict[str, object]] | None,
+    budget_usd: float | None,
+) -> Ticket:
+    if title is not None:
+        ticket.title = title
+    if spec is not None:
+        ticket.spec = spec
+    if acceptance_criteria is not None:
+        ticket.acceptance_criteria = acceptance_criteria
+    if budget_usd is not None:
+        ticket.budget_usd = budget_usd
+    session.flush()
+    return ticket
+
+
 def append_event(
     session: Session,
     *,
