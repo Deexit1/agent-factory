@@ -3,10 +3,12 @@
 # ready->in_progress transition) and apps/orchestrator (so the Delivery Manager can
 # enumerate eligible profiles) — see each app's capability_registry.py loader.
 #
-# T-104 seeds exactly one profile pointing at today's existing hardcoded model/image
-# (apps/orchestrator/src/orchestrator/config.py, apps/sandbox/src/sandbox/config.py).
-# Real multi-profile specialisation (skills that actually differ, distinct base
-# images) is T-105's job.
+# T-104 seeded exactly one profile pointing at today's existing hardcoded model/image.
+# T-105 adds real skill-differentiated profiles (frontend/backend/devops), matched
+# against TaskSpec.required_skills by the Delivery Manager. All profiles still point
+# at the one existing sandbox image (apps/sandbox/images/Dockerfile) — genuinely
+# different per-profile base images is real infra work, deliberately deferred until a
+# profile actually needs different tooling (see T-105's plan/changelog).
 
 repo_concurrency_limit: 3  # max concurrent in_progress tickets sharing one repo
 
@@ -16,3 +18,18 @@ profiles:
     base_image: agent-factory-sandbox:latest
     skills: [general]
     max_parallel: 2
+  dev-frontend:
+    model: claude-sonnet-5
+    base_image: agent-factory-sandbox:latest
+    skills: [frontend]
+    max_parallel: 2
+  dev-backend:
+    model: claude-sonnet-5
+    base_image: agent-factory-sandbox:latest
+    skills: [backend]
+    max_parallel: 2
+  dev-devops:
+    model: claude-opus-4-8  # infra/CI reasoning benefits from the stronger model
+    base_image: agent-factory-sandbox:latest
+    skills: [devops]
+    max_parallel: 1

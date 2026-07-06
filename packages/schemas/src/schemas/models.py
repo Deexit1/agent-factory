@@ -44,6 +44,11 @@ class TaskSpec(BaseModel):
     )
     epic_id: str | None = Field(default=None, description="Parent epic id, set by the Planner")
     repo: str = Field(default=DEFAULT_REPO, description="Git repo this task's work lands in")
+    required_skills: list[str] = Field(
+        default_factory=list,
+        description="Domain tags (e.g. frontend/backend/devops) the Delivery Manager "
+        "matches against capability_registry.yaml profiles; empty matches any profile",
+    )
 
 
 class Epic(BaseModel):

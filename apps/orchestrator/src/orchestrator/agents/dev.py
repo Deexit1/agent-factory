@@ -7,6 +7,7 @@ from schemas import FailureReport, TaskSpec
 from orchestrator import git_ops
 from orchestrator.agents.prompt import build_prompt
 from orchestrator.api_client import ApiClient
+from orchestrator.capability_registry import Profile
 from orchestrator.claude_runner import ClaudeCodeRunner
 from orchestrator.config import DevAgentConfig
 from orchestrator.github_client import GitHubClient
@@ -33,8 +34,9 @@ def run_dev_agent(
     failure_report: FailureReport | None = None,
     attempt_no: int = 1,
     base_branch: str = "main",
+    profile: Profile | None = None,
 ) -> DevAgentResult:
-    model = config.model_for(task_spec.complexity)
+    model = config.model_for(task_spec.complexity, profile)
     prompt = build_prompt(task_spec, failure_report, attempt_no)
     actor = f"agent:dev-{ticket_id}"
 

@@ -5,6 +5,7 @@ from schemas import AcceptanceCriterion, Complexity, FailureReport, TaskSpec
 
 from orchestrator.agents.dev import run_dev_agent
 from orchestrator.api_client import ApiClient
+from orchestrator.capability_registry import Profile
 from orchestrator.config import DevAgentConfig
 from orchestrator.fixture_runner import FixtureClaudeCodeRunner
 from orchestrator.github_client import FakeGitHubClient
@@ -85,6 +86,44 @@ def test_agent_produces_pr_with_endpoint_and_test(
 
     ticket_after = _get_ticket(running_api, ticket_id)
     assert ticket_after["state"] == "in_qa"
+
+
+def test_assigned_profiles_model_reaches_the_runner_for_low_complexity_tasks(
+    api: ApiClient,
+    config: DevAgentConfig,
+    create_ticket,
+    transition,
+    toy_repo,
+    fixture_dir,
+) -> None:
+    """T-105: a low-complexity task assigned to the devops profile runs on that
+    profile's own model (opus), not the legacy sonnet-for-low-complexity default —
+    proving DevAgentConfig.model_for's profile branch actually reaches the runner."""
+    ticket = create_ticket()
+    ticket_id = ticket["id"]
+    transition(ticket_id, "in_progress")
+
+    devops_profile = Profile(
+        id="dev-devops",
+        model="claude-opus-4-8",
+        base_image="agent-factory-sandbox:latest",
+        skills=("devops",),
+        max_parallel=1,
+    )
+    runner = FixtureClaudeCodeRunner(fixture_dir)
+
+    run_dev_agent(
+        ticket_id=ticket_id,
+        task_spec=_task_spec(ticket_id),
+        workspace_dir=toy_repo,
+        api=api,
+        claude_runner=runner,
+        github=FakeGitHubClient(),
+        config=config,
+        profile=devops_profile,
+    )
+
+    assert runner.last_model == "claude-opus-4-8"
 
 
 def test_transcript_events_stream_incrementally(
