@@ -6,8 +6,9 @@ T-102 scope was a skeleton: a role -> model map (docs/06-tech-stack.md's routing
 table) and one Anthropic call site, using the process-wide ANTHROPIC_API_KEY. T-103
 adds a "planner" role and usage/cost reporting (needed to record real agent_runs/
 cost_ledger rows). T-104 adds a "delivery-manager" role (sonnet-class) and a
-claude-sonnet-5 pricing entry (missing until now — no prior caller needed it). Still
-no per-org BYOK key selection, fallback ordering or retries; that's SPEC-202/T-202.
+claude-sonnet-5 pricing entry (missing until now — no prior caller needed it). T-106
+adds a "review" role (sonnet-class, SPEC-105). Still no per-org BYOK key selection,
+fallback ordering or retries; that's SPEC-202/T-202.
 """
 
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ _ROLE_MODELS = {
     "eval-distiller": "claude-haiku-4-5-20251001",
     "planner": "claude-opus-4-8",
     "delivery-manager": "claude-sonnet-5",
+    "review": "claude-sonnet-5",
 }
 
 # Approximate $/million tokens (input, output). Good enough for cost_ledger's

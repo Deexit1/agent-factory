@@ -85,7 +85,9 @@ def test_agent_produces_pr_with_endpoint_and_test(
     assert github.calls[0]["branch"] == f"agent/{ticket_id}"
 
     ticket_after = _get_ticket(running_api, ticket_id)
-    assert ticket_after["state"] == "in_qa"
+    # T-106: the dev agent's job now ends at in_review — the Review agent decides
+    # in_qa (approve) vs bounced (block), it no longer auto-advances.
+    assert ticket_after["state"] == "in_review"
 
 
 def test_assigned_profiles_model_reaches_the_runner_for_low_complexity_tasks(

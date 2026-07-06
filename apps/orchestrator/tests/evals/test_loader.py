@@ -4,6 +4,7 @@ from orchestrator.evals.loader import (
     load_dev_cases,
     load_distiller_cases,
     load_planner_cases,
+    load_review_cases,
     load_thresholds,
 )
 
@@ -15,7 +16,12 @@ def test_thresholds_cover_every_set() -> None:
     assert thresholds["dev"].not_yet_enforced is False
     assert thresholds["planner"].floor is not None
     assert thresholds["planner"].not_yet_enforced is False
-    assert thresholds["review"].not_yet_enforced is True
+    # T-106 seeded real review cases and enabled enforcement, though the floor
+    # itself is unverified (no passing run exists — see thresholds.yaml's
+    # rationale) — this asserts the set is at least wired up, not that the
+    # floor reflects real evidence.
+    assert thresholds["review"].floor is not None
+    assert thresholds["review"].not_yet_enforced is False
 
 
 def test_dev_cases_load_with_at_least_ten_cases() -> None:
@@ -55,4 +61,17 @@ def test_planner_cases_load_with_at_least_ten_cases() -> None:
         assert case.idea.budget_usd > 0
         assert case.reference.epics
         assert case.reference.tasks
+        assert math.isclose(sum(case.rubric_weights.values()), 1.0, abs_tol=1e-6)
+
+
+def test_review_cases_load_with_at_least_eight_cases() -> None:
+    cases = load_review_cases()
+    assert len(cases) >= 8
+    ids = [c.case_id for c in cases]
+    assert len(ids) == len(set(ids)), "case_ids must be unique"
+    verdicts = {c.expected.verdict for c in cases}
+    assert verdicts == {"approve", "block"}, "set must mix clean and defect cases"
+    for case in cases:
+        assert case.diff.strip()
+        assert case.task_spec.acceptance_criteria
         assert math.isclose(sum(case.rubric_weights.values()), 1.0, abs_tol=1e-6)

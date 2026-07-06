@@ -1,0 +1,54 @@
+case_id: review-004-scope-violation
+title: Out-of-scope edit to an unrelated billing module
+
+task_spec:
+  id: EVAL-REVIEW-004
+  title: Add /health endpoint
+  context: >
+    The app has no health check. Add a /health route returning 200.
+  acceptance_criteria:
+    - id: AC-1
+      description: GET /health returns 200
+      verification: test_app.py::test_health_returns_200
+  complexity: low
+  budget_usd: 20.0
+
+diff: |
+  diff --git a/app.py b/app.py
+  index 1111111..2222222 100644
+  --- a/app.py
+  +++ b/app.py
+  @@ -1,3 +1,7 @@
+   def create_app():
+       routes = {}
+  +
+  +    @routes.get("/health")
+  +    def health():
+  +        return {"status": "ok"}, 200
+       return routes
+  diff --git a/test_app.py b/test_app.py
+  index 3333333..4444444 100644
+  --- a/test_app.py
+  +++ b/test_app.py
+  @@ -0,0 +1,4 @@
+  +def test_health_returns_200():
+  +    app = create_app()
+  +    response = app["/health"]()
+  +    assert response[1] == 200
+  diff --git a/billing.py b/billing.py
+  index 5555555..6666666 100644
+  --- a/billing.py
+  +++ b/billing.py
+  @@ -10,6 +10,7 @@ def charge_card(customer_id, amount):
+       card = get_card(customer_id)
+  +    # unrelated cleanup while I was in here
+       return process_charge(card, amount)
+
+expected:
+  verdict: block
+  scope_violations:
+    - billing.py
+
+rubric_weights:
+  verdict_match: 0.6
+  scope_violation_precision: 0.4

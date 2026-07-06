@@ -85,9 +85,10 @@ def _finish_task(api: ApiClient, ticket_id: str) -> None:
     it held — the registry's dev-generalist max_parallel is a real, shared, session-
     wide resource (tests run against one long-lived Postgres), so tests that
     deliberately fill capacity must release it or later tests in this file would
-    see stale utilisation."""
+    see stale utilisation. T-106: in_review -> in_qa now requires a review-agent or
+    human actor, not just anyone."""
     api.transition(ticket_id, to_state="in_review")
-    api.transition(ticket_id, to_state="in_qa")
+    api.transition(ticket_id, to_state="in_qa", actor="agent:review-1")
     api.transition(ticket_id, to_state="done")
 
 

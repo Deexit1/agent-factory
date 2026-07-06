@@ -9,6 +9,8 @@ from schemas.models import (
     MarketEvidence,
     PlannerPlan,
     PlannerQuestions,
+    ReviewComment,
+    ReviewResult,
     TaskSpec,
 )
 
@@ -23,5 +25,7 @@ __all__ = [
     "MarketEvidence",
     "PlannerPlan",
     "PlannerQuestions",
+    "ReviewComment",
+    "ReviewResult",
     "TaskSpec",
 ]

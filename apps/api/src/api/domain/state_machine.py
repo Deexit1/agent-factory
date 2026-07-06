@@ -14,7 +14,7 @@ _BASE_TRANSITIONS: dict[TicketState, set[TicketState]] = {
     TicketState.IN_PROGRESS: {TicketState.IN_REVIEW, TicketState.ESCALATED},
     TicketState.IN_REVIEW: {TicketState.IN_QA, TicketState.BOUNCED, TicketState.ESCALATED},
     TicketState.IN_QA: {TicketState.DONE, TicketState.BOUNCED, TicketState.ESCALATED},
-    TicketState.BOUNCED: {TicketState.IN_PROGRESS},
+    TicketState.BOUNCED: {TicketState.IN_PROGRESS, TicketState.IN_QA},
     TicketState.ESCALATED: {TicketState.IN_PROGRESS, TicketState.PLANNING, TicketState.READY},
 }
 
@@ -153,3 +153,13 @@ def _check_guard(request: TransitionRequest) -> None:
     if request.from_state is TicketState.ESCALATED and request.to_state is TicketState.IN_PROGRESS:
         if not is_human_actor(request.actor):
             raise TransitionRejected("only a human may return an escalated ticket to dev")
+
+    if request.from_state is TicketState.IN_REVIEW and request.to_state is TicketState.IN_QA:
+        if not is_human_actor(request.actor) and not request.actor.startswith("agent:review"):
+            raise TransitionRejected("only the review agent or a human may approve a PR into QA")
+
+    if request.from_state is TicketState.BOUNCED and request.to_state is TicketState.IN_QA:
+        if not is_human_actor(request.actor):
+            raise TransitionRejected(
+                "only a human may override a bounced ticket straight to QA"
+            )

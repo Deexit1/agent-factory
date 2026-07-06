@@ -45,6 +45,17 @@ material gap a competent planner genuinely could not have proceeded without (in 
 case score higher in proportion to how essential the missing information truly was).
 Being needlessly conservative about a well-specified idea is the failure mode this
 rubric exists to catch.""",
+    "review": """You are grading a Review agent's verdict on a PR diff against a
+reference (expected) verdict for the same diff. Score 0-100 on:
+- Does the candidate's verdict (approve/block) match the reference's expected
+  verdict? A wrong verdict (approving a diff that should be blocked, or blocking a
+  clean diff) is the single worst failure mode and should score near 0.
+- When blocking, are the comments/scope_violations concrete and specific (naming
+  the actual file/problem), not vague boilerplate?
+- Style nits alone should never justify a block — a block needs real, quoted
+  evidence.
+A candidate whose verdict matches the reference and whose reasoning is specific
+and well-grounded should score highly.""",
 }
 
 

@@ -1,0 +1,54 @@
+case_id: review-008-swallowed-exception
+title: Feature works but silently swallows a real failure path
+
+task_spec:
+  id: EVAL-REVIEW-008
+  title: Send an email on ticket escalation
+  context: >
+    When a ticket transitions to escalated, send a notification email to the
+    on-call approver.
+  acceptance_criteria:
+    - id: AC-1
+      description: escalation triggers an email send via the SMTP client
+      verification: test_escalation_email.py::test_escalation_sends_email
+  complexity: low
+  budget_usd: 15.0
+
+diff: |
+  diff --git a/notifications.py b/notifications.py
+  new file mode 100644
+  index 0000000..1111111
+  --- /dev/null
+  +++ b/notifications.py
+  @@ -0,0 +1,10 @@
+  +from smtp_client import send_email
+  +
+  +
+  +def notify_escalation(ticket_id: str, approver_email: str) -> None:
+  +    try:
+  +        send_email(
+  +            to=approver_email,
+  +            subject=f"Ticket {ticket_id} escalated",
+  +            body="Please review.",
+  +        )
+  +    except Exception:
+  +        pass
+  diff --git a/test_escalation_email.py b/test_escalation_email.py
+  new file mode 100644
+  index 0000000..2222222
+  --- /dev/null
+  +++ b/test_escalation_email.py
+  @@ -0,0 +1,6 @@
+  +from notifications import notify_escalation
+  +
+  +
+  +def test_escalation_sends_email(fake_smtp):
+  +    notify_escalation("T-001", "oncall@example.com")
+  +    assert fake_smtp.sent
+
+expected:
+  verdict: block
+  scope_violations: []
+
+rubric_weights:
+  verdict_match: 1.0

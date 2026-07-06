@@ -1,0 +1,36 @@
+case_id: review-007-clean-refactor
+title: Clean rename + docstring refactor, existing tests untouched and still valid
+
+task_spec:
+  id: EVAL-REVIEW-007
+  title: Rename ambiguous `d` variable in cost calculation and document it
+  context: >
+    The cost-per-ticket calculation uses a single-letter variable `d` that makes
+    the formula hard to read. Rename it to `days_open` and add a short docstring.
+    No behavior change.
+  acceptance_criteria:
+    - id: AC-1
+      description: existing cost calculation tests still pass unmodified
+      verification: test_cost.py::test_cost_per_ticket_matches_fixture
+  complexity: low
+  budget_usd: 10.0
+
+diff: |
+  diff --git a/cost.py b/cost.py
+  index 1111111..2222222 100644
+  --- a/cost.py
+  +++ b/cost.py
+  @@ -1,5 +1,9 @@
+  -def cost_per_ticket(d, rate):
+  -    return d * rate
+  +def cost_per_ticket(days_open: float, rate: float) -> float:
+  +    """Return the accrued cost for a ticket open `days_open` days at `rate`/day."""
+  +    return days_open * rate
+
+expected:
+  verdict: approve
+  scope_violations: []
+
+rubric_weights:
+  verdict_match: 0.7
+  scope_violation_precision: 0.3

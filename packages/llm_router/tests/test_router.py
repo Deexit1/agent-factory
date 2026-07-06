@@ -101,6 +101,21 @@ def test_route_reports_sonnet_pricing_for_delivery_manager(
     assert fake_client.messages.calls[0]["temperature"] == 0
 
 
+def test_route_reports_sonnet_pricing_for_review(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_client = _FakeClient()
+    monkeypatch.setattr(llm_router.anthropic, "Anthropic", lambda: fake_client)
+
+    result = llm_router.route(
+        "review",
+        system="review",
+        messages=[{"role": "user", "content": "hi"}],
+        max_tokens=100,
+    )
+
+    assert result.model == "claude-sonnet-5"
+    assert result.cost_usd == pytest.approx((100 * 3.0 + 50 * 15.0) / 1_000_000)
+
+
 def test_route_rejects_an_unknown_role() -> None:
     with pytest.raises(llm_router.UnknownRole):
         llm_router.route("not-a-real-role", system="x", messages=[], max_tokens=10)

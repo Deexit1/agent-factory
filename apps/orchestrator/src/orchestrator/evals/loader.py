@@ -230,3 +230,44 @@ def load_distiller_cases(evals_root: Path = EVALS_ROOT) -> list[DistillerCase]:
             )
         )
     return cases
+
+
+@dataclass(frozen=True)
+class ReviewExpected:
+    verdict: str  # "approve" | "block"
+    scope_violations: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ReviewCase:
+    case_id: str
+    title: str
+    task_spec: TaskSpec
+    diff: str
+    expected: ReviewExpected
+    rubric_weights: dict[str, float]
+
+
+def load_review_cases(evals_root: Path = EVALS_ROOT) -> list[ReviewCase]:
+    cases_dir = evals_root / "review" / "cases"
+    if not cases_dir.exists():
+        return []
+
+    cases = []
+    for case_file in sorted(cases_dir.glob("*.yaml")):
+        raw = yaml.safe_load(case_file.read_text(encoding="utf-8"))
+        expected_raw = raw["expected"]
+        cases.append(
+            ReviewCase(
+                case_id=raw["case_id"],
+                title=raw["title"],
+                task_spec=_load_task_spec(raw["task_spec"]),
+                diff=raw["diff"],
+                expected=ReviewExpected(
+                    verdict=expected_raw["verdict"],
+                    scope_violations=tuple(expected_raw.get("scope_violations", [])),
+                ),
+                rubric_weights=dict(raw["rubric_weights"]),
+            )
+        )
+    return cases
