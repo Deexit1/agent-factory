@@ -11,6 +11,13 @@ Hard gates (dependencies done, budget vs spend, profile/repo capacity) are enfor
 in apps/api, not here — this agent can propose an invalid assignment and the API
 will refuse it (SPEC-103 AC4); this module just has to handle that refusal
 gracefully instead of crashing.
+
+T-105 (SPEC-104) adds real skill-matching: a task's TaskSpec.required_skills is
+matched against each profile's `skills` in Python, before capacity is even checked
+and before the LLM ever sees the task — a task with no matching profile is never
+proposed to the model at all, distinct from the existing "no free capacity"
+human_only path. Skill fit is a routing-quality concern this agent applies, not a
+hard apps/api gate like the others above.
 """
 
 from dataclasses import dataclass, field
@@ -95,18 +102,37 @@ def _profile_has_capacity(
     return int(row["in_progress_count"]) < profile.max_parallel
 
 
+def _skill_matching_profile_ids(
+    registry: CapabilityRegistry, required_skills: list[str]
+) -> list[str]:
+    """A task with no required_skills matches any profile (today's un-tagged tasks
+    keep working); otherwise a profile matches if it has ANY of the required skills
+    — not all, since a profile's skill list is its full capability set, not a
+    checklist a task must exhaust."""
+    if not required_skills:
+        return list(registry.profiles)
+    required = set(required_skills)
+    return [
+        profile_id
+        for profile_id, profile in registry.profiles.items()
+        if required & set(profile.skills)
+    ]
+
+
 def _eligible_profile_ids(
+    candidate_ids: list[str],
     registry: CapabilityRegistry,
     utilisation: dict[str, dict[str, Any]],
     prior_assignee: str | None,
 ) -> list[str]:
-    """Every profile with free capacity, computed here in Python (not left to the
-    LLM) so it can never propose an ineligible profile. The task's own prior
-    assignee (a requeued/reassignment case) is deprioritised, not excluded, when an
-    alternative exists — matching the prompt's "propose a different profile" rule."""
+    """Every skill-matching candidate with free capacity, computed here in Python
+    (not left to the LLM) so it can never propose an ineligible profile. The task's
+    own prior assignee (a requeued/reassignment case) is deprioritised, not
+    excluded, when an alternative exists — matching the prompt's "propose a
+    different profile" rule."""
     eligible = [
         profile_id
-        for profile_id in registry.profiles
+        for profile_id in candidate_ids
         if _profile_has_capacity(profile_id, registry, utilisation)
     ]
     if prior_assignee in eligible and len(eligible) > 1:
@@ -163,7 +189,17 @@ def run_delivery_manager_agent(
     eligible_by_task: dict[str, list[str]] = {}
     llm_tasks: list[dict[str, Any]] = []
     for task in ready_tasks:
-        eligible = _eligible_profile_ids(registry, utilisation, task.get("assignee_agent"))
+        required_skills = [str(s) for s in (task.get("spec") or {}).get("required_skills", [])]
+        skill_matches = _skill_matching_profile_ids(registry, required_skills)
+        if not skill_matches:
+            reason = "no profile has the required skills"
+            outcomes.append(AssignmentOutcome(task["id"], "human_only", None, reason))
+            _record_decision(api, task["id"], decision="human_only", reason=reason, considered=[])
+            continue
+
+        eligible = _eligible_profile_ids(
+            skill_matches, registry, utilisation, task.get("assignee_agent")
+        )
         if not eligible:
             reason = "no eligible profile has free capacity"
             outcomes.append(AssignmentOutcome(task["id"], "human_only", None, reason))
@@ -220,12 +256,21 @@ def run_delivery_manager_agent(
             profile = proposal["profile"]
             reason = str(proposal.get("reason", ""))
             alternatives = [str(a) for a in proposal.get("alternatives", [])]
-            try:
-                api.transition(task_id, to_state="in_progress", assignee_agent=profile)
-                decision = "assigned"
-            except httpx.HTTPStatusError as exc:
+            if profile not in considered:
+                # apps/api has no hard gate for skill-match (it's a DM-side routing
+                # filter, not a safety invariant like budget/capacity) — a profile
+                # with free capacity but the wrong skills would otherwise sail
+                # through the API unchecked. Catch it here instead of ever calling
+                # transition() with a profile this run never considered eligible.
                 decision = "refused"
-                reason = f"{reason} (refused: {exc.response.text})"
+                reason = f"{reason} (rejected: {profile!r} was not in the eligible set)"
+            else:
+                try:
+                    api.transition(task_id, to_state="in_progress", assignee_agent=profile)
+                    decision = "assigned"
+                except httpx.HTTPStatusError as exc:
+                    decision = "refused"
+                    reason = f"{reason} (refused: {exc.response.text})"
             outcomes.append(AssignmentOutcome(task_id, decision, profile, reason))
             _record_decision(
                 api,

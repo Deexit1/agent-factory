@@ -79,6 +79,7 @@ def test_task_spec_depends_on_and_estimate_days_round_trip(
         estimate_days=0.5,
         epic_id="E-001",
         repo="git@github.com:example/other-repo.git",
+        required_skills=["frontend"],
     )
     assert TaskSpec.model_validate(task.model_dump()) == task
 
@@ -97,3 +98,17 @@ def test_task_spec_repo_defaults_to_default_repo(
         budget_usd=10.0,
     )
     assert task.repo == DEFAULT_REPO
+
+
+def test_task_spec_required_skills_defaults_to_empty(
+    acceptance_criterion: AcceptanceCriterion,
+) -> None:
+    task = TaskSpec(
+        id="T-004",
+        title="Fourth task",
+        context="ctx",
+        acceptance_criteria=[acceptance_criterion],
+        complexity="low",
+        budget_usd=10.0,
+    )
+    assert task.required_skills == []

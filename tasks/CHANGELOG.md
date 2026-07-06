@@ -893,3 +893,78 @@ Format:
   dev-agent profiles) is now unblocked and is where real skill-matching across
   multiple profiles starts to matter — today's single seeded profile makes the DM's
   model choice trivial by construction.
+
+## T-105 · Specialised dev-agent profiles — 2026-07-06
+- What changed: `capability_registry.yaml` grows from T-104's single seeded
+  `dev-generalist` to four real profiles — `dev-frontend`/`dev-backend`
+  (`claude-sonnet-5`, skills `[frontend]`/`[backend]`) and `dev-devops`
+  (`claude-opus-4-8`, skills `[devops]`, on the theory that infra/CI reasoning
+  benefits from the stronger model). Added `TaskSpec.required_skills: list[str] =
+  []` (`packages/schemas`, additive/default-safe) and bumped `prompts/planner.md`
+  v0.2 → v0.3 to have the Planner tag each task's domain
+  (`frontend`/`backend`/`devops`/`general`). Split
+  `apps/orchestrator/agents/delivery_manager.py`'s single-stage
+  `_eligible_profile_ids` into two stages: `_skill_matching_profile_ids` (a task's
+  `required_skills` intersected against each profile's `skills`; empty matches any
+  profile, so today's untagged tasks keep working) runs *before* the existing
+  capacity filter and before the LLM ever sees the task — a skill-mismatched task
+  now gets its own `human_only` reason ("no profile has the required skills"),
+  distinct from the pre-existing capacity-exhaustion reason ("no eligible profile
+  has free capacity"), and never reaches the batch prompt at all. `DevAgentConfig.
+  model_for(complexity, profile=None)` now prefers the assigned profile's own
+  `model` field over the legacy complexity-only `_MODEL_BY_COMPLEXITY` map — except
+  `complexity=high`, which always escalates to opus regardless of profile (an
+  unconditional safety floor, not something a profile can downgrade).
+  `run_dev_agent(..., profile=None)` threads it through; `profile=None` (every
+  existing caller, including `run_pilot.py`) preserves the exact legacy behavior.
+  `FixtureClaudeCodeRunner` (test-only) gained `last_model` alongside its existing
+  `last_prompt`, so tests can assert which model actually reached the runner.
+- Real gap found and closed while implementing this, not merely inherited: nothing
+  in `run_delivery_manager_agent` validated that the LLM's proposed profile was
+  actually in the eligible set it computed before calling `api.transition(...)`.
+  For pure capacity-based eligibility (T-104) this was harmless — `apps/api`'s own
+  capacity gate is a real hard backstop that would catch ANY over-capacity
+  proposal regardless of profile. But skill-match has no such `apps/api` gate (see
+  disclosed non-goal below), so a profile with free capacity but the wrong skills
+  — e.g. the LLM hallucinating `dev-backend` for a frontend-tagged task — would
+  have sailed straight through unchecked. Fixed by rejecting (as an ordinary
+  "refused" outcome, not a crash) any proposed profile not in that task's own
+  computed eligible set, before ever calling `transition()` — proven by
+  `test_frontend_tagged_task_is_never_proposed_to_a_non_matching_profile`, where
+  the fake LLM deliberately proposes the wrong profile and the ticket stays
+  `ready`, never actually assigned to it.
+- Files touched: `capability_registry.yaml` (+3 profiles),
+  `packages/schemas/src/schemas/models.py` (`TaskSpec.required_skills`, +tests),
+  `prompts/planner.md` (v0.2 → v0.3), `apps/orchestrator/src/orchestrator/
+  agents/delivery_manager.py` (skill-match stage + eligible-set validation before
+  `transition()`), `apps/orchestrator/src/orchestrator/config.py`
+  (`DevAgentConfig.model_for` profile branch), `apps/orchestrator/src/orchestrator/
+  agents/dev.py` (`run_dev_agent(profile=...)`), `apps/orchestrator/src/
+  orchestrator/fixture_runner.py` (`last_model`), `apps/orchestrator/tests/
+  test_config.py` (new), `apps/orchestrator/tests/integration/
+  test_dev_agent.py` (+1 test), `apps/orchestrator/tests/integration/
+  test_delivery_manager_agent.py` (+3 tests, 1 redesigned, "considered"
+  assertions updated for the 4-profile registry), `docs/04-agent-specs.md`,
+  `docs/02-data-model.md` (drive-by fix: T-104's `assignment` event kind was
+  never added to this doc's enum list).
+- Test evidence: `packages/schemas` 20/20. `apps/orchestrator` full suite green
+  (55/55, up from 49 — 3 new integration tests, 1 redesigned, 3 new unit tests)
+  against a real Postgres + live `apps/api`, LLM mocked; ruff/mypy clean.
+  `apps/api` 93/93 unchanged (no source changes there; confirmed no regression
+  from the richer registry — its own gate tests POST `assignee_agent=
+  "dev-generalist"` directly and never depend on how many other profiles exist).
+  Full real re-run of the 15-case planner golden set after the v0.3 prompt bump:
+  15/15 valid plans, zero errors, avg score 89.6 against `floor: 70` — consistent
+  with T-103's original 88.6–89.2 baseline, no regression from adding
+  `required_skills` to the output shape.
+- Notes / follow-ups: All four profiles still point at the one existing sandbox
+  image — real per-profile base images (new Dockerfiles, CI build steps) is
+  orthogonal infra work, deliberately deferred until a profile genuinely needs
+  different tooling, not spec'd speculatively here. Skill-match stays a
+  Delivery-Manager-side routing filter, not a hard `apps/api` gate like budget/
+  deps/capacity — a deliberate scope boundary (disclosed, not silently assumed),
+  with the DM's own eligible-set validation (above) as its real backstop. No
+  auto-dispatch loop exists connecting a DM assignment to a real `run_dev_agent`
+  invocation; `run_pilot.py` is unchanged and still the only real (non-test)
+  caller of `run_dev_agent`, calling it with `profile=None` — an already-disclosed
+  gap from earlier tasks that this one doesn't attempt to close.
