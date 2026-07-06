@@ -13,7 +13,8 @@ def test_thresholds_cover_every_set() -> None:
     assert set(thresholds) == {"dev", "distiller", "planner", "review"}
     assert thresholds["dev"].floor is not None
     assert thresholds["dev"].not_yet_enforced is False
-    assert thresholds["planner"].not_yet_enforced is True
+    assert thresholds["planner"].floor is not None
+    assert thresholds["planner"].not_yet_enforced is False
     assert thresholds["review"].not_yet_enforced is True
 
 

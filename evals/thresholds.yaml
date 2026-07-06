@@ -27,17 +27,26 @@ distiller:
     so it can hold a slightly higher bar than the dev set from the start.
 
 planner:
-  floor: null
-  not_yet_enforced: true
+  floor: 70
+  not_yet_enforced: false
   updated_by: T-103
   rationale: >
-    15 synthetic cases + a real scorer (orchestrator/evals/planner_scorer.py) are
-    built, but a real run against live opus (2 of 15 cases, to bound API spend)
-    showed the model consistently answering these idea fixtures with questions[]
-    instead of a plan, and planner_scorer.invoke_planner only handles the plan path
-    today - it raises instead of scoring gracefully. Not safe to enforce a floor
-    until that's fixed (either scorer handling for questions[], or richer fixture
-    descriptions, or both) - see tasks/CHANGELOG.md's T-103 entry.
+    A real run against live opus first surfaced two bugs, both fixed: (1)
+    planner_scorer.invoke_planner crashed on a questions[] response instead of
+    scoring it (fixed - now scores it via the judge, deterministic=0, since every
+    reference in this set is a full plan and questions[] here means the idea was
+    incorrectly treated as under-specified); (2) prompts/planner.md never specified
+    the exact JSON shape, so the model returned rich question objects instead of
+    plain strings and asked unnecessary questions on well-specified ideas (fixed in
+    v0.2 - explicit output-shape section + "prefer a default over a question"
+    guidance). After both fixes, a full real run over all 15 cases: 15/15 valid
+    plans, zero errors, zero questions, deterministic_score 100 on every case
+    (schema/DAG/budget/verification all pass), combined score avg 88.6, min 76.8,
+    max 96.8. Floor set to 70, matching the dev set's initial-floor reasoning: a
+    buffer below the observed minimum (76.8) so normal judge-scoring variance
+    doesn't trip it, while still catching a real regression. Revisit once more
+    real usage/cases exist. Run-to-run reproducibility (AC4-style, <2% drift) not
+    yet separately verified for this set.
 
 review:
   floor: null

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from llm_router import route
-from schemas import PlannerPlan
+from schemas import PlannerPlan, PlannerQuestions
 
 from orchestrator.evals.judge import JudgeFn, haiku_judge
 from orchestrator.evals.loader import PlannerCase
@@ -30,12 +30,13 @@ class PlannerCaseResult:
     score: float  # 0-100, combined
     rationale: str
     candidate: PlannerPlan | None
+    questions: list[str] | None = None
     error: str | None = None
 
 
 def invoke_planner(
     *, idea_title: str, idea_description: str, idea_budget_usd: float, system_prompt: str
-) -> PlannerPlan:
+) -> PlannerPlan | PlannerQuestions:
     result = route(
         "planner",
         system=system_prompt,
@@ -51,6 +52,8 @@ def invoke_planner(
         max_tokens=_MAX_TOKENS,
     )
     parsed = extract_json_object(result.text)
+    if "questions" in parsed:
+        return PlannerQuestions.model_validate(parsed)
     return PlannerPlan.model_validate(parsed)
 
 
@@ -117,6 +120,32 @@ def _reference_text(reference: PlannerPlan) -> str:
     return reference.model_dump_json(indent=2)
 
 
+def _score_questions_response(
+    case: PlannerCase, questions: PlannerQuestions, *, judge: JudgeFn
+) -> PlannerCaseResult:
+    # Every reference in this golden set is a full PlannerPlan — the idea was
+    # demonstrably plannable from the same input. A questions[] response here is a
+    # real miss (over-conservative), not a neutral alternative: no plan means none of
+    # the deterministic sanity checks (schema/DAG/budget/verification) can even run.
+    verdict = judge(
+        set_name="planner",
+        case_title=case.title,
+        reference=_reference_text(case.reference),
+        candidate=questions.model_dump_json(indent=2),
+    )
+    combined = 0.6 * 0.0 + 0.4 * verdict.score
+    return PlannerCaseResult(
+        case_id=case.case_id,
+        title=case.title,
+        deterministic_score=0.0,
+        judge_score=verdict.score,
+        score=combined,
+        rationale=verdict.rationale,
+        candidate=None,
+        questions=questions.questions,
+    )
+
+
 def score_case(
     case: PlannerCase,
     *,
@@ -142,6 +171,9 @@ def score_case(
             candidate=None,
             error=str(exc),
         )
+
+    if isinstance(candidate, PlannerQuestions):
+        return _score_questions_response(case, candidate, judge=judge)
 
     deterministic_score = _deterministic_score(case, candidate)
     verdict = judge(

@@ -776,16 +776,28 @@ Format:
   the full set, and not through `make eval` — a targeted ad-hoc check to bound API
   spend under a mid-session credit constraint): both real calls returned
   `questions[]` instead of a plan, and `planner_scorer.invoke_planner` doesn't handle
-  that response shape — it raises instead of scoring gracefully. Not chasing this
-  further while credit-constrained; documented as a real, disclosed limitation.
-- Notes / follow-ups: **AC5 (SPEC-102) is not satisfied yet** — `evals/thresholds.yaml`
-  keeps `planner.not_yet_enforced: true` because there is no safe floor to set given
-  the questions[]-vs-plan finding above. Whoever picks this up next needs to either (a)
-  teach `planner_scorer.py` to score a `questions[]` response instead of crashing, or
-  (b) determine whether these 15 synthetic fixtures are simply under-specified
-  relative to what the live prompt/model expects and enrich them (or both), then
-  re-measure a real floor. Until then, `make eval` silently skips the planner set,
-  same as it did before this ticket. `run_planner_agent` has no auto-dispatch trigger
-  (invoked by tests/an ops script only) — matches `run_dev_agent`'s own precedent;
-  real dispatch is T-104 (Delivery Manager)'s job. Not building T-104's capability
-  registry or Delivery Manager here — this ticket stops at `planning -> ready`.
+  that response shape — it raises instead of scoring gracefully.
+- **Follow-up (same day): AC5 fixed and `evals/planner` enforced for real.** Two real
+  bugs, both fixed: (1) `planner_scorer.invoke_planner`/`score_case` now branches on
+  `PlannerQuestions` vs `PlannerPlan` instead of assuming a plan — a `questions[]`
+  response is scored (deterministic=0, judge-rated) instead of raising;
+  `judge.py`'s `"planner"` rubric prompt gained explicit guidance to score a
+  needlessly-conservative `questions[]` response low, since every reference in this
+  set is a full plan (the idea was demonstrably plannable). (2) `prompts/planner.md`
+  (v0.1 → v0.2) never specified the exact output JSON shape — the live model
+  responded with rich `{id, topic, question}` objects instead of `PlannerQuestions`'
+  flat `list[str]`, and asked unnecessary clarifying questions on well-specified
+  ideas; v0.2 adds an explicit "Output shape" section for both the plan and
+  questions responses, plus "prefer a reasonable default over a question" guidance.
+  Re-ran all 15 cases for real after both fixes: 15/15 valid plans, zero errors,
+  zero questions, `deterministic_score` 100 on every case (schema/DAG/budget/
+  verification all pass), combined score avg 88.6 (min 76.8, max 96.8). Set
+  `evals/thresholds.yaml`'s `planner.floor: 70` (same reasoning as the dev set's
+  initial floor — a buffer below the observed minimum) and flipped
+  `not_yet_enforced` to `false`. AC5 is now genuinely satisfied, not just built.
+- Notes / follow-ups: `run_planner_agent` has no auto-dispatch trigger (invoked by
+  tests/an ops script only) — matches `run_dev_agent`'s own precedent; real dispatch
+  is T-104 (Delivery Manager)'s job. Not building T-104's capability registry or
+  Delivery Manager here — this ticket stops at `planning -> ready`. Planner-set
+  run-to-run reproducibility (AC4-style, <2% drift) has not been separately measured
+  — only one real pass over the 15 cases was run, to bound API spend.

@@ -1,4 +1,4 @@
-from schemas import AcceptanceCriterion, Complexity, Epic, PlannerPlan, TaskSpec
+from schemas import AcceptanceCriterion, Complexity, Epic, PlannerPlan, PlannerQuestions, TaskSpec
 
 from orchestrator.evals import planner_scorer
 from orchestrator.evals.judge import JudgeVerdict
@@ -132,3 +132,24 @@ def test_score_case_returns_zero_on_invocation_failure(monkeypatch) -> None:
     assert result.score == 0.0
     assert result.error is not None
     assert "API exploded" in result.error
+
+
+def test_score_case_scores_a_questions_response_without_crashing(monkeypatch) -> None:
+    case = _case()
+
+    def fake_invoke(**_kwargs: object) -> PlannerQuestions:
+        return PlannerQuestions(questions=["Who is the target user?"])
+
+    def fake_judge(**_kwargs: object) -> JudgeVerdict:
+        return JudgeVerdict(score=20.0, rationale="idea was well-specified; unnecessary question")
+
+    monkeypatch.setattr(planner_scorer, "invoke_planner", fake_invoke)
+
+    result = planner_scorer.score_case(case, judge=fake_judge)
+
+    assert result.error is None
+    assert result.candidate is None
+    assert result.questions == ["Who is the target user?"]
+    assert result.deterministic_score == 0.0
+    assert result.judge_score == 20.0
+    assert result.score == 0.6 * 0.0 + 0.4 * 20.0

@@ -37,7 +37,14 @@ against a reference decomposition. Score 0-100 on:
 - Is the task breakdown a reasonable, independently-shippable slicing, not arbitrary?
 A candidate that slices the work differently but sensibly should score highly. A
 candidate that copies reference wording without a coherent decomposition should score
-low.""",
+low.
+If the candidate is a list of clarifying questions instead of a decomposition: the
+reference successfully produced a full plan from the same idea input, so the idea was
+NOT actually under-specified. Score low (0-25) unless the questions identify a real,
+material gap a competent planner genuinely could not have proceeded without (in which
+case score higher in proportion to how essential the missing information truly was).
+Being needlessly conservative about a well-specified idea is the failure mode this
+rubric exists to catch.""",
 }
 
 

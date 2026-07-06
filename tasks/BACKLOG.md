@@ -118,17 +118,18 @@ tickets enter directly at `approved`, epics/tasks stored as real child tickets
       TaskSpec-id space each task's `spec` JSONB carries)
 - [x] Task budgets exceeding the idea budget block `planning -> ready` — verified:
       `test_idea_planning_workflow.py::test_planning_to_ready_blocked_when_task_budgets_exceed_idea_budget`
-- [ ] Planner prompt changes are blocked by CI unless `make eval` (planner set) is
-      green — **infrastructure built, not yet enforced.** `evals/planner/` has 15
-      synthetic cases and a real scorer (`planner_scorer.py`, same 60/40
-      deterministic/judge blend as the dev set); `runner.py` registers it exactly like
-      dev/distiller. But a real run against live opus (2 of 15 cases, to bound spend
-      mid-session credit constraints) showed the model consistently answering these
-      fixtures with `questions[]` instead of a plan, and `invoke_planner` only handles
-      the plan path — it raises instead of scoring gracefully. Setting an enforced
-      floor on that would be meaningless, so `evals/thresholds.yaml`'s
-      `planner.not_yet_enforced` stays `true`, honestly, until someone fixes the
-      questions-handling and/or the fixtures. Follow-up, not silently done.
+- [x] Planner prompt changes are blocked by CI unless `make eval` (planner set) is
+      green — verified: `evals/thresholds.yaml`'s `planner.not_yet_enforced` is now
+      `false` (floor 70), same `eval-gate.yml`/`threshold-governance` CI mechanism as
+      dev/distiller. Getting here required fixing two real bugs a first real run
+      exposed: `planner_scorer.invoke_planner` crashed on a `questions[]` response
+      instead of scoring it (fixed — scored via the judge, deterministic=0, since
+      every reference in this set is a full plan); and `prompts/planner.md` (bumped
+      v0.1 → v0.2) never specified the exact output JSON shape, so the live model
+      returned rich question objects instead of plain strings and asked unnecessary
+      questions on well-specified ideas. After both fixes, a full real run over all 15
+      cases: 15/15 valid plans, zero errors, zero questions, deterministic_score 100
+      on every case, combined score avg 88.6 (min 76.8, max 96.8).
 - [x] Human edits to a TaskSpec are versioned as ticket_events (before/after payload)
       — verified:
       `test_idea_planning_workflow.py::test_update_task_versions_an_edit_event_with_before_and_after`

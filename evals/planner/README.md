@@ -7,15 +7,15 @@ Each case pairs a small idea (title + description + budget) with a reference
 deterministic checks (schema validity, dependency-graph acyclicity, task-budget sum
 within the idea's budget, every acceptance criterion carries a verification hint)
 blended 60/40 with the shared haiku-class judge (`orchestrator/evals/judge.py`), same
-ratio as the dev set.
+ratio as the dev set. A `questions[]` response (the Planner declining to produce a
+plan) is scored rather than crashing the harness — deterministic score is 0 (no plan
+means none of the sanity checks apply) blended with the judge, which is instructed to
+score low unless the questions identify a real, material gap.
 
-**Not yet enforced** (`evals/thresholds.yaml`'s `planner.not_yet_enforced: true`).
-A real run against live opus (2 of the 15 cases, to bound API spend) showed the model
-consistently answering these fixtures with `questions[]` instead of a plan, and
-`planner_scorer.invoke_planner` only handles the plan path — it raises instead of
-scoring a `questions[]` response gracefully. Before a floor can be set, someone needs
-to: (a) decide how a legitimate `questions[]` response should score (partial credit?
-a separate pass/fail dimension?) and implement it in `planner_scorer.py`, and/or
-(b) check whether these synthetic fixtures are simply under-specified relative to
-what the live prompt expects, and enrich them. See `tasks/CHANGELOG.md` (T-103) for
-the full finding.
+**Enforced** (`evals/thresholds.yaml`, floor 70). Getting here surfaced two real bugs:
+`planner_scorer.invoke_planner` originally crashed on a `questions[]` response instead
+of scoring it, and `prompts/planner.md` (bumped to v0.2) never specified the exact
+output JSON shape, so the live model returned rich question objects instead of plain
+strings and asked unnecessary questions on well-specified ideas. After both fixes, a
+full real run against live opus: 15/15 valid plans, zero errors, zero questions,
+deterministic_score 100 on every case, combined score avg 88.6 (min 76.8, max 96.8).
