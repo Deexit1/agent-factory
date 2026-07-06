@@ -1,0 +1,39 @@
+case_id: distiller-004-pytest-keyerror
+title: Single pytest failure from an uncaught KeyError, not a plain assert
+
+input_meta:
+  ticket_id: EVAL-DISTILLER-004
+  suite: pytest
+  attempt_no: 1
+
+raw_log: |
+  ============================= test session starts ==============================
+  collected 2 items
+
+  test_config.py::test_load_config_reads_database_url PASSED             [ 50%]
+  test_config.py::test_load_config_missing_key_raises FAILED             [100%]
+
+  =================================== FAILURES ====================================
+  ________________________ test_load_config_missing_key_raises _________________________
+
+      def test_load_config_missing_key_raises():
+          config = {"database_url": "postgres://localhost"}
+  >       value = config["api_key"]
+  E       KeyError: 'api_key'
+
+  test_config.py:22: KeyError
+  FAILED test_config.py::test_load_config_missing_key_raises - KeyError: 'api_key'
+  ========================= 1 failed, 1 passed in 0.05s ===========================
+
+reference:
+  failing_suite: pytest
+  failing_tests:
+    - test_config.py::test_load_config_missing_key_raises
+  expected_vs_actual: "KeyError: 'api_key'"
+  suspect_files:
+    - test_config.py
+
+rubric_weights:
+  field_accuracy: 0.6
+  suspect_file_hit_rate: 0.3
+  ignores_noise: 0.1

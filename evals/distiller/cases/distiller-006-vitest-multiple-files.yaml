@@ -1,0 +1,40 @@
+case_id: distiller-006-vitest-multiple-files
+title: Vitest failures across two different spec files using the "✗" marker
+
+input_meta:
+  ticket_id: EVAL-DISTILLER-006
+  suite: vitest
+  attempt_no: 1
+
+raw_log: |2
+   RUN  v1.4.0 /repo
+
+   ✗ src/hooks/useDebounce.test.ts > delays the callback by the given timeout
+   ✗ src/api/client.test.ts > client > retries once on a 502 response
+   ✓ src/utils/formatCurrency.test.ts (3)
+
+   ✗ src/hooks/useDebounce.test.ts > delays the callback by the given timeout
+  AssertionError: expected callback to have been called 1 times, but got 0 times
+   ❯ src/hooks/useDebounce.test.ts:31:18
+
+   ✗ src/api/client.test.ts > client > retries once on a 502 response
+  AssertionError: expected fetchMock to have been called 2 times, but got 1 times
+   ❯ src/api/client.test.ts:47:20
+
+   Test Files  2 failed | 1 passed (3)
+        Tests  2 failed | 3 passed (5)
+
+reference:
+  failing_suite: vitest
+  failing_tests:
+    - src/hooks/useDebounce.test.ts
+    - src/api/client.test.ts
+  expected_vs_actual: "expected callback to have been called 1 times, but got 0 times; expected fetchMock to have been called 2 times, but got 1 times"
+  suspect_files:
+    - src/hooks/useDebounce.test.ts
+    - src/api/client.test.ts
+
+rubric_weights:
+  field_accuracy: 0.6
+  suspect_file_hit_rate: 0.3
+  ignores_noise: 0.1

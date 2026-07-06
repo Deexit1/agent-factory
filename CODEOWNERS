@@ -1,0 +1,7 @@
+# SPEC-101 AC3: lowering a golden-set floor requires sign-off from whoever owns eval
+# governance, not just any reviewer. Enable "Require review from Code Owners" in this
+# repo's branch protection for this rule to actually gate merges; the
+# `threshold-governance` job in .github/workflows/eval-gate.yml additionally checks it
+# as a real, observable CI status (not just an unmergeable button) for evals/thresholds.yaml
+# specifically, since that's the one file in this list with programmatic governance.
+/evals/thresholds.yaml @Deexit1

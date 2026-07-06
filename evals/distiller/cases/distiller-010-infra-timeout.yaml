@@ -1,0 +1,37 @@
+case_id: distiller-010-infra-timeout
+title: All tests pass; the job then times out waiting on a downstream service
+
+input_meta:
+  ticket_id: EVAL-DISTILLER-010
+  suite: pytest
+  attempt_no: 1
+
+raw_log: |
+  ============================= test session starts ==============================
+  collected 6 items
+
+  test_notifications.py::test_email_sent_on_signup PASSED                [ 16%]
+  test_notifications.py::test_sms_sent_on_password_reset PASSED          [ 33%]
+  test_notifications.py::test_digest_batches_by_user PASSED              [ 50%]
+  test_notifications.py::test_unsubscribe_suppresses_future_sends PASSED [ 66%]
+  test_notifications.py::test_retry_backoff_schedule PASSED              [ 83%]
+  test_notifications.py::test_template_rendering PASSED                 [100%]
+
+  ============================ 6 passed in 3.02s ============================
+  Waiting for background worker to drain queue...
+  Waiting for background worker to drain queue...
+  Waiting for background worker to drain queue...
+  ##[error]The operation was canceled: job exceeded the 10 minute timeout.
+  Error: Process completed with exit code 124.
+
+reference:
+  failing_suite: infra
+  failing_tests:
+    - none
+  expected_vs_actual: "no real test failures; all 6 tests passed, then the job was canceled after exceeding the 10 minute timeout waiting on a background worker"
+  suspect_files: []
+
+rubric_weights:
+  field_accuracy: 0.5
+  suspect_file_hit_rate: 0.1
+  ignores_noise: 0.4

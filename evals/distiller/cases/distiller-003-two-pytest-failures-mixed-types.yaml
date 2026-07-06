@@ -1,0 +1,51 @@
+case_id: distiller-003-two-pytest-failures-mixed-types
+title: Two pytest failures in one run - an equality assertion and an AttributeError
+
+input_meta:
+  ticket_id: EVAL-DISTILLER-003
+  suite: pytest
+  attempt_no: 1
+
+raw_log: |
+  ============================= test session starts ==============================
+  collected 4 items
+
+  test_orders.py::test_total_price_matches_expected FAILED               [ 25%]
+  test_orders.py::test_apply_discount_handles_missing_field FAILED       [ 50%]
+  test_orders.py::test_create_order_returns_id PASSED                    [ 75%]
+  test_orders.py::test_cancel_order_sets_status PASSED                   [100%]
+
+  =================================== FAILURES ====================================
+  _____________________ test_total_price_matches_expected ______________________
+
+      def test_total_price_matches_expected():
+          order = Order(items=[("widget", 2, 5.0)])
+  >       assert order.total_price() == 10.0
+  E       assert 12.0 == 10.0
+
+  test_orders.py:9: AssertionError
+  ___________________ test_apply_discount_handles_missing_field ________________
+
+      def test_apply_discount_handles_missing_field():
+          order = Order(items=[])
+  >       order.apply_discount(0.1)
+  E       AttributeError: 'Order' object has no attribute 'apply_discount'
+
+  test_orders.py:15: AttributeError
+  FAILED test_orders.py::test_total_price_matches_expected - assert 12.0 == 10.0
+  FAILED test_orders.py::test_apply_discount_handles_missing_field - AttributeError: 'Order' object has no attribute 'apply_discount'
+  ========================= 2 failed, 2 passed in 0.09s ===========================
+
+reference:
+  failing_suite: pytest
+  failing_tests:
+    - test_orders.py::test_total_price_matches_expected
+    - test_orders.py::test_apply_discount_handles_missing_field
+  expected_vs_actual: "assert 12.0 == 10.0; AttributeError: 'Order' object has no attribute 'apply_discount'"
+  suspect_files:
+    - test_orders.py
+
+rubric_weights:
+  field_accuracy: 0.6
+  suspect_file_hit_rate: 0.3
+  ignores_noise: 0.1

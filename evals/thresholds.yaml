@@ -1,0 +1,39 @@
+# Golden-set floor scores (SPEC-101). Governance: editing this file requires a CODEOWNERS
+# approval (see /CODEOWNERS) whenever a floor is LOWERED - raising a floor, or editing
+# anything else here, does not need that extra approval. `updated_by`/`rationale` on each
+# set exist so a reviewer can see *why* a floor changed without spelunking git blame.
+#
+# Scores are 0-100, the weighted sum of a set's deterministic checks + haiku-judge rubric
+# (see docs/08-evals.md "Scoring"). `not_yet_enforced: true` means the set has no seeded
+# cases yet - `make eval` skips it instead of failing on an empty set.
+
+dev:
+  floor: 70
+  not_yet_enforced: false
+  updated_by: T-101
+  rationale: >
+    Initial floor for the first 4 seeded cases (3 real Phase-1 PRs + 1 synthetic).
+    Deliberately not near-perfect: the golden set is small and the dev-agent prompt has
+    never been scored before, so 70 catches a real regression without being so tight
+    that normal prompt iteration trips it constantly. Revisit once more cases are seeded.
+
+distiller:
+  floor: 75
+  not_yet_enforced: false
+  updated_by: T-101
+  rationale: >
+    Failure classification (which tests failed, which files are suspect, ignoring
+    infra/flaky noise) is a narrower, more deterministic task than open-ended dev work,
+    so it can hold a slightly higher bar than the dev set from the start.
+
+planner:
+  floor: null
+  not_yet_enforced: true
+  updated_by: T-101
+  rationale: "Planner agent doesn't exist until T-103 seeds this set for real."
+
+review:
+  floor: null
+  not_yet_enforced: true
+  updated_by: T-101
+  rationale: "Review agent doesn't exist until T-106 seeds this set for real."

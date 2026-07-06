@@ -8,15 +8,21 @@
 | Auth | OIDC SSO (Authlib); RBAC: admin / approver / viewer |
 | Orchestration | LangGraph (Python) + PostgresSaver checkpointing |
 | LLM | Anthropic API. Routing: sonnet default, opus for planning/complex, haiku for classification & log distillation. Prompt caching on. |
-| Dev agent | Claude Code headless (Claude Agent SDK) |
+| Dev agents | Claude Code headless (Claude Agent SDK), per-profile base images |
 | Database | PostgreSQL 16 (JSONB payloads), Redis 7 |
 | Artifacts | S3 / MinIO |
 | Sandbox | Rootless Docker + gVisor; egress proxy (Squid); Vault for secrets |
 | VCS / CI | GitHub, branch `task/T-xxx`, GitHub Actions with self-hosted runners |
 | Tests | pytest, Vitest, Testcontainers, Playwright; smoke suite tagged `@smoke` |
 | Static gates | ruff, mypy, eslint, tsc, Semgrep, gitleaks, pip-audit/npm audit |
-| Observability | Langfuse (self-hosted) for agent traces + cost; OpenTelemetry → Prometheus/Grafana/Loki |
-| Pilot infra | 2 VMs, Docker Compose, Caddy TLS, Terraform + Ansible |
+| Evals | Golden-set harness (`make eval`) — promptfoo-style YAML cases + custom scorer, runs in CI on `prompts/**` or routing diffs |
+| Observability | Langfuse (Cloud, Phase-2 pragmatic choice — see T-101 changelog; self-hosting is a separate future migration) for agent traces + cost; OpenTelemetry → Prometheus/Grafana/Loki |
+| Merge safety | GitHub merge queue (or bors-style bot) — required for all `agent/*` PRs |
 
-Escalation paths (pre-approved, Phase 2+): Temporal for orchestration; Firecracker/Kata
-for sandbox; Kubernetes for runner pool.
+## Phase-2 activations (pre-approved escalation paths)
+- **Runner pool → Kubernetes** (EKS/GKE + autoscaling runners) WHEN sustained parallel
+  tickets > 5. Until then: second runner VM.
+- **Orchestration → Temporal** WHEN LangGraph checkpoint recovery fails us twice in
+  production or ticket volume > 50/day. Not before — migration is expensive.
+- **Sandbox → Firecracker/Kata** WHEN agents get access to repos with sensitive data
+  classifications. gVisor remains fine for the pilot repos.

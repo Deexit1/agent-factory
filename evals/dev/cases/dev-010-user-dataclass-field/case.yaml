@@ -1,0 +1,42 @@
+case_id: dev-010-user-dataclass-field
+title: Add a validated quantity field to the Product dataclass
+source: synthetic
+
+starter:
+  kind: standalone
+  dir: starter
+
+task_spec:
+  id: EVAL-DEV-010
+  title: Add a quantity field to Product with non-negative validation
+  context: >
+    Product is a small dataclass with name and price, and price is already validated
+    as non-negative in __post_init__. Add a new quantity field (int, default 0) and
+    validate it the same way: a negative quantity should raise ValueError. Add tests
+    covering the default value and the rejection case.
+  constraints:
+    - quantity must default to 0 so existing two-argument construction still works.
+    - Follow the existing __post_init__ validation style used for price.
+  acceptance_criteria:
+    - id: AC-1
+      description: Product("widget", 9.99) defaults quantity to 0
+      verification: test_models.py::test_product_defaults_quantity_to_zero
+    - id: AC-2
+      description: a negative quantity raises ValueError
+      verification: test_models.py::test_product_rejects_negative_quantity
+  complexity: low
+  budget_usd: 1.5
+
+verification:
+  mode: pytest
+  test_command: "-q"
+  allowed_paths:
+    - models.py
+    - test_models.py
+
+reference_diff_file: reference.patch
+
+rubric_weights:
+  tests_pass: 0.5
+  criteria_test_mapping: 0.3
+  no_out_of_scope_edits: 0.2

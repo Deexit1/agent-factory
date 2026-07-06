@@ -550,3 +550,80 @@ Format:
   rate as statistically meaningful. Keep the `claude` CLI current — the outdated-CLI bug
   found here would silently manifest as "the dev agent produced no changes" with zero
   events recorded, easy to misdiagnose as a prompt problem instead of a CLI version issue.
+
+## T-101 · Eval harness & golden sets — 2026-07-05
+- What changed: Implemented SPEC-101's `make eval` in
+  `apps/orchestrator/src/orchestrator/evals/` (loader, dev/distiller scorers, a
+  haiku-class judge, Langfuse Cloud logging, JUnit+markdown reporting, a CLI). Seeded
+  `evals/dev/` (10 cases: 3 real Phase-1 pilot PRs pinned to their pre-PR SHA + 7
+  hand-authored synthetic cases) and `evals/distiller/` (13 cases) golden sets plus
+  `evals/thresholds.yaml`; `evals/planner/`/`evals/review/` are scaffolded but empty
+  (`not_yet_enforced: true`) until T-103/T-106 seed them. Two prerequisite fixes were
+  required for the harness to detect anything real rather than being theater:
+  `prompts/dev-agent.md` was never actually reaching the `claude` CLI (no
+  `--append-system-prompt`, and `agents/dev.py`'s `build_prompt()` only assembles the
+  per-task TaskSpec/FailureReport) — fixed in `claude_runner.py`. And
+  `prompts/failure-distiller.md` (bumped v0.1 → v0.2) referenced "schema in
+  packages/schemas" without inlining it, so a haiku-class model guessed a nested JSON
+  shape instead of `FailureReport`'s flat string lists — fixed by inlining the exact
+  output shape. `apps/api`'s production failure-distiller (SPEC-005's deliberate
+  deterministic regex stand-in) was not touched; the eval-only LLM path in
+  `distiller_scorer.py` exists solely to score the prompt file's own quality.
+  Added `CODEOWNERS` (`/evals/thresholds.yaml @Deexit1`) and a `threshold-governance`
+  CI job that fails if a floor is lowered without an approving codeowner review, backed
+  by newly-enabled branch protection on `main` (require PR + codeowner review;
+  `enforce_admins: false`) — `main` had **no** branch protection at all before this,
+  contrary to what T-009's changelog assumed would eventually be set up. New
+  `.github/workflows/eval-gate.yml` runs `make eval --only-changed` on any
+  `prompts/**`/`evals/**`/routing-config diff (not restricted to `agent/*` branches,
+  unlike `agent-pr-gate.yml`, since a human editing a prompt must hit this gate too) and
+  posts a PR comment with per-set scores and the worst-3 cases' real candidate output.
+- Files touched: `apps/orchestrator/src/orchestrator/evals/**` (new: `loader.py`,
+  `dev_scorer.py`, `distiller_scorer.py`, `judge.py`, `langfuse_client.py`, `report.py`,
+  `runner.py`), `apps/orchestrator/tests/evals/**` (new), `apps/orchestrator/src/
+  orchestrator/claude_runner.py` (`--append-system-prompt` wiring),
+  `apps/orchestrator/tests/test_claude_runner.py`, `apps/orchestrator/pyproject.toml`
+  (`anthropic`, `langfuse` v4, `pyyaml`, `flask` dev dep), `apps/orchestrator/scripts/
+  check_threshold_governance.py` (new), `evals/**` (new: cases, `thresholds.yaml`,
+  `planner/README.md`, `review/README.md`), `CODEOWNERS` (new), `Makefile` (`eval`
+  target), `.github/workflows/eval-gate.yml` (new), `prompts/failure-distiller.md`
+  (v0.1 → v0.2), `docs/06-tech-stack.md` (Langfuse Cloud note), `docs/08-evals.md`
+  (corrected the dev-set seed-count claim), `.env.example`/`.env` (`LANGFUSE_BASE_URL`,
+  matching the installed SDK's current env var name — not `LANGFUSE_HOST`), `.gitignore`
+  (`evals/results/`).
+- Test evidence: `apps/orchestrator` unit suite green (30 passed: loader, judge,
+  dev/distiller scorer logic against fakes — no real API spend in the base suite, same
+  convention as every prior task). Then verified for real against live Anthropic +
+  Langfuse Cloud + GitHub Actions, not just unit tests: distiller set scores 86.5–87.5/
+  100 (floor 75) across three separate real runs; deleting `failure-distiller.md`'s
+  Rules section drops it to 70.6 (red), confirming the harness actually detects a
+  prompt regression (AC1); restoring it goes green again with both runs visible in
+  Langfuse Cloud tagged with distinct prompt versions (AC2); two full runs on an
+  unchanged prompt differ by ~0.2%, well under AC4's 2% bar. Dev set (live Claude Code,
+  real `claude-sonnet-5` invocations against all 10 cases): 87.1/100 (floor 70) on the
+  first real run. Opened PR #6 against `main` for real, which triggered
+  `eval-gate.yml` for the first time — surfaced and fixed three real CI-only bugs a
+  local run couldn't have caught: the eval job's default `GITHUB_TOKEN` needed an
+  explicit `permissions: pull-requests: write` block to post PR comments;
+  `check_threshold_governance.py` crashed on `evals/thresholds.yaml`'s first-ever
+  introduction (no prior version on the base ref to diff against); and the initial PR
+  comment only showed judge rationale, not real diffs/candidate output, so `report.py`
+  now includes each worst-3 case's full candidate JSON/diff in a collapsed `<details>`
+  block. AC3's fail-without-approval path was verified for real (a dry run against PR
+  #6's actual, zero reviews correctly failed, naming the codeowner); the
+  approve-then-pass half can't be demonstrated on this repo — GitHub categorically
+  blocks self-approval and `@Deexit1` is the only codeowner/contributor, confirmed via a
+  real `gh api` call returning "Review Can not approve your own pull request".
+- Notes / follow-ups: SPEC-101's ask to seed `evals/dev/` from "20-30 pilot tickets"
+  was never achievable — T-009 was descoped to 3 real tickets, and there is no
+  retrievable transcript data from that run (its scratch clones were torn down). Seeded
+  3 real (from the actual merged PR diffs) + 7 synthetic cases sized like real pilot
+  tickets instead; documented the discrepancy in `docs/08-evals.md` rather than silently
+  padding the count. The solo-maintainer self-approval gap above means
+  `evals/thresholds.yaml` changes will always need an explicit admin merge-override on
+  this repo, not a real second-party review — acceptable for now, but revisit if this
+  project ever gets a second real contributor (a genuine codeowner review would then
+  become possible and should replace the override path). `evals/planner/` and
+  `evals/review/` remain unseeded stubs; T-103/T-106 must flip
+  `not_yet_enforced: false` once they seed real cases, or those sets stay silently
+  skipped forever.

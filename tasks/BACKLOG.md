@@ -1,8 +1,9 @@
 # Backlog — the manual board
 
-States: `ready` | `in_progress` | `in_qa` | `bounced` | `escalated` | `done`
+States: `ready` | `in_progress` | `in_review` | `in_qa` | `bounced` | `escalated` | `done`
 Rules: work top-to-bottom unless the human says otherwise. One task per branch/PR.
-A task is done only when its criteria pass as tests and `make check` is green.
+Done = acceptance criteria pass as tests, `make check` green, and `make eval` green if
+anything under `prompts/` or model routing was touched.
 
 ---
 
@@ -100,3 +101,85 @@ the first one validated the full loop for real — see `tasks/PILOT-REPORT.md` f
 **Acceptance criteria**
 - [x] Every pilot ticket ends in `done` or `escalated` with full event history (3/3 done)
 - [x] Dashboard exports the four metrics; report includes them vs thresholds
+
+---
+
+# Phase 2 — management layer (ACTIVE)
+
+## T-101 · Eval harness & golden sets — `done`
+**Spec:** SPEC-101  **Est:** L
+Build `make eval` + seed dev/distiller golden sets. Seeded from 3 real Phase-1 pilot
+PRs + hand-authored synthetic cases sized like real tickets, not "20-30 pilot tickets"
+as originally scoped — the pilot itself was descoped to 3 real tickets
+(`tasks/PILOT-REPORT.md`), so there was never more real data to seed from.
+**Acceptance criteria**
+- [x] Degrading `prompts/failure-distiller.md` (deleting the Rules section) turns
+      `make eval` red on the distiller set (verified for real: 70.6 vs floor 75)
+- [x] Restoring the prompt turns it green; both runs visible in Langfuse Cloud with
+      distinct prompt versions (verified for real: 86.5-86.7 vs floor 75)
+- [x] Lowering a threshold in `evals/thresholds.yaml` without a CODEOWNERS approval
+      fails CI — verified for real: a local dry run against PR #6's real (zero) reviews
+      correctly failed with the exact codeowner login named. The reverse ("approve, then
+      it passes") can't be demonstrated on this repo: GitHub categorically blocks
+      self-approval, and @Deexit1 is the only codeowner/contributor, so this project can
+      never produce a qualifying approval on its own PRs. Mitigation:
+      `enforce_admins: false` on branch protection means the admin can still merge via
+      an explicit override — the rule still forces a conscious, visible decision to
+      bypass rather than a silent threshold change, which is what AC3 is actually for.
+- [x] Judge scoring is reproducible: two runs on identical inputs differ by < 2%
+      (verified for real: 86.7 → 86.5, ~0.2% drift)
+- [x] PR comment shows per-set scores and worst-3 failing cases with diffs (verified
+      for real on PR #6 — includes each case's full candidate output, not just a score)
+
+## T-102 · State machine v2 (planning + in_review) — `ready`
+**Spec:** docs/03-state-machine.md  **Est:** M
+Migrate the whitelist: activate `approved → planning → ready`, insert `in_review`,
+shared bounce counter across review/QA.
+**Acceptance criteria**
+- [ ] All new transitions covered by API tests; illegal ones return 409 + rejected event
+- [ ] Existing Phase-1 tickets replay cleanly through the migrated machine (fixture test)
+- [ ] Bounce shared-counter behaviour proven by a review-block + QA-fail sequence
+
+## T-103 · Planner agent + planning review UI — `ready`
+**Spec:** SPEC-102  **Est:** L
+All six criteria apply. Requires T-101 (planner eval floor) and T-102.
+
+## T-104 · Capability registry + Delivery Manager — `ready`
+**Spec:** SPEC-103  **Est:** M
+All five criteria apply. Requires T-102.
+
+## T-105 · Specialised dev-agent profiles — `ready`
+**Spec:** SPEC-104  **Est:** L
+All five criteria apply. Requires T-101 (per-profile eval floors), T-104.
+
+## T-106 · Review agent + in_review gate — `ready`
+**Spec:** SPEC-105  **Est:** M
+All five criteria apply. Requires T-101 (review golden set), T-102.
+
+## T-107 · Merge queue + parallelism — `ready`
+**Spec:** SPEC-106  **Est:** L
+All five criteria apply. Requires T-104.
+
+## T-108 · Cost ledger v2 — `ready`
+**Spec:** docs/02-data-model.md  **Est:** S
+Extend cost views: per-idea rollup (sum of child epics/tasks), per-profile and
+per-prompt-version spend; nightly eval-run costs tagged separately.
+**Acceptance criteria**
+- [ ] Idea drawer shows rollup equal to the ledger sum of all descendants (golden test)
+- [ ] Spend-by-profile and spend-by-prompt-version charts match seeded fixtures
+- [ ] Eval runs are excluded from ticket unit-economics metrics
+
+## T-109 · End-to-end management flow test — `ready`
+**Spec:** SPEC-102..106  **Est:** M
+One scripted scenario: idea → planner → human budget approval → DM assignment →
+2 parallel profile agents → review gate → QA → merge queue → done.
+**Acceptance criteria**
+- [ ] Scenario passes in CI nightly against a fixture repo
+- [ ] Full event history for every ticket; zero manual DB touches required
+- [ ] Total scenario cost recorded and under the configured cap
+
+## T-110 · Phase-2 pilot & report — `ready`
+**Spec:** docs/00-vision.md §metrics  **Est:** M
+Run 3–5 real ideas end-to-end. Capture: planning acceptance rate (human edits per
+TaskSpec), first-pass QA rate, $/closed ticket, cycle time. Write `tasks/PILOT2-REPORT.md`
+with a Phase-3 go/no-go recommendation.

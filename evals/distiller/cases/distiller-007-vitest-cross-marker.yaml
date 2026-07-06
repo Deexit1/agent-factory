@@ -1,0 +1,34 @@
+case_id: distiller-007-vitest-cross-marker
+title: Vitest failure using the "×" marker style with a thrown error
+
+input_meta:
+  ticket_id: EVAL-DISTILLER-007
+  suite: vitest
+  attempt_no: 2
+
+raw_log: |2
+   RUN  v1.4.0 /repo
+
+   × src/store/cart.test.ts > cart store > throws when adding a negative quantity
+
+   × src/store/cart.test.ts > cart store > throws when adding a negative quantity
+  Error: quantity must be positive
+   ❯ addItem src/store/cart.ts:18:11
+   ❯ src/store/cart.test.ts:22:9
+
+   Test Files  1 failed (1)
+        Tests  1 failed (1)
+
+reference:
+  failing_suite: vitest
+  failing_tests:
+    - src/store/cart.test.ts
+  expected_vs_actual: "Error: quantity must be positive"
+  suspect_files:
+    - src/store/cart.test.ts
+    - src/store/cart.ts
+
+rubric_weights:
+  field_accuracy: 0.55
+  suspect_file_hit_rate: 0.35
+  ignores_noise: 0.1

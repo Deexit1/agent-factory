@@ -1,0 +1,43 @@
+case_id: dev-008-slugify-util
+title: Add a slugify() text utility with a docstring and tests
+source: synthetic
+
+starter:
+  kind: standalone
+  dir: starter
+
+task_spec:
+  id: EVAL-DEV-008
+  title: Add slugify(text) to textutils.py
+  context: >
+    textutils.py has one small helper, shout(). Add a new slugify(text) function that
+    converts arbitrary text into a URL-friendly slug: lowercase, punctuation stripped,
+    and runs of whitespace collapsed into single hyphens. Give it a docstring like the
+    existing function, and add tests covering both punctuation stripping and internal
+    whitespace collapsing.
+  constraints:
+    - Use only the standard library (re is fine).
+    - Do not change the existing shout() behavior.
+  acceptance_criteria:
+    - id: AC-1
+      description: slugify("Hello World!") returns "hello-world"
+      verification: test_textutils.py::test_slugify_lowercases_and_hyphenates
+    - id: AC-2
+      description: slugify collapses runs of internal whitespace into a single hyphen
+      verification: test_textutils.py::test_slugify_collapses_internal_whitespace
+  complexity: low
+  budget_usd: 2.0
+
+verification:
+  mode: pytest
+  test_command: "-q"
+  allowed_paths:
+    - textutils.py
+    - test_textutils.py
+
+reference_diff_file: reference.patch
+
+rubric_weights:
+  tests_pass: 0.5
+  criteria_test_mapping: 0.3
+  no_out_of_scope_edits: 0.2

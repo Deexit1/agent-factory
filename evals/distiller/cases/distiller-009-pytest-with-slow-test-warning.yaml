@@ -1,0 +1,43 @@
+case_id: distiller-009-pytest-with-slow-test-warning
+title: One real pytest failure amid a slow-test warning and a connection retry notice
+
+input_meta:
+  ticket_id: EVAL-DISTILLER-009
+  suite: pytest
+  attempt_no: 2
+
+raw_log: |
+  ============================= test session starts ==============================
+  collected 3 items
+
+  test_search.py::test_search_returns_ranked_results FAILED              [ 33%]
+  test_search.py::test_search_handles_empty_query PASSED                 [ 66%]
+  test_search.py::test_search_index_rebuild_is_idempotent PASSED         [100%]
+
+  WARNING: test_search_index_rebuild_is_idempotent took 4.82s (slow test threshold: 2.0s)
+  NOTICE: reconnected to search index after 1 retry
+
+  =================================== FAILURES ====================================
+  _______________________________ test_search_returns_ranked_results _____________________________
+
+      def test_search_returns_ranked_results():
+          results = search("widget")
+  >       assert results[0].id == "widget-123"
+  E       AssertionError: assert 'widget-999' == 'widget-123'
+
+  test_search.py:18: AssertionError
+  FAILED test_search.py::test_search_returns_ranked_results - AssertionError: assert 'widget-999' == 'widget-123'
+  ========================= 1 failed, 2 passed in 5.31s ===========================
+
+reference:
+  failing_suite: pytest
+  failing_tests:
+    - test_search.py::test_search_returns_ranked_results
+  expected_vs_actual: "assert 'widget-999' == 'widget-123'"
+  suspect_files:
+    - test_search.py
+
+rubric_weights:
+  field_accuracy: 0.5
+  suspect_file_hit_rate: 0.2
+  ignores_noise: 0.3

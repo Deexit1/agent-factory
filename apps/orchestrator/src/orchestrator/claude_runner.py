@@ -7,6 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+# apps/orchestrator/src/orchestrator/claude_runner.py -> repo root is 4 parents up.
+# Orchestrator always runs from a checkout of this repo (it has no standalone
+# deployment/Dockerfile in this phase - see docs/01-architecture.md's layer split), so a
+# repo-relative default is safe; callers that need a different prompt (tests, evals) pass
+# `system_prompt_path` explicitly.
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+DEFAULT_DEV_AGENT_PROMPT_PATH = _REPO_ROOT / "prompts" / "dev-agent.md"
+
 
 @dataclass(frozen=True)
 class TranscriptEvent:
@@ -24,9 +32,10 @@ class SubprocessClaudeCodeRunner:
     """Real implementation: spawns Claude Code headless in the sandbox worktree.
 
     Parses `claude -p <prompt> --output-format stream-json`'s newline-delimited JSON
-    stream into TranscriptEvents. Not exercised by tests per the project's decision to
-    use a hand-authored fixture instead of live API calls — see
-    FixtureClaudeCodeRunner and tasks/CHANGELOG.md (T-006).
+    stream into TranscriptEvents. Not exercised against a real API by tests per the
+    project's decision to use a hand-authored fixture instead of live API calls — see
+    FixtureClaudeCodeRunner and tasks/CHANGELOG.md (T-006). The subprocess invocation
+    itself (argv construction) is covered by test_claude_runner.py via a faked Popen.
     """
 
     # Defensive: retry a first-turn API error before surfacing it as a real failure.
@@ -38,6 +47,9 @@ class SubprocessClaudeCodeRunner:
     _MAX_TRANSIENT_RETRIES = 2
     _RETRY_BACKOFF_S = 3.0
 
+    def __init__(self, system_prompt_path: Path = DEFAULT_DEV_AGENT_PROMPT_PATH) -> None:
+        self._system_prompt_path = system_prompt_path
+
     def run(
         self, *, prompt: str, cwd: Path, model: str, budget_usd: float, timeout_s: float
     ) -> Iterator[TranscriptEvent]:
@@ -46,6 +58,13 @@ class SubprocessClaudeCodeRunner:
             raise RuntimeError(
                 "claude CLI not found on PATH (npm install -g @anthropic-ai/claude-code)"
             )
+
+        # T-101: prompts/dev-agent.md is a versioned artifact (CLAUDE.md) but was never
+        # actually reaching the CLI before this - build_prompt() only assembles the
+        # per-task TaskSpec/FailureReport content. Without this, the golden-set eval could
+        # never detect a dev-agent.md regression, since degrading it would change nothing
+        # about a real run.
+        system_prompt = self._system_prompt_path.read_text(encoding="utf-8")
 
         deadline = time.monotonic() + timeout_s
         for attempt in range(self._MAX_TRANSIENT_RETRIES + 1):
@@ -56,6 +75,8 @@ class SubprocessClaudeCodeRunner:
                     prompt,
                     "--model",
                     model,
+                    "--append-system-prompt",
+                    system_prompt,
                     "--output-format",
                     "stream-json",
                     "--verbose",

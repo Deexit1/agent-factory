@@ -1,0 +1,49 @@
+diff --git a/wordcount.py b/wordcount.py
+index 7e6d5c4..3b2a1f0 100644
+--- a/wordcount.py
++++ b/wordcount.py
+@@ -5,17 +5,27 @@ def count_words(text):
+ def count_words(text):
+     return len(text.split())
+
+
++def count_lines(text):
++    return len(text.splitlines())
++
++
+ def main(argv=None):
+     parser = argparse.ArgumentParser(description="Count words in a file.")
+     parser.add_argument("path", help="path to the text file")
++    parser.add_argument(
++        "-l", "--lines", action="store_true", help="count lines instead of words"
++    )
+     args = parser.parse_args(argv)
+
+     with open(args.path) as f:
+         text = f.read()
+
+-    print(count_words(text))
++    if args.lines:
++        print(count_lines(text))
++    else:
++        print(count_words(text))
+
+
+ if __name__ == "__main__":
+     main(sys.argv[1:])
+diff --git a/test_wordcount.py b/test_wordcount.py
+index 4f3e2d1..8c9b7a6 100644
+--- a/test_wordcount.py
++++ b/test_wordcount.py
+@@ -11,3 +11,11 @@ def test_main_prints_word_count(tmp_path, capsys):
+     main([str(file_path)])
+     captured = capsys.readouterr()
+     assert captured.out.strip() == "3"
++
++
++def test_main_prints_line_count_with_lines_flag(tmp_path, capsys):
++    file_path = tmp_path / "sample.txt"
++    file_path.write_text("line one\nline two\nline three")
++    main([str(file_path), "--lines"])
++    captured = capsys.readouterr()
++    assert captured.out.strip() == "3"

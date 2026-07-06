@@ -1,0 +1,42 @@
+case_id: dev-009-cli-verbose-flag
+title: Add a --lines/-l CLI flag to a word-count script
+source: synthetic
+
+starter:
+  kind: standalone
+  dir: starter
+
+task_spec:
+  id: EVAL-DEV-009
+  title: Add a --lines flag to wordcount.py that counts lines instead of words
+  context: >
+    wordcount.py is a small CLI that always prints the word count of a file. Add a
+    -l/--lines flag that, when passed, prints the line count instead. Add a
+    count_lines(text) helper alongside the existing count_words(text), and add a test
+    covering the new flag.
+  constraints:
+    - "Default behavior (no flag) must be unchanged: still prints the word count."
+    - Use argparse, matching the existing CLI style.
+  acceptance_criteria:
+    - id: AC-1
+      description: running main with --lines prints the line count instead of the word count
+      verification: test_wordcount.py::test_main_prints_line_count_with_lines_flag
+    - id: AC-2
+      description: running main without --lines still prints the word count
+      verification: test_wordcount.py::test_main_prints_word_count
+  complexity: low
+  budget_usd: 2.0
+
+verification:
+  mode: pytest
+  test_command: "-q"
+  allowed_paths:
+    - wordcount.py
+    - test_wordcount.py
+
+reference_diff_file: reference.patch
+
+rubric_weights:
+  tests_pass: 0.5
+  criteria_test_mapping: 0.3
+  no_out_of_scope_edits: 0.2

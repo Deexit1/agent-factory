@@ -1,0 +1,46 @@
+case_id: distiller-008-pytest-with-deprecation-noise
+title: One real pytest failure amid deprecation warnings and a flaky-marked skip
+
+input_meta:
+  ticket_id: EVAL-DISTILLER-008
+  suite: pytest
+  attempt_no: 1
+
+raw_log: |
+  ============================= test session starts ==============================
+  collected 5 items
+
+  test_billing.py::test_invoice_total_includes_tax FAILED                [ 20%]
+  test_billing.py::test_invoice_pdf_renders PASSED                       [ 40%]
+  test_billing.py::test_flaky_webhook_retry SKIPPED (flaky, see #201)    [ 60%]
+  test_billing.py::test_refund_creates_credit_note PASSED                [ 80%]
+  test_billing.py::test_currency_formatting PASSED                      [100%]
+
+  ============================== warnings summary ===============================
+  test_billing.py::test_invoice_pdf_renders
+    DeprecationWarning: pkg_resources is deprecated as an API. See ...
+
+  =================================== FAILURES ====================================
+  _____________________________ test_invoice_total_includes_tax ________________________________
+
+      def test_invoice_total_includes_tax():
+          invoice = Invoice(subtotal=100.0, tax_rate=0.2)
+  >       assert invoice.total() == 120.0
+  E       assert 100.0 == 120.0
+
+  test_billing.py:41: AssertionError
+  FAILED test_billing.py::test_invoice_total_includes_tax - assert 100.0 == 120.0
+  ================== 1 failed, 3 passed, 1 skipped, 1 warning in 0.14s ============
+
+reference:
+  failing_suite: pytest
+  failing_tests:
+    - test_billing.py::test_invoice_total_includes_tax
+  expected_vs_actual: "assert 100.0 == 120.0"
+  suspect_files:
+    - test_billing.py
+
+rubric_weights:
+  field_accuracy: 0.5
+  suspect_file_hit_rate: 0.2
+  ignores_noise: 0.3

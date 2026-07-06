@@ -1,0 +1,26 @@
+case_id: distiller-013-truncated-log-unknown
+title: Truncated/garbled log with no recognizable pass, fail, or summary lines
+
+input_meta:
+  ticket_id: EVAL-DISTILLER-013
+  suite: pytest
+  attempt_no: 3
+
+raw_log: |
+  Initializing test runner (pid 4821)...
+  Loading fixtures from conftest.py...
+  connecting to worker pool
+  worker-3: spawned
+  worker-1: spawn
+
+reference:
+  failing_suite: pytest
+  failing_tests:
+    - unknown
+  expected_vs_actual: "log is truncated mid-startup with no test results, PASSED/FAILED markers, or summary line to parse; falls back to unknown"
+  suspect_files: []
+
+rubric_weights:
+  field_accuracy: 0.6
+  suspect_file_hit_rate: 0.1
+  ignores_noise: 0.3

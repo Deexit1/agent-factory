@@ -1,0 +1,45 @@
+case_id: dev-007-item-validation
+title: Add 400-response validation for the POST /items payload
+source: synthetic
+
+starter:
+  kind: standalone
+  dir: starter
+
+task_spec:
+  id: EVAL-DEV-007
+  title: Reject invalid POST /items payloads with a 400 and an error message
+  context: >
+    POST /items accepts any JSON body and always returns 201, even for a missing name
+    or a negative price. test_app.py already encodes the expected 400 behavior for both
+    bad-input cases and is failing against the current implementation. Add validation
+    so a missing name or a negative price returns a 400 with a JSON {"error": "..."}
+    body, and valid payloads still return 201.
+  constraints:
+    - Do not modify test_app.py.
+    - Keep the existing 201 response shape for valid payloads unchanged.
+  acceptance_criteria:
+    - id: AC-1
+      description: a missing name returns 400 with error "name is required"
+      verification: test_app.py::test_create_item_returns_400_for_missing_name
+    - id: AC-2
+      description: a negative price returns 400 with error "price must be non-negative"
+      verification: test_app.py::test_create_item_returns_400_for_negative_price
+    - id: AC-3
+      description: a valid payload still returns 201 with the item echoed back
+      verification: test_app.py::test_create_item_returns_201_for_valid_payload
+  complexity: low
+  budget_usd: 2.0
+
+verification:
+  mode: pytest
+  test_command: "-q"
+  allowed_paths:
+    - app.py
+
+reference_diff_file: reference.patch
+
+rubric_weights:
+  tests_pass: 0.5
+  criteria_test_mapping: 0.3
+  no_out_of_scope_edits: 0.2

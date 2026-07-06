@@ -1,0 +1,35 @@
+case_id: distiller-002-infra-noise-only
+title: All tests pass; only infra/setup noise in the log
+
+input_meta:
+  ticket_id: EVAL-DISTILLER-002
+  suite: pytest
+  attempt_no: 1
+
+raw_log: |
+  ============================= test session starts ==============================
+  collected 5 items
+
+  DeprecationWarning: distutils Version classes are deprecated. Use packaging.version instead.
+  test_app.py::test_health_returns_200 PASSED                            [ 20%]
+  test_app.py::test_version_returns_200 PASSED                           [ 40%]
+  test_app.py::test_slow_endpoint SKIPPED (flaky, see #142)              [ 60%]
+  test_app.py::test_root_returns_200 PASSED                              [ 80%]
+  test_app.py::test_headers_present PASSED                               [100%]
+
+  WARNING: could not connect to metrics collector at localhost:9200, continuing anyway
+  ============================ 4 passed, 1 skipped in 0.11s ============================
+  Error: Process completed with exit code 1.
+  ##[error]The runner has received a shutdown signal from the host.
+
+reference:
+  failing_suite: infra
+  failing_tests:
+    - none
+  expected_vs_actual: "no real test failures; the log shows a runner shutdown/infra signal after all collected tests passed or were skipped as flaky"
+  suspect_files: []
+
+rubric_weights:
+  field_accuracy: 0.5
+  suspect_file_hit_rate: 0.1
+  ignores_noise: 0.4

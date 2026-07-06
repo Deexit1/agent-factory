@@ -1,0 +1,11 @@
+diff --git a/paginate.py b/paginate.py
+index a1b2c3d..d4e5f6a 100644
+--- a/paginate.py
++++ b/paginate.py
+@@ -1,5 +1,5 @@
+ def paginate(items, page, page_size):
+     """Return the slice of items for the given 1-indexed page."""
+-    start = page * page_size
++    start = (page - 1) * page_size
+     end = start + page_size
+     return items[start:end]

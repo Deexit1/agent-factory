@@ -1,0 +1,35 @@
+case_id: dev-004-version-endpoint
+title: Add a /version endpoint to a small Flask app
+source: synthetic
+
+starter:
+  kind: standalone
+  dir: starter
+
+task_spec:
+  id: EVAL-DEV-004
+  title: Add a /version endpoint returning the app's version string
+  context: >
+    The app has a /health endpoint but no way to check its version. Add a /version
+    route returning {"version": "1.0.0"} with a 200 status.
+  constraints: []
+  acceptance_criteria:
+    - id: AC-1
+      description: GET /version returns 200 with a JSON version field equal to "1.0.0"
+      verification: test_app.py::test_version_returns_200_with_version_string
+  complexity: low
+  budget_usd: 2.0
+
+verification:
+  mode: pytest
+  test_command: "test_app.py -q"
+  allowed_paths:
+    - app.py
+    - test_app.py
+
+reference_diff_file: reference.patch
+
+rubric_weights:
+  tests_pass: 0.5
+  criteria_test_mapping: 0.3
+  no_out_of_scope_edits: 0.2
