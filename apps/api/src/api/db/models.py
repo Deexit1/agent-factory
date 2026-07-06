@@ -29,6 +29,7 @@ class TicketState(StrEnum):
     PLANNING = "planning"
     READY = "ready"
     IN_PROGRESS = "in_progress"
+    IN_REVIEW = "in_review"
     IN_QA = "in_qa"
     DONE = "done"
     BOUNCED = "bounced"
@@ -71,10 +72,22 @@ class UserRole(StrEnum):
     VIEWER = "viewer"
 
 
+class Org(Base):
+    """Tenant. Single "default" org today (T-102 groundwork); invites, membership and
+    per-org RBAC roles beyond admin/approver/viewer are T-201."""
+
+    __tablename__ = "orgs"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+
+
 class Ticket(Base):
     __tablename__ = "tickets"
 
     id: Mapped[str] = mapped_column(primary_key=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
     type: Mapped[TicketType] = mapped_column(_pg_enum(TicketType, "ticket_type"))
     parent_id: Mapped[str | None] = mapped_column(ForeignKey("tickets.id"))
     state: Mapped[TicketState] = mapped_column(_pg_enum(TicketState, "ticket_state"))
@@ -94,6 +107,7 @@ class TicketEvent(Base):
     __tablename__ = "ticket_events"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
     ticket_id: Mapped[str] = mapped_column(ForeignKey("tickets.id"))
     ts: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
     actor: Mapped[str] = mapped_column()
@@ -107,6 +121,7 @@ class Approval(Base):
     __tablename__ = "approvals"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
     ticket_id: Mapped[str] = mapped_column(ForeignKey("tickets.id"))
     gate: Mapped[ApprovalGate] = mapped_column(_pg_enum(ApprovalGate, "approval_gate"))
     decided_by: Mapped[str] = mapped_column()
@@ -121,6 +136,7 @@ class AgentRun(Base):
     __tablename__ = "agent_runs"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
     ticket_id: Mapped[str] = mapped_column(ForeignKey("tickets.id"))
     agent_role: Mapped[str] = mapped_column()
     model: Mapped[str] = mapped_column()
@@ -139,6 +155,7 @@ class CostLedgerEntry(Base):
     __tablename__ = "cost_ledger"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
     ticket_id: Mapped[str] = mapped_column(ForeignKey("tickets.id"))
     agent_run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id"))
     provider: Mapped[str] = mapped_column()
@@ -154,6 +171,7 @@ class User(Base):
     __tablename__ = "users"
 
     email: Mapped[str] = mapped_column(primary_key=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
     role: Mapped[UserRole] = mapped_column(_pg_enum(UserRole, "user_role"), default=UserRole.VIEWER)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
 
@@ -165,6 +183,7 @@ class EscapedDefectReport(Base):
     __tablename__ = "escaped_defect_reports"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
     ticket_id: Mapped[str] = mapped_column(ForeignKey("tickets.id"))
     note: Mapped[str] = mapped_column()
     reported_by: Mapped[str] = mapped_column()

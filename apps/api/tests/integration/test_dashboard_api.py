@@ -38,9 +38,11 @@ def _close_ticket(
 
     assert _transition(client, ticket_id, "in_progress").status_code == 200
     for _ in range(bounces):
+        assert _transition(client, ticket_id, "in_review").status_code == 200
         assert _transition(client, ticket_id, "in_qa").status_code == 200
         assert _transition(client, ticket_id, "bounced").status_code == 200
         assert _transition(client, ticket_id, "in_progress").status_code == 200
+    assert _transition(client, ticket_id, "in_review").status_code == 200
     assert _transition(client, ticket_id, "in_qa").status_code == 200
     assert _transition(client, ticket_id, "done").status_code == 200
 

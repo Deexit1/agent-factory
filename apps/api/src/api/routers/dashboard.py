@@ -13,14 +13,18 @@ router = APIRouter(
 
 
 @router.get("/metrics", response_model=DashboardMetricsOut)
-def get_metrics(db: Session = Depends(get_db)) -> DashboardMetricsOut:
-    return dashboard_service.compute_metrics(db)
+def get_metrics(
+    actor_context: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)
+) -> DashboardMetricsOut:
+    return dashboard_service.compute_metrics(db, org_id=actor_context.org_id)
 
 
 @router.get("/export.csv")
-def export_csv(db: Session = Depends(get_db)) -> PlainTextResponse:
+def export_csv(
+    actor_context: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)
+) -> PlainTextResponse:
     return PlainTextResponse(
-        dashboard_service.export_csv(db),
+        dashboard_service.export_csv(db, org_id=actor_context.org_id),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=pilot-dashboard.csv"},
     )
@@ -38,6 +42,7 @@ def report_escaped_defect(
             ticket_id=request.ticket_id,
             note=request.note,
             reported_by=actor_context.actor,
+            org_id=actor_context.org_id,
         )
     except ticket_service.TicketNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

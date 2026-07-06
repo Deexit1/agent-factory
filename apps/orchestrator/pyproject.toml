@@ -5,10 +5,9 @@ description = "Ticket orchestration: dev agent integration (SPEC-004)"
 requires-python = ">=3.12"
 dependencies = [
   "httpx>=0.27,<1.0",
-  # T-101 (SPEC-101): the eval harness calls Anthropic directly (haiku judge + the
-  # distiller's eval-only LLM path), logs runs to Langfuse Cloud, and loads
-  # evals/**/*.yaml case files.
-  "anthropic>=0.40,<1.0",
+  # T-101 (SPEC-101): the eval harness scores prompts (haiku judge + the distiller's
+  # eval-only LLM path, both routed through packages/llm_router per T-102), logs runs
+  # to Langfuse Cloud, and loads evals/**/*.yaml case files.
   "langfuse>=4.0,<5.0",
   "pyyaml>=6.0,<7.0",
 ]

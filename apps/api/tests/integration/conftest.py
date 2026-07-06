@@ -18,6 +18,7 @@ os.environ.setdefault("AUTH_DEV_MODE", "true")
 
 from api.db.session import get_db, make_session_factory  # noqa: E402
 from api.main import app  # noqa: E402
+from api.tenancy import DEFAULT_ORG_ID  # noqa: E402
 
 API_DIR = Path(__file__).resolve().parents[2]
 
@@ -49,11 +50,17 @@ def db_session(session_factory: sessionmaker[Session]) -> Iterator[Session]:
     with session_factory() as session:
         session.execute(
             text(
-                "TRUNCATE tickets, ticket_events, approvals, users "
+                "TRUNCATE tickets, ticket_events, approvals, users, orgs "
                 "RESTART IDENTITY CASCADE"
             )
         )
         session.execute(text("ALTER SEQUENCE ticket_seq RESTART WITH 1"))
+        session.execute(
+            text(
+                "INSERT INTO orgs (id, name, created_at) VALUES "
+                f"('{DEFAULT_ORG_ID}', 'Default Org', now())"
+            )
+        )
         session.commit()
         yield session
         session.rollback()

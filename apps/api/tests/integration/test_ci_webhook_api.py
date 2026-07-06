@@ -17,6 +17,7 @@ def _ready_ticket_in_qa(client: TestClient) -> str:
     ticket = _create_task(client)
     ticket_id: str = ticket["id"]
     assert _transition(client, ticket_id, "in_progress").status_code == 200
+    assert _transition(client, ticket_id, "in_review").status_code == 200
     assert _transition(client, ticket_id, "in_qa").status_code == 200
     return ticket_id
 
@@ -80,6 +81,7 @@ def test_fourth_consecutive_red_pipeline_escalates_instead_of_bouncing(
         assert response.json()["state"] == "bounced"
         assert response.json()["bounce_count"] == expected_bounce_count
         assert _transition(client, ticket_id, "in_progress").status_code == 200
+        assert _transition(client, ticket_id, "in_review").status_code == 200
         assert _transition(client, ticket_id, "in_qa").status_code == 200
 
     response = _post_ci_result(

@@ -13,11 +13,22 @@ class AgentRunNotFound(Exception):
 
 
 def create_agent_run(
-    session: Session, ticket_id: str, *, agent_role: str, model: str, trace_id: str | None
+    session: Session,
+    ticket_id: str,
+    *,
+    agent_role: str,
+    model: str,
+    trace_id: str | None,
+    org_id: str,
 ) -> AgentRun:
-    get_ticket(session, ticket_id)  # 404s if the ticket doesn't exist
+    get_ticket(session, ticket_id, org_id=org_id)  # 404s if the ticket doesn't exist
     run = repo.create_agent_run(
-        session, ticket_id=ticket_id, agent_role=agent_role, model=model, trace_id=trace_id
+        session,
+        org_id=org_id,
+        ticket_id=ticket_id,
+        agent_role=agent_role,
+        model=model,
+        trace_id=trace_id,
     )
     session.commit()
     return run
@@ -32,9 +43,10 @@ def complete_agent_run(
     tokens_in: int,
     tokens_out: int,
     cost_usd: float,
+    org_id: str,
 ) -> AgentRun:
-    get_ticket(session, ticket_id)  # 404s if the ticket doesn't exist
-    run = repo.get_agent_run(session, run_id)
+    get_ticket(session, ticket_id, org_id=org_id)  # 404s if the ticket doesn't exist
+    run = repo.get_agent_run(session, run_id, org_id=org_id)
     if run is None or run.ticket_id != ticket_id:
         raise AgentRunNotFound(run_id)
 
@@ -45,21 +57,21 @@ def complete_agent_run(
     return run
 
 
-def list_agent_runs(session: Session, ticket_id: str) -> list[AgentRun]:
-    get_ticket(session, ticket_id)  # 404s if the ticket doesn't exist
-    return repo.list_agent_runs(session, ticket_id)
+def list_agent_runs(session: Session, ticket_id: str, *, org_id: str) -> list[AgentRun]:
+    get_ticket(session, ticket_id, org_id=org_id)  # 404s if the ticket doesn't exist
+    return repo.list_agent_runs(session, ticket_id, org_id=org_id)
 
 
-def list_cost_ledger(session: Session, ticket_id: str) -> list[CostLedgerEntry]:
-    get_ticket(session, ticket_id)  # 404s if the ticket doesn't exist
-    return repo.list_cost_ledger(session, ticket_id)
+def list_cost_ledger(session: Session, ticket_id: str, *, org_id: str) -> list[CostLedgerEntry]:
+    get_ticket(session, ticket_id, org_id=org_id)  # 404s if the ticket doesn't exist
+    return repo.list_cost_ledger(session, ticket_id, org_id=org_id)
 
 
-def cost_summary(session: Session, ticket_id: str) -> CostSummaryOut:
-    get_ticket(session, ticket_id)  # 404s if the ticket doesn't exist
-    runs = repo.list_agent_runs(session, ticket_id)
+def cost_summary(session: Session, ticket_id: str, *, org_id: str) -> CostSummaryOut:
+    get_ticket(session, ticket_id, org_id=org_id)  # 404s if the ticket doesn't exist
+    runs = repo.list_agent_runs(session, ticket_id, org_id=org_id)
     agent_runs_total = sum(float(run.cost_usd) for run in runs)
-    ledger_total = repo.sum_cost_ledger(session, ticket_id)
+    ledger_total = repo.sum_cost_ledger(session, ticket_id, org_id=org_id)
     return CostSummaryOut(
         ticket_id=ticket_id,
         agent_runs_total_usd=agent_runs_total,

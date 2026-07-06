@@ -627,3 +627,77 @@ Format:
   `evals/review/` remain unseeded stubs; T-103/T-106 must flip
   `not_yet_enforced: false` once they seed real cases, or those sets stay silently
   skipped forever.
+
+## T-102 · State machine v2 + SaaS groundwork — 2026-07-06
+- What changed: Inserted `TicketState.IN_REVIEW` between `in_progress` and `in_qa`
+  (`apps/api/src/api/domain/state_machine.py`), making `in_review` bounce/escalate
+  through the same shared `ticket.bounce_count` that QA already used — a 4th bounce
+  from either gate now auto-escalates, verified by interleaving one review-bounce with
+  two QA-bounces. `approved → planning → ready` needed no work: it was already
+  whitelisted and guarded since T-003, just unreached because `create_ticket` always
+  starts tasks in `ready`. Laid both standing SaaS-readiness foundations from
+  `CLAUDE.md`: added an `orgs` table + `org_id` (NOT NULL FK, single `default` org
+  backfilled) to all 7 existing domain tables, threaded `org_id` through every
+  repository/service/router function (routers read it off a new
+  `ActorContext.org_id`, currently always `DEFAULT_ORG_ID` from the new
+  `api/tenancy.py` module — real per-request org resolution from auth membership is
+  T-201's job, not this ticket's); and built `packages/llm_router`, a new package
+  mirroring `packages/schemas`'s layout, whose `route(role, ...)` function is now the
+  *only* place in the repo that imports `anthropic` — migrated the two real direct-SDK
+  call sites (`orchestrator/evals/judge.py`, `orchestrator/evals/distiller_scorer.py`)
+  to call it, and added `scripts/check_llm_router_gate.py` (wired into `make check`) to
+  keep it that way.
+- Two real bugs found by actually running the suites, not just writing them: (1)
+  `apps/orchestrator/src/orchestrator/agents/dev.py`'s `run_dev_agent` transitioned
+  straight from `in_progress` to `in_qa` after opening a PR — a real production call
+  site the state-machine change would have broken silently (4 orchestrator integration
+  tests failed with a live 409 until fixed). Since the Review agent (T-106) doesn't
+  exist yet to hold a ticket in `in_review`, the dev agent now transitions through it
+  immediately (`in_review` then `in_qa`) — a temporary bridge, not a real review gate;
+  revisit when T-106 lands. (2) `apps/web`'s board (`src/board/columns.ts`,
+  `src/api/types.ts`) had a fixed state list with no `in_review` column — tickets in
+  that state would have silently vanished from the board (T-004 regression); added the
+  column and the type-union member, `npm run typecheck` clean.
+- Deliberately permissive, not deferred: `in_review`'s two data-dependent guards from
+  docs/03-state-machine.md ("diff non-empty" on entry, "review comments recorded" on
+  exit) have no real Review agent yet to source that data from, so both transitions are
+  currently ungated for any actor — same non-goal precedent as T-101 leaving
+  `evals/planner|review` unseeded. They become real guards when T-106 ships.
+- Files touched: `apps/api/src/api/db/models.py` (`Org` model, `IN_REVIEW` enum
+  member, `org_id` on 7 models), `apps/api/src/api/domain/state_machine.py`,
+  `apps/api/src/api/tenancy.py` (new), `apps/api/src/api/auth.py`
+  (`ActorContext.org_id`), `apps/api/src/api/repositories/*.py`,
+  `apps/api/src/api/services/*.py`, `apps/api/src/api/routers/*.py` (org_id threading),
+  `apps/api/migrations/versions/a1b2c3d4e5f6_*.py` (new, `in_review` enum value),
+  `apps/api/migrations/versions/b2c3d4e5f6a7_*.py` (new, `orgs` + backfill),
+  `apps/api/tests/integration/test_migration_replay.py` (new),
+  `apps/api/tests/integration/conftest.py` (seed default org, truncate `orgs`),
+  `apps/api/tests/domain/test_state_machine.py`,
+  `apps/api/tests/integration/test_tickets_api.py` (+3 new tests),
+  `apps/api/tests/integration/{test_dashboard_api,test_ci_webhook_api,
+  test_ticket_repository,test_user_service}.py` (updated for `in_review`/`org_id`),
+  `packages/llm_router/**` (new package), `apps/orchestrator/src/orchestrator/evals/
+  {judge.py,distiller_scorer.py}` (→ `llm_router.route()`),
+  `apps/orchestrator/src/orchestrator/agents/dev.py` (in_review bridge transition),
+  `apps/orchestrator/pyproject.toml` (dropped direct `anthropic` dep),
+  `scripts/check_llm_router_gate.py` (new), `Makefile` (`llm-router-gate` target +
+  `LLM_ROUTER_DIR` venv wiring), `apps/web/src/board/columns.ts`,
+  `apps/web/src/api/types.ts`, `docs/02-data-model.md` (`orgs` table).
+- Test evidence: `apps/api` 70/70 green (unit + integration against a real Postgres 16
+  testcontainer, migrations run for real). `test_migration_replay.py` spins up its own
+  container, stops at the pre-T-102 revision, inserts a ticket in the exact Phase-1
+  shape, upgrades to head, and drives it through the full new lifecycle — proving AC2
+  for real, not by assertion. `apps/orchestrator` unit (30) and integration (5) suites
+  green after the `dev.py` fix. `scripts/check_llm_router_gate.py` run standalone: 0
+  violations. Re-ran the distiller eval set for real against the live Anthropic API
+  post-`llm_router`-migration: 86.7/100 (floor 75), consistent with T-101's baseline —
+  confirms the refactor didn't change real model behavior. `apps/web`
+  `npm run typecheck` clean; `apps/sandbox` unit suite unaffected (12 passed).
+- Notes / follow-ups: `docs/02-data-model.md`'s `artifacts` table was already
+  documented but never implemented as a model before this ticket — pre-existing drift,
+  not introduced here, left alone since T-102's scope is state machine + org_id +
+  router only. `RBAC` roles beyond today's `admin|approver|viewer` (docs/09-saas-model.md
+  mentions `owner/approver/member/viewer`) are explicitly T-201's job. The `llm_router`
+  grep-gate cannot and does not cover `claude_runner.py`'s CLI-subprocess path to the
+  `claude` binary — a known, disclosed gap; T-202 (BYOK) will need a different
+  mechanism there (e.g. per-org env injection into the subprocess), not a grep gate.

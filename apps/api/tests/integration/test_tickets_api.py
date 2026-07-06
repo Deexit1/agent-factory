@@ -72,11 +72,14 @@ def test_get_and_list_tickets(client: TestClient) -> None:
     assert client.get("/tickets/does-not-exist").status_code == 404
 
 
-def test_ready_to_in_progress_to_in_qa_to_done_writes_one_event_each(client: TestClient) -> None:
+def test_ready_to_in_progress_to_in_review_to_in_qa_to_done_writes_one_event_each(
+    client: TestClient,
+) -> None:
     ticket = _create_task(client)
     ticket_id = ticket["id"]
 
     assert _transition(client, ticket_id, "in_progress").status_code == 200
+    assert _transition(client, ticket_id, "in_review").status_code == 200
     assert _transition(client, ticket_id, "in_qa").status_code == 200
     done_response = _transition(client, ticket_id, "done")
     assert done_response.status_code == 200
@@ -84,8 +87,21 @@ def test_ready_to_in_progress_to_in_qa_to_done_writes_one_event_each(client: Tes
 
     events = client.get(f"/tickets/{ticket_id}/events").json()
     transition_events = [e for e in events["items"] if e["kind"] == "transition"]
-    assert len(transition_events) == 3
+    assert len(transition_events) == 4
     assert all(not e["payload"].get("rejected") for e in transition_events)
+
+
+def test_in_progress_can_no_longer_skip_the_review_gate(client: TestClient) -> None:
+    ticket = _create_task(client)
+    ticket_id = ticket["id"]
+    _transition(client, ticket_id, "in_progress")
+
+    response = _transition(client, ticket_id, "in_qa")
+    assert response.status_code == 409
+
+    events = client.get(f"/tickets/{ticket_id}/events").json()
+    rejected = [e for e in events["items"] if e["payload"].get("rejected")]
+    assert len(rejected) == 1
 
 
 def test_in_qa_to_done_refused_once_bounce_count_hits_three(client: TestClient) -> None:
@@ -94,10 +110,12 @@ def test_in_qa_to_done_refused_once_bounce_count_hits_three(client: TestClient) 
     _transition(client, ticket_id, "in_progress")
 
     for _ in range(3):
+        assert _transition(client, ticket_id, "in_review").status_code == 200
         assert _transition(client, ticket_id, "in_qa").status_code == 200
         assert _transition(client, ticket_id, "bounced").status_code == 200
         assert _transition(client, ticket_id, "in_progress").status_code == 200
 
+    assert _transition(client, ticket_id, "in_review").status_code == 200
     assert _transition(client, ticket_id, "in_qa").status_code == 200
     done_response = _transition(client, ticket_id, "done")
     assert done_response.status_code == 409
@@ -109,11 +127,48 @@ def test_fourth_bounce_attempt_refused_and_ticket_auto_escalates(client: TestCli
     _transition(client, ticket_id, "in_progress")
 
     for _ in range(3):
+        assert _transition(client, ticket_id, "in_review").status_code == 200
         assert _transition(client, ticket_id, "in_qa").status_code == 200
         assert _transition(client, ticket_id, "bounced").status_code == 200
         assert _transition(client, ticket_id, "in_progress").status_code == 200
 
+    assert _transition(client, ticket_id, "in_review").status_code == 200
     assert _transition(client, ticket_id, "in_qa").status_code == 200
+    fourth_bounce = _transition(client, ticket_id, "bounced")
+    assert fourth_bounce.status_code == 409
+
+    ticket_after = client.get(f"/tickets/{ticket_id}").json()
+    assert ticket_after["state"] == "escalated"
+    assert ticket_after["bounce_count"] == 3
+
+
+def test_review_bounce_and_qa_bounce_share_one_counter_and_auto_escalate(
+    client: TestClient,
+) -> None:
+    """SPEC/docs/03-state-machine.md: "a ticket gets 3 total attempts, not 3 per gate" —
+    interleave a review-block bounce with QA-fail bounces and confirm the 4th bounce
+    from either gate is refused and auto-escalates."""
+    ticket = _create_task(client)
+    ticket_id = ticket["id"]
+    _transition(client, ticket_id, "in_progress")
+
+    # Bounce 1: blocked at review, never reaches QA.
+    assert _transition(client, ticket_id, "in_review").status_code == 200
+    assert _transition(client, ticket_id, "bounced").status_code == 200
+    assert _transition(client, ticket_id, "in_progress").status_code == 200
+
+    # Bounces 2 and 3: fail at QA.
+    for _ in range(2):
+        assert _transition(client, ticket_id, "in_review").status_code == 200
+        assert _transition(client, ticket_id, "in_qa").status_code == 200
+        assert _transition(client, ticket_id, "bounced").status_code == 200
+        assert _transition(client, ticket_id, "in_progress").status_code == 200
+
+    ticket_after_three = client.get(f"/tickets/{ticket_id}").json()
+    assert ticket_after_three["bounce_count"] == 3
+
+    # A 4th bounce, from either gate, is refused and auto-escalates the shared counter.
+    assert _transition(client, ticket_id, "in_review").status_code == 200
     fourth_bounce = _transition(client, ticket_id, "bounced")
     assert fourth_bounce.status_code == 409
 

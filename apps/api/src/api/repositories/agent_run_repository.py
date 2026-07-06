@@ -9,12 +9,14 @@ from api.db.models import AgentRun, AgentRunStatus, CostLedgerEntry
 def create_agent_run(
     session: Session,
     *,
+    org_id: str,
     ticket_id: str,
     agent_role: str,
     model: str,
     trace_id: str | None,
 ) -> AgentRun:
     run = AgentRun(
+        org_id=org_id,
         ticket_id=ticket_id,
         agent_role=agent_role,
         model=model,
@@ -30,8 +32,11 @@ def create_agent_run(
     return run
 
 
-def get_agent_run(session: Session, run_id: int) -> AgentRun | None:
-    return session.get(AgentRun, run_id)
+def get_agent_run(session: Session, run_id: int, *, org_id: str) -> AgentRun | None:
+    run = session.get(AgentRun, run_id)
+    if run is None or run.org_id != org_id:
+        return None
+    return run
 
 
 def complete_agent_run(
@@ -53,6 +58,7 @@ def complete_agent_run(
     if cost_usd > 0:
         create_cost_ledger_entry(
             session,
+            org_id=run.org_id,
             ticket_id=run.ticket_id,
             agent_run_id=run.id,
             provider="anthropic",
@@ -62,10 +68,12 @@ def complete_agent_run(
     return run
 
 
-def list_agent_runs(session: Session, ticket_id: str) -> list[AgentRun]:
+def list_agent_runs(session: Session, ticket_id: str, *, org_id: str) -> list[AgentRun]:
     return list(
         session.execute(
-            select(AgentRun).where(AgentRun.ticket_id == ticket_id).order_by(AgentRun.id)
+            select(AgentRun)
+            .where(AgentRun.ticket_id == ticket_id, AgentRun.org_id == org_id)
+            .order_by(AgentRun.id)
         )
         .scalars()
         .all()
@@ -75,6 +83,7 @@ def list_agent_runs(session: Session, ticket_id: str) -> list[AgentRun]:
 def create_cost_ledger_entry(
     session: Session,
     *,
+    org_id: str,
     ticket_id: str,
     agent_run_id: int,
     provider: str,
@@ -82,6 +91,7 @@ def create_cost_ledger_entry(
     usd: float,
 ) -> CostLedgerEntry:
     entry = CostLedgerEntry(
+        org_id=org_id,
         ticket_id=ticket_id,
         agent_run_id=agent_run_id,
         provider=provider,
@@ -94,11 +104,11 @@ def create_cost_ledger_entry(
     return entry
 
 
-def list_cost_ledger(session: Session, ticket_id: str) -> list[CostLedgerEntry]:
+def list_cost_ledger(session: Session, ticket_id: str, *, org_id: str) -> list[CostLedgerEntry]:
     return list(
         session.execute(
             select(CostLedgerEntry)
-            .where(CostLedgerEntry.ticket_id == ticket_id)
+            .where(CostLedgerEntry.ticket_id == ticket_id, CostLedgerEntry.org_id == org_id)
             .order_by(CostLedgerEntry.id)
         )
         .scalars()
@@ -106,10 +116,10 @@ def list_cost_ledger(session: Session, ticket_id: str) -> list[CostLedgerEntry]:
     )
 
 
-def sum_cost_ledger(session: Session, ticket_id: str) -> float:
+def sum_cost_ledger(session: Session, ticket_id: str, *, org_id: str) -> float:
     total = session.execute(
         select(func.coalesce(func.sum(CostLedgerEntry.usd), 0)).where(
-            CostLedgerEntry.ticket_id == ticket_id
+            CostLedgerEntry.ticket_id == ticket_id, CostLedgerEntry.org_id == org_id
         )
     ).scalar_one()
     return float(total)

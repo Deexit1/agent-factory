@@ -10,7 +10,7 @@ touch apps/api's production code path.
 from dataclasses import dataclass
 from pathlib import Path
 
-import anthropic
+from llm_router import route
 from schemas import FailureReport
 
 from orchestrator.evals.judge import JudgeFn, extract_json_object, haiku_judge
@@ -18,7 +18,6 @@ from orchestrator.evals.loader import DistillerCase, DistillerReference
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_DISTILLER_PROMPT_PATH = _REPO_ROOT / "prompts" / "failure-distiller.md"
-_DISTILLER_MODEL = "claude-haiku-4-5-20251001"
 _MAX_TOKENS = 800
 
 
@@ -42,11 +41,8 @@ def invoke_distiller(
     attempt_no: int,
     system_prompt: str,
 ) -> FailureReport:
-    client = anthropic.Anthropic()
-    response = client.messages.create(
-        model=_DISTILLER_MODEL,
-        max_tokens=_MAX_TOKENS,
-        temperature=0,
+    text = route(
+        "eval-distiller",
         system=system_prompt,
         messages=[
             {
@@ -57,9 +53,8 @@ def invoke_distiller(
                 ),
             }
         ],
+        max_tokens=_MAX_TOKENS,
     )
-    block = response.content[0]
-    text = block.text if hasattr(block, "text") else str(block)
     parsed = extract_json_object(text)
     parsed.setdefault("ticket_id", ticket_id)
     parsed.setdefault("attempt_no", attempt_no)

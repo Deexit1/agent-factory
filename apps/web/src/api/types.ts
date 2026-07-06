@@ -8,6 +8,7 @@ export type TicketState =
   | "planning"
   | "ready"
   | "in_progress"
+  | "in_review"
   | "in_qa"
   | "done"
   | "bounced"

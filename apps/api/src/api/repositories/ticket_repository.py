@@ -29,6 +29,7 @@ def next_ticket_id(session: Session, ticket_type: TicketType) -> str:
 def create_ticket(
     session: Session,
     *,
+    org_id: str,
     ticket_type: TicketType,
     title: str,
     parent_id: str | None,
@@ -41,6 +42,7 @@ def create_ticket(
 ) -> Ticket:
     ticket = Ticket(
         id=next_ticket_id(session, ticket_type),
+        org_id=org_id,
         type=ticket_type,
         parent_id=parent_id,
         state=state,
@@ -58,20 +60,24 @@ def create_ticket(
     return ticket
 
 
-def get_ticket(session: Session, ticket_id: str) -> Ticket | None:
-    return session.get(Ticket, ticket_id)
+def get_ticket(session: Session, ticket_id: str, *, org_id: str) -> Ticket | None:
+    ticket = session.get(Ticket, ticket_id)
+    if ticket is None or ticket.org_id != org_id:
+        return None
+    return ticket
 
 
 def list_tickets(
     session: Session,
     *,
+    org_id: str,
     state: TicketState | None = None,
     ticket_type: TicketType | None = None,
     assignee_agent: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[list[Ticket], int]:
-    filters = []
+    filters = [Ticket.org_id == org_id]
     if state is not None:
         filters.append(Ticket.state == state)
     if ticket_type is not None:
@@ -93,12 +99,14 @@ def list_tickets(
 def append_event(
     session: Session,
     *,
+    org_id: str,
     ticket_id: str,
     actor: str,
     kind: EventKind,
     payload: dict[str, object],
 ) -> TicketEvent:
     event = TicketEvent(
+        org_id=org_id,
         ticket_id=ticket_id,
         ts=datetime.now(UTC),
         actor=actor,
@@ -114,19 +122,17 @@ def list_events(
     session: Session,
     ticket_id: str,
     *,
+    org_id: str,
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[list[TicketEvent], int]:
+    filters = (TicketEvent.ticket_id == ticket_id, TicketEvent.org_id == org_id)
     total = session.execute(
-        select(func.count()).select_from(TicketEvent).where(TicketEvent.ticket_id == ticket_id)
+        select(func.count()).select_from(TicketEvent).where(*filters)
     ).scalar_one()
     items = (
         session.execute(
-            select(TicketEvent)
-            .where(TicketEvent.ticket_id == ticket_id)
-            .order_by(TicketEvent.id.desc())
-            .limit(limit)
-            .offset(offset)
+            select(TicketEvent).where(*filters).order_by(TicketEvent.id.desc()).limit(limit).offset(offset)
         )
         .scalars()
         .all()
@@ -137,6 +143,7 @@ def list_events(
 def create_approval(
     session: Session,
     *,
+    org_id: str,
     ticket_id: str,
     gate: ApprovalGate,
     decided_by: str,
@@ -144,6 +151,7 @@ def create_approval(
     note: str | None,
 ) -> Approval:
     approval = Approval(
+        org_id=org_id,
         ticket_id=ticket_id,
         gate=gate,
         decided_by=decided_by,

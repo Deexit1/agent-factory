@@ -10,9 +10,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-import anthropic
+from llm_router import route
 
-_JUDGE_MODEL = "claude-haiku-4-5-20251001"
 _MAX_TOKENS = 300
 _CODE_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
@@ -59,11 +58,8 @@ class JudgeFn(Protocol):
 def haiku_judge(
     *, set_name: str, case_title: str, reference: str, candidate: str
 ) -> JudgeVerdict:
-    client = anthropic.Anthropic()
-    response = client.messages.create(
-        model=_JUDGE_MODEL,
-        max_tokens=_MAX_TOKENS,
-        temperature=0,
+    text = route(
+        "eval-judge",
         system=_RUBRIC_PROMPTS[set_name],
         messages=[
             {
@@ -77,8 +73,7 @@ def haiku_judge(
                 ),
             }
         ],
+        max_tokens=_MAX_TOKENS,
     )
-    block = response.content[0]
-    text = block.text if hasattr(block, "text") else str(block)
     parsed = extract_json_object(text)
     return JudgeVerdict(score=float(parsed["score"]), rationale=str(parsed["rationale"]))

@@ -23,15 +23,35 @@ def _request(
     )
 
 
-def test_ready_to_in_progress_to_in_qa_to_done_is_allowed() -> None:
+def test_ready_to_in_progress_to_in_review_to_in_qa_to_done_is_allowed() -> None:
     validate_transition(_request(TicketState.READY, TicketState.IN_PROGRESS))
-    validate_transition(_request(TicketState.IN_PROGRESS, TicketState.IN_QA))
+    validate_transition(_request(TicketState.IN_PROGRESS, TicketState.IN_REVIEW))
+    validate_transition(_request(TicketState.IN_REVIEW, TicketState.IN_QA))
     validate_transition(_request(TicketState.IN_QA, TicketState.DONE))
 
 
 def test_unwhitelisted_transition_is_rejected() -> None:
     with pytest.raises(TransitionRejected):
         validate_transition(_request(TicketState.READY, TicketState.DONE))
+
+    # in_progress can no longer skip the review gate directly to in_qa
+    with pytest.raises(TransitionRejected):
+        validate_transition(_request(TicketState.IN_PROGRESS, TicketState.IN_QA))
+
+
+def test_in_review_to_bounced_allowed_below_max_and_refused_at_max() -> None:
+    validate_transition(_request(TicketState.IN_REVIEW, TicketState.BOUNCED, bounce_count=2))
+
+    with pytest.raises(TransitionRejected):
+        validate_transition(_request(TicketState.IN_REVIEW, TicketState.BOUNCED, bounce_count=3))
+
+
+def test_in_review_to_escalated_allowed() -> None:
+    validate_transition(_request(TicketState.IN_REVIEW, TicketState.ESCALATED, bounce_count=3))
+
+
+def test_in_progress_to_escalated_allowed_for_budget_or_timeout() -> None:
+    validate_transition(_request(TicketState.IN_PROGRESS, TicketState.ESCALATED))
 
 
 def test_ready_to_in_progress_requires_positive_budget() -> None:

@@ -1,12 +1,26 @@
+from datetime import UTC, datetime
+
 from sqlalchemy.orm import Session
 
-from api.db.models import ApprovalDecision, ApprovalGate, EventKind, Ticket, TicketState, TicketType
+from api.db.models import (
+    ApprovalDecision,
+    ApprovalGate,
+    EventKind,
+    Org,
+    Ticket,
+    TicketState,
+    TicketType,
+)
 from api.repositories import ticket_repository as repo
+from api.tenancy import DEFAULT_ORG_ID
+
+OTHER_ORG_ID = "other-org"
 
 
 def _make_task(session: Session) -> Ticket:
     return repo.create_ticket(
         session,
+        org_id=DEFAULT_ORG_ID,
         ticket_type=TicketType.TASK,
         title="Do the thing",
         parent_id=None,
@@ -21,6 +35,7 @@ def _make_task(session: Session) -> Ticket:
 def test_create_ticket_generates_human_readable_id_per_type(db_session: Session) -> None:
     task = repo.create_ticket(
         db_session,
+        org_id=DEFAULT_ORG_ID,
         ticket_type=TicketType.TASK,
         title="A task",
         parent_id=None,
@@ -32,6 +47,7 @@ def test_create_ticket_generates_human_readable_id_per_type(db_session: Session)
     )
     idea = repo.create_ticket(
         db_session,
+        org_id=DEFAULT_ORG_ID,
         ticket_type=TicketType.IDEA,
         title="An idea",
         parent_id=None,
@@ -49,7 +65,7 @@ def test_create_ticket_generates_human_readable_id_per_type(db_session: Session)
 
 
 def test_get_ticket_returns_none_when_missing(db_session: Session) -> None:
-    assert repo.get_ticket(db_session, "T-does-not-exist") is None
+    assert repo.get_ticket(db_session, "T-does-not-exist", org_id=DEFAULT_ORG_ID) is None
 
 
 def test_list_tickets_filters_by_state_and_paginates(db_session: Session) -> None:
@@ -57,17 +73,21 @@ def test_list_tickets_filters_by_state_and_paginates(db_session: Session) -> Non
         _make_task(db_session)
     db_session.commit()
 
-    items, total = repo.list_tickets(db_session, state=TicketState.READY, limit=2, offset=0)
+    items, total = repo.list_tickets(
+        db_session, org_id=DEFAULT_ORG_ID, state=TicketState.READY, limit=2, offset=0
+    )
     assert total == 3
     assert len(items) == 2
 
     items_page_2, total_page_2 = repo.list_tickets(
-        db_session, state=TicketState.READY, limit=2, offset=2
+        db_session, org_id=DEFAULT_ORG_ID, state=TicketState.READY, limit=2, offset=2
     )
     assert total_page_2 == 3
     assert len(items_page_2) == 1
 
-    no_match, no_match_total = repo.list_tickets(db_session, state=TicketState.DONE)
+    no_match, no_match_total = repo.list_tickets(
+        db_session, org_id=DEFAULT_ORG_ID, state=TicketState.DONE
+    )
     assert no_match == []
     assert no_match_total == 0
 
@@ -77,14 +97,24 @@ def test_append_event_and_list_events_returns_newest_first(db_session: Session) 
     db_session.commit()
 
     first = repo.append_event(
-        db_session, ticket_id=ticket.id, actor="system", kind=EventKind.TRANSITION, payload={"n": 1}
+        db_session,
+        org_id=DEFAULT_ORG_ID,
+        ticket_id=ticket.id,
+        actor="system",
+        kind=EventKind.TRANSITION,
+        payload={"n": 1},
     )
     second = repo.append_event(
-        db_session, ticket_id=ticket.id, actor="system", kind=EventKind.TRANSITION, payload={"n": 2}
+        db_session,
+        org_id=DEFAULT_ORG_ID,
+        ticket_id=ticket.id,
+        actor="system",
+        kind=EventKind.TRANSITION,
+        payload={"n": 2},
     )
     db_session.commit()
 
-    events, total = repo.list_events(db_session, ticket.id)
+    events, total = repo.list_events(db_session, ticket.id, org_id=DEFAULT_ORG_ID)
     assert total == 2
     assert [e.id for e in events] == [second.id, first.id]
 
@@ -95,6 +125,7 @@ def test_create_approval(db_session: Session) -> None:
 
     approval = repo.create_approval(
         db_session,
+        org_id=DEFAULT_ORG_ID,
         ticket_id=ticket.id,
         gate=ApprovalGate.BUDGET,
         decided_by="human:bob",
@@ -105,3 +136,46 @@ def test_create_approval(db_session: Session) -> None:
 
     assert approval.id is not None
     assert approval.decision == ApprovalDecision.APPROVED
+
+
+def test_ticket_queries_are_tenant_scoped(db_session: Session) -> None:
+    """docs/09-saas-model.md: "every repository query is tenant-scoped" — a ticket
+    created under one org must be invisible through get_ticket/list_tickets scoped to
+    a different org, and vice versa (T-102 groundwork; real per-request org resolution
+    from auth is T-201)."""
+    db_session.add(Org(id=OTHER_ORG_ID, name="Other Org", created_at=datetime.now(UTC)))
+    db_session.commit()
+
+    default_org_ticket = _make_task(db_session)
+    other_org_ticket = repo.create_ticket(
+        db_session,
+        org_id=OTHER_ORG_ID,
+        ticket_type=TicketType.TASK,
+        title="Someone else's ticket",
+        parent_id=None,
+        spec=None,
+        acceptance_criteria=[{"id": "AC-1", "description": "d", "verification": "v"}],
+        assignee_agent=None,
+        budget_usd=10.0,
+        created_by="human:mallory",
+    )
+    db_session.commit()
+
+    assert repo.get_ticket(db_session, other_org_ticket.id, org_id=DEFAULT_ORG_ID) is None
+    assert repo.get_ticket(db_session, default_org_ticket.id, org_id=OTHER_ORG_ID) is None
+    assert (
+        repo.get_ticket(db_session, default_org_ticket.id, org_id=DEFAULT_ORG_ID).id
+        == default_org_ticket.id
+    )
+    assert (
+        repo.get_ticket(db_session, other_org_ticket.id, org_id=OTHER_ORG_ID).id
+        == other_org_ticket.id
+    )
+
+    default_org_items, default_org_total = repo.list_tickets(db_session, org_id=DEFAULT_ORG_ID)
+    assert default_org_total == 1
+    assert [t.id for t in default_org_items] == [default_org_ticket.id]
+
+    other_org_items, other_org_total = repo.list_tickets(db_session, org_id=OTHER_ORG_ID)
+    assert other_org_total == 1
+    assert [t.id for t in other_org_items] == [other_org_ticket.id]

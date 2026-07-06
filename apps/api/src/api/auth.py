@@ -7,6 +7,7 @@ import jwt
 from fastapi import Header, HTTPException
 
 from api.db.models import UserRole
+from api.tenancy import DEFAULT_ORG_ID
 
 Role = str
 
@@ -19,6 +20,7 @@ SERVICE_ACTOR = "system"
 class ActorContext:
     actor: str
     role: Role
+    org_id: str = DEFAULT_ORG_ID
 
 
 class OidcNotConfigured(Exception):

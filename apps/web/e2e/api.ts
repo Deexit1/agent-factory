@@ -68,10 +68,12 @@ export async function loginAs(
 export async function driveToEscalated(ticketId: string): Promise<void> {
   await transition(ticketId, "in_progress");
   for (let i = 0; i < 3; i += 1) {
+    await transition(ticketId, "in_review");
     await transition(ticketId, "in_qa");
     await transition(ticketId, "bounced");
     await transition(ticketId, "in_progress");
   }
+  await transition(ticketId, "in_review");
   await transition(ticketId, "in_qa");
   await transition(ticketId, "bounced"); // 4th bounce attempt -> auto-escalates
 }
