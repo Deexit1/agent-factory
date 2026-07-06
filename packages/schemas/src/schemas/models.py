@@ -5,6 +5,10 @@ from pydantic import BaseModel, Field, HttpUrl
 
 SCHEMA_VERSION: Literal["1.0"] = "1.0"
 
+# T-104 (SPEC-103): single-repo system today (no GitHub-connect/multi-repo yet, see
+# T-201/T-203) — matches apps/orchestrator/scripts/run_pilot.py's own hardcoded repo.
+DEFAULT_REPO = "git@github.com:Deexit1/agent-factory.git"
+
 
 class Complexity(StrEnum):
     LOW = "low"
@@ -39,6 +43,7 @@ class TaskSpec(BaseModel):
         default=None, gt=0, description="Planner's estimate; >1 is a non-blocking review flag"
     )
     epic_id: str | None = Field(default=None, description="Parent epic id, set by the Planner")
+    repo: str = Field(default=DEFAULT_REPO, description="Git repo this task's work lands in")
 
 
 class Epic(BaseModel):

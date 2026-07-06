@@ -62,6 +62,8 @@ def running_api() -> Iterator[str]:
             **os.environ,
             "DATABASE_URL": database_url,
             "AGENT_FACTORY_SERVICE_TOKEN": SERVICE_TOKEN,
+            "AUTH_DEV_MODE": "true",
+            "SESSION_JWT_SECRET": "test-session-secret-at-least-32-bytes-long",
         }
         _wait_for_postgres(python, database_url)
 

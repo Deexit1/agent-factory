@@ -92,7 +92,12 @@ def transition_ticket(
 ) -> TicketOut:
     try:
         ticket = ticket_service.request_transition(
-            db, ticket_id, request.to_state, request.actor, org_id=actor_context.org_id
+            db,
+            ticket_id,
+            request.to_state,
+            request.actor,
+            org_id=actor_context.org_id,
+            assignee_agent=request.assignee_agent,
         )
     except ticket_service.TicketNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

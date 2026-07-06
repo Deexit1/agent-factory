@@ -1,0 +1,18 @@
+# Capability registry (SPEC-103): profile -> skills, base image, model, max parallel.
+# Read by both apps/api (to enforce per-profile/per-repo capacity during a
+# ready->in_progress transition) and apps/orchestrator (so the Delivery Manager can
+# enumerate eligible profiles) — see each app's capability_registry.py loader.
+#
+# T-104 seeds exactly one profile pointing at today's existing hardcoded model/image
+# (apps/orchestrator/src/orchestrator/config.py, apps/sandbox/src/sandbox/config.py).
+# Real multi-profile specialisation (skills that actually differ, distinct base
+# images) is T-105's job.
+
+repo_concurrency_limit: 3  # max concurrent in_progress tickets sharing one repo
+
+profiles:
+  dev-generalist:
+    model: claude-sonnet-5
+    base_image: agent-factory-sandbox:latest
+    skills: [general]
+    max_parallel: 2

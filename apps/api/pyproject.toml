@@ -17,6 +17,9 @@ dependencies = [
   # client's transport) — a real runtime dependency, not just a test one. Easy to miss
   # locally since the dev venv always installs [dev] (which also lists it) regardless.
   "httpx>=0.27,<1.0",
+  # T-104 (SPEC-103): reads capability_registry.yaml to enforce per-profile/per-repo
+  # capacity during a ready->in_progress transition.
+  "pyyaml>=6.0,<7.0",
 ]
 
 [project.optional-dependencies]
@@ -26,6 +29,7 @@ dev = [
   "ruff>=0.6",
   "mypy>=1.10",
   "testcontainers[postgres]>=4.8,<5.0",
+  "types-PyYAML>=6.0",
 ]
 
 [build-system]

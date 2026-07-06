@@ -78,5 +78,22 @@ def test_task_spec_depends_on_and_estimate_days_round_trip(
         depends_on=["T-001"],
         estimate_days=0.5,
         epic_id="E-001",
+        repo="git@github.com:example/other-repo.git",
     )
     assert TaskSpec.model_validate(task.model_dump()) == task
+
+
+def test_task_spec_repo_defaults_to_default_repo(
+    acceptance_criterion: AcceptanceCriterion,
+) -> None:
+    from schemas.models import DEFAULT_REPO
+
+    task = TaskSpec(
+        id="T-003",
+        title="Third task",
+        context="ctx",
+        acceptance_criteria=[acceptance_criterion],
+        complexity="low",
+        budget_usd=10.0,
+    )
+    assert task.repo == DEFAULT_REPO

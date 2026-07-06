@@ -15,7 +15,7 @@ _BASE_TRANSITIONS: dict[TicketState, set[TicketState]] = {
     TicketState.IN_REVIEW: {TicketState.IN_QA, TicketState.BOUNCED, TicketState.ESCALATED},
     TicketState.IN_QA: {TicketState.DONE, TicketState.BOUNCED, TicketState.ESCALATED},
     TicketState.BOUNCED: {TicketState.IN_PROGRESS},
-    TicketState.ESCALATED: {TicketState.IN_PROGRESS, TicketState.PLANNING},
+    TicketState.ESCALATED: {TicketState.IN_PROGRESS, TicketState.PLANNING, TicketState.READY},
 }
 
 # Every state may transition here, but only a human actor may request it.
@@ -36,6 +36,13 @@ class TransitionRequest:
     plan_has_cycle: bool = False
     plan_child_budget_total: float = 0.0
     plan_has_budget_approval: bool = False
+    # Delivery Manager assignment gates (SPEC-103), computed by the service layer —
+    # state_machine.py stays a pure function, no I/O.
+    deps_done: bool = True
+    spent_usd: float = 0.0
+    assignee_agent: str | None = None
+    profile_at_capacity: bool = False
+    repo_at_capacity: bool = False
 
 
 class TransitionRejected(Exception):
@@ -107,9 +114,29 @@ def _check_guard(request: TransitionRequest) -> None:
         if not is_human_actor(request.actor):
             raise TransitionRejected("only a human may return an escalated idea to planning")
 
+    if request.from_state is TicketState.ESCALATED and request.to_state is TicketState.READY:
+        if not is_human_actor(request.actor):
+            raise TransitionRejected(
+                "only a human may requeue an escalated task for reassignment"
+            )
+
     if request.from_state is TicketState.READY and request.to_state is TicketState.IN_PROGRESS:
         if not request.budget_usd or request.budget_usd <= 0:
             raise TransitionRejected("budget_usd must be > 0 before starting work")
+        if request.spent_usd >= request.budget_usd:
+            raise TransitionRejected(
+                f"task already spent its budget (${request.spent_usd:.2f} of "
+                f"${request.budget_usd:.2f}); cannot be (re)assigned"
+            )
+        if not request.deps_done:
+            raise TransitionRejected("this task's dependencies are not done yet")
+        if request.assignee_agent is not None:
+            if request.profile_at_capacity:
+                raise TransitionRejected(
+                    f"profile {request.assignee_agent!r} is at max_parallel capacity"
+                )
+            if request.repo_at_capacity:
+                raise TransitionRejected("repo is at its concurrency limit")
 
     if request.from_state is TicketState.IN_QA and request.to_state is TicketState.DONE:
         if request.bounce_count >= MAX_BOUNCES:

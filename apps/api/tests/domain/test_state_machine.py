@@ -16,6 +16,11 @@ def _request(
     plan_has_cycle: bool = False,
     plan_child_budget_total: float = 0.0,
     plan_has_budget_approval: bool = False,
+    deps_done: bool = True,
+    spent_usd: float = 0.0,
+    assignee_agent: str | None = None,
+    profile_at_capacity: bool = False,
+    repo_at_capacity: bool = False,
 ) -> TransitionRequest:
     return TransitionRequest(
         from_state=from_state,
@@ -28,6 +33,11 @@ def _request(
         plan_has_cycle=plan_has_cycle,
         plan_child_budget_total=plan_child_budget_total,
         plan_has_budget_approval=plan_has_budget_approval,
+        deps_done=deps_done,
+        spent_usd=spent_usd,
+        assignee_agent=assignee_agent,
+        profile_at_capacity=profile_at_capacity,
+        repo_at_capacity=repo_at_capacity,
     )
 
 
@@ -190,6 +200,71 @@ def test_escalated_to_planning_requires_human_actor() -> None:
     with pytest.raises(TransitionRejected):
         validate_transition(
             _request(TicketState.ESCALATED, TicketState.PLANNING, actor="agent:planner-1")
+        )
+
+
+def test_ready_to_in_progress_refused_when_task_already_spent_its_budget() -> None:
+    validate_transition(
+        _request(TicketState.READY, TicketState.IN_PROGRESS, budget_usd=100.0, spent_usd=99.99)
+    )
+
+    with pytest.raises(TransitionRejected, match="already spent its budget"):
+        validate_transition(
+            _request(TicketState.READY, TicketState.IN_PROGRESS, budget_usd=100.0, spent_usd=100.0)
+        )
+
+
+def test_ready_to_in_progress_refused_when_dependencies_not_done() -> None:
+    with pytest.raises(TransitionRejected, match="dependencies are not done"):
+        validate_transition(
+            _request(TicketState.READY, TicketState.IN_PROGRESS, deps_done=False)
+        )
+
+
+def test_ready_to_in_progress_refused_when_profile_or_repo_at_capacity() -> None:
+    # No assignee_agent proposed -> capacity checks don't apply (e.g. a direct,
+    # non-DM-mediated transition).
+    validate_transition(
+        _request(
+            TicketState.READY,
+            TicketState.IN_PROGRESS,
+            assignee_agent=None,
+            profile_at_capacity=True,
+            repo_at_capacity=True,
+        )
+    )
+
+    with pytest.raises(TransitionRejected, match="max_parallel capacity"):
+        validate_transition(
+            _request(
+                TicketState.READY,
+                TicketState.IN_PROGRESS,
+                assignee_agent="dev-generalist",
+                profile_at_capacity=True,
+            )
+        )
+
+    with pytest.raises(TransitionRejected, match="concurrency limit"):
+        validate_transition(
+            _request(
+                TicketState.READY,
+                TicketState.IN_PROGRESS,
+                assignee_agent="dev-generalist",
+                repo_at_capacity=True,
+            )
+        )
+
+    validate_transition(
+        _request(TicketState.READY, TicketState.IN_PROGRESS, assignee_agent="dev-generalist")
+    )
+
+
+def test_escalated_to_ready_requires_human_actor() -> None:
+    validate_transition(_request(TicketState.ESCALATED, TicketState.READY, actor="human:alice"))
+
+    with pytest.raises(TransitionRejected):
+        validate_transition(
+            _request(TicketState.ESCALATED, TicketState.READY, actor="agent:delivery-manager")
         )
 
 

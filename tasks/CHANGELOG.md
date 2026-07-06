@@ -801,3 +801,95 @@ Format:
   Delivery Manager here — this ticket stops at `planning -> ready`. Planner-set
   run-to-run reproducibility (AC4-style, <2% drift) has not been separately measured
   — only one real pass over the 15 cases was run, to bound API spend.
+
+## T-104 · Capability registry + Delivery Manager — 2026-07-06
+- What changed: New `capability_registry.yaml` at repo root (profile → model/
+  base_image/skills/max_parallel, plus a `repo_concurrency_limit`), read by a small,
+  intentionally duplicated loader in each of `apps/api` and `apps/orchestrator`
+  (`capability_registry.py`, same small-duplication precedent as T-103's
+  `orchestrator/json_utils.py` — separate deployables, not worth cross-importing).
+  Seeded with one `dev-generalist` profile pointing at today's existing hardcoded
+  model/image; real multi-profile skill-matching is T-105's job. All hard gates live
+  in `apps/api`'s `state_machine.py`/`ticket_service.py` (code, not the prompt),
+  mirroring every other gate T-102/T-103 already established as computed
+  `TransitionRequest` fields: `deps_done` (walks `ticket.spec["depends_on"]` in the
+  TaskSpec-id space, resolved to sibling tickets via the shared ancestor idea's
+  descendant tree — a *separate* id-space from real `Ticket.id`s), `spent_usd`
+  (reuses the existing `cost_ledger` sum query), and `profile_at_capacity`/
+  `repo_at_capacity` (new `ticket_repository` count helpers compared against the
+  registry). New whitelist transition `escalated -> ready` (human-only guard,
+  mirroring the existing `escalated -> in_progress`/`escalated -> planning` guards)
+  — "requeue for reassignment," distinct from `bounced -> in_progress`'s "restart
+  with the same agent immediately." New `EventKind.ASSIGNMENT` + migration. Added
+  `TaskSpec.repo` (defaulted, so no existing construction site breaks) to
+  `packages/schemas`. Fixed a pre-existing `llm_router` gap: no `claude-sonnet-5`
+  pricing entry existed (only haiku/opus were priced) — added it plus a new
+  `"delivery-manager"` role, since the Delivery Manager is the first caller that
+  needs sonnet pricing. New `apps/orchestrator/src/orchestrator/agents/
+  delivery_manager.py`: single-node LangGraph (mirrors `agents/planner.py`'s exact
+  shape, no `PostgresSaver` checkpointing yet — still nothing to resume across with
+  one node) that makes ONE sonnet call per invocation for the WHOLE `ready` queue at
+  once, matching the pre-existing `prompts/delivery-manager.md` (v0.1, discovered
+  already drafted, not written by this task) batch input/output contract — not one
+  call per task, since the prompt itself asks for cross-task prioritisation.
+  Eligible profiles (registry membership + not-at-capacity) are computed in Python
+  *before* the LLM call, so the model can never even see an ineligible option; a
+  task with zero eligible profiles skips the LLM call entirely and is recorded
+  `human_only`. Every decision (`assigned`/`refused`/`deferred`/`human_only`) is
+  recorded as a `kind=assignment` event with the model's reason and the profiles
+  considered. New web view ("Assignments") listing `ready` tasks plus a live
+  per-profile utilisation table, backed by a new `GET /capability-registry/
+  utilisation` endpoint.
+- Design decisions worth flagging: "sandbox available" is treated as identical to
+  "profile at `max_parallel` capacity" — the architecture doesn't document a
+  separately-sized shared sandbox pool distinct from per-profile concurrency, so a
+  second parallel capacity subsystem wasn't invented for a distinction the docs
+  don't actually draw. The batch LLM call's entire cost is attributed to the first
+  considered ready task's `agent_run` (not proportionally split across every
+  considered task) — `agent_runs` has no "not tied to one ticket" concept; a real
+  limitation to revisit if a batch/session concept is ever added, not a real
+  multi-ticket cost model. The DM's own capacity snapshot (fetched once per
+  invocation, before any of its own transitions land) can go stale mid-batch; the
+  API's live, real-time capacity check is what actually catches a same-batch race
+  (proven by `apps/orchestrator/tests/integration/test_delivery_manager_agent.py`'s
+  capacity test, which the DM handles as an ordinary refused-not-crashed outcome).
+- Files touched: `capability_registry.yaml` (new),
+  `apps/api/src/api/capability_registry.py` (new),
+  `apps/orchestrator/src/orchestrator/capability_registry.py` (new),
+  `apps/api/pyproject.toml` (+pyyaml), `packages/schemas/src/schemas/models.py`
+  (`TaskSpec.repo`, +tests), `apps/api/src/api/domain/state_machine.py` (new
+  `TransitionRequest` fields, `escalated -> ready`, extended `ready -> in_progress`
+  guard, +tests), `apps/api/src/api/db/models.py` (`EventKind.ASSIGNMENT`) +
+  migration, `apps/api/src/api/repositories/ticket_repository.py` (new count/
+  ancestor helpers), `apps/api/src/api/services/ticket_service.py` (`_deps_done`,
+  `_spent_usd`, `_capacity_fields`), `apps/api/src/api/contracts.py`
+  (`assignee_agent`, `ProfileUtilisationOut`/`UtilisationOut`),
+  `apps/api/src/api/routers/{tickets.py,capability_registry.py}` (new router),
+  `apps/api/src/api/main.py`, `apps/api/tests/integration/
+  test_delivery_manager_gates.py` (new, 5 tests),
+  `packages/llm_router/src/llm_router/__init__.py` (`delivery-manager` role, sonnet
+  pricing, +test), `apps/orchestrator/src/orchestrator/api_client.py`
+  (`list_tickets`, `utilisation`, `transition(assignee_agent=...)`),
+  `apps/orchestrator/src/orchestrator/agents/delivery_manager.py` (new),
+  `apps/orchestrator/tests/integration/test_delivery_manager_agent.py` (new, 4
+  tests against a real Postgres + API), `apps/orchestrator/tests/integration/
+  conftest.py` (+`AUTH_DEV_MODE`/`SESSION_JWT_SECRET` env, needed for dev-login in
+  these new tests), `apps/web/src/{App.tsx, assignments/AssignmentQueuePage.tsx,
+  api/{client.ts,queries.ts,types.ts}}`, `docs/03-state-machine.md`.
+- Test evidence: `apps/api` full suite green (93/93) including 5 new gate/
+  integration tests and 4 new `state_machine.py` unit tests, against a real
+  Postgres testcontainer; ruff/mypy clean. `apps/orchestrator` full suite green
+  (49/49) including 4 new `test_delivery_manager_agent.py` tests run for real
+  against a live Postgres + uvicorn `apps/api` instance (not mocked, only the LLM
+  call is faked) — covers the dependency gate, the capacity pre-filter (asserts the
+  LLM is never even called when no profile is eligible), the over-budget
+  reassignment refusal, and the assignment-event audit trail; ruff/mypy clean.
+  `packages/schemas` and `packages/llm_router` suites green. `apps/web`:
+  `npm run typecheck`, `npm run lint`, and the existing Vitest suite all clean.
+- Notes / follow-ups: The web Assignments view was verified via typecheck/lint/unit
+  tests, not a live browser session (no dedicated component/e2e test was added,
+  matching T-103's `PlanningReviewPage` precedent — this repo has no e2e coverage
+  for planning/assignment views yet, only `board`/`smoke`). T-105 (specialised
+  dev-agent profiles) is now unblocked and is where real skill-matching across
+  multiple profiles starts to matter — today's single seeded profile makes the DM's
+  model choice trivial by construction.

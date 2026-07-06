@@ -12,6 +12,7 @@ import type {
   TicketState,
   TicketWithEvents,
   UpdateTaskRequest,
+  Utilisation,
 } from "./types";
 
 const API_URL: string = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
@@ -210,6 +211,10 @@ export function answerPlanningQuestions(
     method: "POST",
     body: JSON.stringify({ answers }),
   });
+}
+
+export function fetchUtilisation(actorContext: ActorContext): Promise<Utilisation> {
+  return request("/capability-registry/utilisation", actorContext);
 }
 
 export async function downloadDashboardCsv(actorContext: ActorContext): Promise<void> {
