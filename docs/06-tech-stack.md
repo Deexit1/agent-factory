@@ -16,7 +16,7 @@
 | Tests | pytest, Vitest, Testcontainers, Playwright; smoke suite tagged `@smoke` |
 | Static gates | ruff, mypy, eslint, tsc, Semgrep, gitleaks, pip-audit/npm audit |
 | Evals | Golden-set harness (`make eval`) — promptfoo-style YAML cases + custom scorer, runs in CI on `prompts/**` or routing diffs |
-| Observability | Langfuse (self-hosted) for agent traces + cost; OpenTelemetry → Prometheus/Grafana/Loki |
+| Observability | Langfuse (Cloud, Phase-2 pragmatic choice — see T-101 changelog; self-hosting is a separate future migration) for agent traces + cost; OpenTelemetry → Prometheus/Grafana/Loki |
 | Merge safety | GitHub merge queue (or bors-style bot) — required for all `agent/*` PRs |
 | LLM routing | `packages/llm_router` (thin custom router, LiteLLM-style): role+complexity+org → provider/model; sole owner of provider SDKs |
 | Tenant secrets (BYOK) | Vault KV `tenants/<org>/llm/<provider>`; keys never in DB/logs/traces/sandboxes |
