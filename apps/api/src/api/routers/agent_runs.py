@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from api.auth import get_actor_context
+from api.auth import ActorContext, get_actor_context
 from api.contracts import (
     AgentRunOut,
     CompleteAgentRunRequest,
@@ -19,7 +19,10 @@ router = APIRouter(
 
 @router.post("/{ticket_id}/agent-runs", response_model=AgentRunOut, status_code=201)
 def create_agent_run(
-    ticket_id: str, request: CreateAgentRunRequest, db: Session = Depends(get_db)
+    ticket_id: str,
+    request: CreateAgentRunRequest,
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
 ) -> AgentRunOut:
     try:
         run = agent_run_service.create_agent_run(
@@ -28,6 +31,7 @@ def create_agent_run(
             agent_role=request.agent_role,
             model=request.model,
             trace_id=request.trace_id,
+            org_id=actor_context.org_id,
         )
     except ticket_service.TicketNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -40,6 +44,7 @@ def complete_agent_run(
     ticket_id: str,
     run_id: int,
     request: CompleteAgentRunRequest,
+    actor_context: ActorContext = Depends(get_actor_context),
     db: Session = Depends(get_db),
 ) -> AgentRunOut:
     try:
@@ -51,6 +56,7 @@ def complete_agent_run(
             tokens_in=request.tokens_in,
             tokens_out=request.tokens_out,
             cost_usd=request.cost_usd,
+            org_id=actor_context.org_id,
         )
     except ticket_service.TicketNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -61,9 +67,13 @@ def complete_agent_run(
 
 
 @router.get("/{ticket_id}/agent-runs", response_model=list[AgentRunOut])
-def list_agent_runs(ticket_id: str, db: Session = Depends(get_db)) -> list[AgentRunOut]:
+def list_agent_runs(
+    ticket_id: str,
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
+) -> list[AgentRunOut]:
     try:
-        runs = agent_run_service.list_agent_runs(db, ticket_id)
+        runs = agent_run_service.list_agent_runs(db, ticket_id, org_id=actor_context.org_id)
     except ticket_service.TicketNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -71,9 +81,13 @@ def list_agent_runs(ticket_id: str, db: Session = Depends(get_db)) -> list[Agent
 
 
 @router.get("/{ticket_id}/cost-ledger", response_model=list[CostLedgerEntryOut])
-def list_cost_ledger(ticket_id: str, db: Session = Depends(get_db)) -> list[CostLedgerEntryOut]:
+def list_cost_ledger(
+    ticket_id: str,
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
+) -> list[CostLedgerEntryOut]:
     try:
-        entries = agent_run_service.list_cost_ledger(db, ticket_id)
+        entries = agent_run_service.list_cost_ledger(db, ticket_id, org_id=actor_context.org_id)
     except ticket_service.TicketNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -81,8 +95,12 @@ def list_cost_ledger(ticket_id: str, db: Session = Depends(get_db)) -> list[Cost
 
 
 @router.get("/{ticket_id}/cost-summary", response_model=CostSummaryOut)
-def cost_summary(ticket_id: str, db: Session = Depends(get_db)) -> CostSummaryOut:
+def cost_summary(
+    ticket_id: str,
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
+) -> CostSummaryOut:
     try:
-        return agent_run_service.cost_summary(db, ticket_id)
+        return agent_run_service.cost_summary(db, ticket_id, org_id=actor_context.org_id)
     except ticket_service.TicketNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

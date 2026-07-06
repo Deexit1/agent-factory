@@ -50,18 +50,45 @@ as originally scoped — the pilot itself was descoped to 3 real tickets
 - [x] PR comment shows per-set scores and worst-3 failing cases with diffs (verified
       for real on PR #6 — includes each case's full candidate output, not just a score)
 
-## T-102 · State machine v2 + SaaS groundwork — `ready`
+## T-102 · State machine v2 + SaaS groundwork — `done`
 **Spec:** docs/03-state-machine.md, docs/00-vision.md §SaaS-readiness  **Est:** M
 Migrate the whitelist (activate `approved → planning → ready`, insert `in_review`,
 shared bounce counter) AND lay the two SaaS-readiness foundations in the same migration.
+`approved → planning → ready` was already whitelisted and guarded since T-003 — the
+real remaining state-machine work was inserting `in_review` between dev and QA.
 **Acceptance criteria**
-- [ ] All new transitions covered by API tests; illegal ones return 409 + rejected event
-- [ ] Existing Phase-1 tickets replay cleanly through the migrated machine (fixture test)
-- [ ] Bounce shared-counter behaviour proven by a review-block + QA-fail sequence
-- [ ] `org_id` (NOT NULL, FK to new `orgs` table; single default org backfilled) added
-      to every domain table; all repository queries tenant-scoped
-- [ ] `packages/llm_router` skeleton exists and ALL current LLM calls route through it
-      (grep-gate: no provider SDK imports outside the router)
+- [x] All new transitions covered by API tests; illegal ones return 409 + rejected event
+      (verified: `test_tickets_api.py`'s new `in_progress`→`in_review`→`in_qa`→`done`
+      happy path and `test_in_progress_can_no_longer_skip_the_review_gate`, 409 +
+      rejected event)
+- [x] Existing Phase-1 tickets replay cleanly through the migrated machine (fixture
+      test) — verified for real:
+      `test_migration_replay.py::test_phase1_ticket_survives_migration_and_replays_through_new_machine`
+      spins up its own Postgres container, runs migrations only to the pre-T-102
+      revision, inserts a ticket row in the exact Phase-1 shape (no `org_id` column, no
+      `in_review` state), upgrades to head, confirms `org_id` backfilled to `default`,
+      then drives it through `in_progress→in_review→in_qa→done` for real
+- [x] Bounce shared-counter behaviour proven by a review-block + QA-fail sequence
+      (verified: `test_review_bounce_and_qa_bounce_share_one_counter_and_auto_escalate` —
+      1 review-bounce + 2 QA-bounces hit `bounce_count == 3`; a 4th bounce from either
+      gate is refused 409 and auto-escalates)
+- [x] `org_id` (NOT NULL, FK to new `orgs` table; single default org backfilled) added
+      to every domain table; all repository queries tenant-scoped (verified: 70/70
+      `apps/api` tests green after threading `org_id` through every repository/service/
+      router; `test_ticket_queries_are_tenant_scoped` proves a second org's ticket is
+      invisible via `get_ticket`/`list_tickets` scoped to the default org, and vice
+      versa. Scoped to groundwork, not full multi-tenancy: callers use a
+      `DEFAULT_ORG_ID` constant until T-201 wires real per-request org resolution from
+      auth — see `api/tenancy.py`)
+- [x] `packages/llm_router` skeleton exists and ALL current LLM calls route through it
+      (grep-gate: no provider SDK imports outside the router) — verified:
+      `scripts/check_llm_router_gate.py` passes for real (0 violations) after migrating
+      the two real direct-SDK call sites (`orchestrator/evals/judge.py`,
+      `orchestrator/evals/distiller_scorer.py`) to `llm_router.route()`; re-ran the
+      distiller eval set for real post-migration (86.7 avg vs floor 75, consistent with
+      the T-101 baseline). Known, disclosed gap: `claude_runner.py`'s CLI-subprocess
+      invocation of the `claude` binary has no SDK import for the grep-gate to catch —
+      BYOK key-injection into that path is T-202's job, not this skeleton's
 
 ## T-103 · Planner agent + planning review UI — `ready`
 **Spec:** SPEC-102  **Est:** L

@@ -29,8 +29,8 @@ def _cycle_time_hours(row: DashboardRow) -> float | None:
     return (row.done_at - row.created_at).total_seconds() / 3600
 
 
-def compute_metrics(session: Session) -> DashboardMetricsOut:
-    rows = repo.list_dashboard_rows(session)
+def compute_metrics(session: Session, *, org_id: str) -> DashboardMetricsOut:
+    rows = repo.list_dashboard_rows(session, org_id=org_id)
     return _metrics_from_rows(rows)
 
 
@@ -63,8 +63,8 @@ def _metrics_from_rows(rows: list[DashboardRow]) -> DashboardMetricsOut:
     )
 
 
-def export_csv(session: Session) -> str:
-    rows = repo.list_dashboard_rows(session)
+def export_csv(session: Session, *, org_id: str) -> str:
+    rows = repo.list_dashboard_rows(session, org_id=org_id)
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(CSV_COLUMNS)
@@ -86,11 +86,11 @@ def export_csv(session: Session) -> str:
 
 
 def record_escaped_defect(
-    session: Session, *, ticket_id: str, note: str, reported_by: str
+    session: Session, *, ticket_id: str, note: str, reported_by: str, org_id: str
 ) -> EscapedDefectReport:
-    get_ticket(session, ticket_id)  # 404s if the ticket doesn't exist
+    get_ticket(session, ticket_id, org_id=org_id)  # 404s if the ticket doesn't exist
     report = EscapedDefectReport(
-        ticket_id=ticket_id, note=note, reported_by=reported_by, ts=datetime.now(UTC)
+        org_id=org_id, ticket_id=ticket_id, note=note, reported_by=reported_by, ts=datetime.now(UTC)
     )
     session.add(report)
     session.commit()

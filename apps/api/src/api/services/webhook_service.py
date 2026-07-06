@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from api.db.models import EventKind, Ticket, TicketState
 from api.services import failure_distiller, ticket_service
+from api.tenancy import DEFAULT_ORG_ID
 
 CI_ACTOR = "system:ci"
 
@@ -38,13 +39,16 @@ def verify_signature(raw_body: bytes, signature_header: str | None) -> bool:
 def handle_ci_result(
     session: Session, ticket_id: str, *, conclusion: str, suite: str, raw_log: str
 ) -> Ticket:
-    ticket = ticket_service.get_ticket(session, ticket_id)  # 404s if missing
+    # CI webhooks aren't behind an authenticated actor context; scoped to the single
+    # seeded org until T-201 gives webhooks a per-org auth token.
+    org_id = DEFAULT_ORG_ID
+    ticket = ticket_service.get_ticket(session, ticket_id, org_id=org_id)  # 404s if missing
     if ticket.state is not TicketState.IN_QA:
         raise TicketNotInQA(ticket_id, ticket.state)
 
     if conclusion == "success":
         return ticket_service.request_transition(
-            session, ticket_id, TicketState.DONE, actor=CI_ACTOR
+            session, ticket_id, TicketState.DONE, actor=CI_ACTOR, org_id=org_id
         )
 
     attempt_no = ticket.bounce_count + 1
@@ -54,6 +58,7 @@ def handle_ci_result(
     ticket_service.record_event(
         session,
         ticket_id,
+        org_id=org_id,
         actor=CI_ACTOR,
         kind=EventKind.TEST_RESULT,
         payload={"conclusion": "failure", "suite": suite, "failure_report": report.model_dump()},
@@ -61,11 +66,11 @@ def handle_ci_result(
 
     try:
         return ticket_service.request_transition(
-            session, ticket_id, TicketState.BOUNCED, actor=CI_ACTOR
+            session, ticket_id, TicketState.BOUNCED, actor=CI_ACTOR, org_id=org_id
         )
     except ticket_service.TransitionRefused as exc:
         if exc.auto_escalated:
-            return ticket_service.get_ticket(session, ticket_id)
+            return ticket_service.get_ticket(session, ticket_id, org_id=org_id)
         raise
 
 

@@ -11,7 +11,8 @@ _BASE_TRANSITIONS: dict[TicketState, set[TicketState]] = {
     TicketState.APPROVED: {TicketState.PLANNING},
     TicketState.PLANNING: {TicketState.READY},
     TicketState.READY: {TicketState.IN_PROGRESS},
-    TicketState.IN_PROGRESS: {TicketState.IN_QA, TicketState.ESCALATED},
+    TicketState.IN_PROGRESS: {TicketState.IN_REVIEW, TicketState.ESCALATED},
+    TicketState.IN_REVIEW: {TicketState.IN_QA, TicketState.BOUNCED, TicketState.ESCALATED},
     TicketState.IN_QA: {TicketState.DONE, TicketState.BOUNCED, TicketState.ESCALATED},
     TicketState.BOUNCED: {TicketState.IN_PROGRESS},
     TicketState.ESCALATED: {TicketState.IN_PROGRESS},
@@ -60,6 +61,14 @@ def validate_transition(request: TransitionRequest) -> None:
     _check_guard(request)
 
 
+def _check_bounce_guard(request: TransitionRequest) -> None:
+    if request.bounce_count >= MAX_BOUNCES:
+        raise TransitionRejected(
+            f"bounce_count reached the max ({MAX_BOUNCES}); "
+            "ticket must be escalated, not bounced again"
+        )
+
+
 def _check_guard(request: TransitionRequest) -> None:
     if request.from_state is TicketState.PLANNING and request.to_state is TicketState.READY:
         if request.acceptance_criteria_count == 0:
@@ -75,12 +84,11 @@ def _check_guard(request: TransitionRequest) -> None:
                 f"bounce_count reached the max ({MAX_BOUNCES}); ticket must be escalated, not done"
             )
 
-    if request.from_state is TicketState.IN_QA and request.to_state is TicketState.BOUNCED:
-        if request.bounce_count >= MAX_BOUNCES:
-            raise TransitionRejected(
-                f"bounce_count reached the max ({MAX_BOUNCES}); "
-                "ticket must be escalated, not bounced again"
-            )
+    if request.to_state is TicketState.BOUNCED and request.from_state in (
+        TicketState.IN_QA,
+        TicketState.IN_REVIEW,
+    ):
+        _check_bounce_guard(request)
 
     if request.from_state is TicketState.ESCALATED and request.to_state is TicketState.IN_PROGRESS:
         if not is_human_actor(request.actor):

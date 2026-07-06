@@ -25,8 +25,12 @@ APPROVER_ROLES = {"approver", "admin"}
 
 
 @router.post("", response_model=TicketOut, status_code=201)
-def create_ticket(request: CreateTicketRequest, db: Session = Depends(get_db)) -> TicketOut:
-    ticket = ticket_service.create_ticket(db, request)
+def create_ticket(
+    request: CreateTicketRequest,
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
+) -> TicketOut:
+    ticket = ticket_service.create_ticket(db, request, org_id=actor_context.org_id)
     return TicketOut.model_validate(ticket)
 
 
@@ -37,10 +41,12 @@ def list_tickets(
     assignee_agent: str | None = None,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    actor_context: ActorContext = Depends(get_actor_context),
     db: Session = Depends(get_db),
 ) -> PaginatedTickets:
     items, total = ticket_service.list_tickets(
         db,
+        org_id=actor_context.org_id,
         state=state,
         ticket_type=type_,
         assignee_agent=assignee_agent,
@@ -56,9 +62,15 @@ def list_tickets(
 
 
 @router.get("/{ticket_id}", response_model=TicketWithEventsOut)
-def get_ticket(ticket_id: str, db: Session = Depends(get_db)) -> TicketWithEventsOut:
+def get_ticket(
+    ticket_id: str,
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
+) -> TicketWithEventsOut:
     try:
-        ticket, events = ticket_service.get_ticket_with_recent_events(db, ticket_id)
+        ticket, events = ticket_service.get_ticket_with_recent_events(
+            db, ticket_id, org_id=actor_context.org_id
+        )
     except ticket_service.TicketNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -70,10 +82,15 @@ def get_ticket(ticket_id: str, db: Session = Depends(get_db)) -> TicketWithEvent
 
 @router.post("/{ticket_id}/transition", response_model=TicketOut)
 def transition_ticket(
-    ticket_id: str, request: TransitionRequest, db: Session = Depends(get_db)
+    ticket_id: str,
+    request: TransitionRequest,
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
 ) -> TicketOut:
     try:
-        ticket = ticket_service.request_transition(db, ticket_id, request.to_state, request.actor)
+        ticket = ticket_service.request_transition(
+            db, ticket_id, request.to_state, request.actor, org_id=actor_context.org_id
+        )
     except ticket_service.TicketNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ticket_service.TransitionRefused as exc:
@@ -96,6 +113,7 @@ def approve_ticket(
         approval = ticket_service.record_approval(
             db,
             ticket_id,
+            org_id=actor_context.org_id,
             gate=request.gate,
             decided_by=actor_context.actor,
             decision=request.decision,
@@ -121,7 +139,7 @@ def return_to_dev(
 
     try:
         ticket = ticket_service.return_to_dev(
-            db, ticket_id, actor=actor_context.actor, note=request.note
+            db, ticket_id, actor=actor_context.actor, note=request.note, org_id=actor_context.org_id
         )
     except ticket_service.TicketNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -133,12 +151,16 @@ def return_to_dev(
 
 @router.post("/{ticket_id}/events", response_model=EventOut, status_code=201)
 def create_ticket_event(
-    ticket_id: str, request: CreateEventRequest, db: Session = Depends(get_db)
+    ticket_id: str,
+    request: CreateEventRequest,
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
 ) -> EventOut:
     try:
         event = ticket_service.record_event(
             db,
             ticket_id,
+            org_id=actor_context.org_id,
             actor=request.actor,
             kind=request.kind,
             payload=request.payload,
@@ -154,10 +176,13 @@ def list_ticket_events(
     ticket_id: str,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    actor_context: ActorContext = Depends(get_actor_context),
     db: Session = Depends(get_db),
 ) -> PaginatedEvents:
     try:
-        items, total = ticket_service.list_events(db, ticket_id, limit=limit, offset=offset)
+        items, total = ticket_service.list_events(
+            db, ticket_id, org_id=actor_context.org_id, limit=limit, offset=offset
+        )
     except ticket_service.TicketNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -1,11 +1,18 @@
 # 02 — Data Model (Postgres 16)
 
 All timestamps UTC. All agent payloads JSONB validated against `packages/schemas`.
+Every table below carries `org_id` (FK → `orgs.id`, NOT NULL) — SaaS-readiness rule 1
+(docs/00-vision.md). T-102 seeded a single default org and backfilled every existing
+row to it; real per-request org resolution (invites, per-org membership) is T-201.
+
+## orgs
+`id (PK), name, created_at` — the tenant. Single "default" org today.
 
 ## tickets
 | column | type | notes |
 |---|---|---|
 | id | text PK | `T-001` style, human-readable |
+| org_id | text FK→orgs | tenant (T-102) |
 | type | enum | `idea` \| `epic` \| `task` |
 | parent_id | text FK→tickets | ideas parent epics parent tasks |
 | state | enum | see 03-state-machine.md |

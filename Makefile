@@ -1,10 +1,11 @@
 API_DIR := apps/api
 WEB_DIR := apps/web
 SCHEMAS_DIR := packages/schemas
+LLM_ROUTER_DIR := packages/llm_router
 SANDBOX_DIR := apps/sandbox
 ORCHESTRATOR_DIR := apps/orchestrator
 
-.PHONY: dev test test-unit test-integration check lint typecheck e2e a11y migrate coverage-gate eval
+.PHONY: dev test test-unit test-integration check lint typecheck e2e a11y migrate coverage-gate eval llm-router-gate
 
 $(API_DIR)/.venv/.stamp: $(API_DIR)/pyproject.toml $(SCHEMAS_DIR)/pyproject.toml
 	cd $(API_DIR) && python3 -m venv .venv
@@ -19,16 +20,23 @@ $(SCHEMAS_DIR)/.venv/.stamp: $(SCHEMAS_DIR)/pyproject.toml
 	cd $(SCHEMAS_DIR) && .venv/bin/pip install -e ".[dev]"
 	touch $@
 
+$(LLM_ROUTER_DIR)/.venv/.stamp: $(LLM_ROUTER_DIR)/pyproject.toml
+	cd $(LLM_ROUTER_DIR) && python3 -m venv .venv
+	cd $(LLM_ROUTER_DIR) && .venv/bin/pip install --upgrade pip
+	cd $(LLM_ROUTER_DIR) && .venv/bin/pip install -e ".[dev]"
+	touch $@
+
 $(SANDBOX_DIR)/.venv/.stamp: $(SANDBOX_DIR)/pyproject.toml
 	cd $(SANDBOX_DIR) && python3 -m venv .venv
 	cd $(SANDBOX_DIR) && .venv/bin/pip install --upgrade pip
 	cd $(SANDBOX_DIR) && .venv/bin/pip install -e ".[dev]"
 	touch $@
 
-$(ORCHESTRATOR_DIR)/.venv/.stamp: $(ORCHESTRATOR_DIR)/pyproject.toml $(SCHEMAS_DIR)/pyproject.toml
+$(ORCHESTRATOR_DIR)/.venv/.stamp: $(ORCHESTRATOR_DIR)/pyproject.toml $(SCHEMAS_DIR)/pyproject.toml $(LLM_ROUTER_DIR)/pyproject.toml
 	cd $(ORCHESTRATOR_DIR) && python3 -m venv .venv
 	cd $(ORCHESTRATOR_DIR) && .venv/bin/pip install --upgrade pip
 	cd $(ORCHESTRATOR_DIR) && .venv/bin/pip install -e "../../$(SCHEMAS_DIR)"
+	cd $(ORCHESTRATOR_DIR) && .venv/bin/pip install -e "../../$(LLM_ROUTER_DIR)"
 	cd $(ORCHESTRATOR_DIR) && .venv/bin/pip install -e ".[dev]"
 	touch $@
 
@@ -43,9 +51,10 @@ test: test-unit test-integration ## Unit tests (pytest + vitest)
 
 # "Unit" = everything outside tests/integration (no Docker needed). orchestrator has no
 # unit tests today — its logic is exercised end-to-end in tests/integration (see its README).
-test-unit: $(API_DIR)/.venv/.stamp $(SCHEMAS_DIR)/.venv/.stamp $(SANDBOX_DIR)/.venv/.stamp $(WEB_DIR)/node_modules/.stamp ## Fast tests only, no Docker required
+test-unit: $(API_DIR)/.venv/.stamp $(SCHEMAS_DIR)/.venv/.stamp $(LLM_ROUTER_DIR)/.venv/.stamp $(SANDBOX_DIR)/.venv/.stamp $(WEB_DIR)/node_modules/.stamp ## Fast tests only, no Docker required
 	cd $(API_DIR) && .venv/bin/pytest tests --ignore=tests/integration
 	cd $(SCHEMAS_DIR) && .venv/bin/pytest
+	cd $(LLM_ROUTER_DIR) && .venv/bin/pytest
 	cd $(SANDBOX_DIR) && .venv/bin/pytest tests --ignore=tests/integration
 	cd $(WEB_DIR) && npm test
 
@@ -54,30 +63,36 @@ test-integration: $(API_DIR)/.venv/.stamp $(SANDBOX_DIR)/.venv/.stamp $(ORCHESTR
 	cd $(SANDBOX_DIR) && .venv/bin/pytest tests/integration
 	cd $(ORCHESTRATOR_DIR) && .venv/bin/pytest tests/integration
 
-coverage-gate: $(API_DIR)/.venv/.stamp $(SCHEMAS_DIR)/.venv/.stamp $(SANDBOX_DIR)/.venv/.stamp $(ORCHESTRATOR_DIR)/.venv/.stamp ## Changed-lines coverage floor (80%) vs origin/main
+coverage-gate: $(API_DIR)/.venv/.stamp $(SCHEMAS_DIR)/.venv/.stamp $(LLM_ROUTER_DIR)/.venv/.stamp $(SANDBOX_DIR)/.venv/.stamp $(ORCHESTRATOR_DIR)/.venv/.stamp ## Changed-lines coverage floor (80%) vs origin/main
 	cd $(SCHEMAS_DIR) && .venv/bin/pytest --cov=schemas --cov-report=xml:coverage.xml
+	cd $(LLM_ROUTER_DIR) && .venv/bin/pytest --cov=llm_router --cov-report=xml:coverage.xml
 	cd $(API_DIR) && .venv/bin/pytest --cov=api --cov-report=xml:coverage.xml tests
 	cd $(SANDBOX_DIR) && .venv/bin/pytest --cov=sandbox --cov-report=xml:coverage.xml tests
 	cd $(ORCHESTRATOR_DIR) && .venv/bin/pytest --cov=orchestrator --cov-report=xml:coverage.xml tests
 	pip install --quiet diff-cover
-	diff-cover $(SCHEMAS_DIR)/coverage.xml $(API_DIR)/coverage.xml $(SANDBOX_DIR)/coverage.xml $(ORCHESTRATOR_DIR)/coverage.xml \
+	diff-cover $(SCHEMAS_DIR)/coverage.xml $(LLM_ROUTER_DIR)/coverage.xml $(API_DIR)/coverage.xml $(SANDBOX_DIR)/coverage.xml $(ORCHESTRATOR_DIR)/coverage.xml \
 		--compare-branch=origin/main --fail-under=80
 
-lint: $(API_DIR)/.venv/.stamp $(SCHEMAS_DIR)/.venv/.stamp $(SANDBOX_DIR)/.venv/.stamp $(ORCHESTRATOR_DIR)/.venv/.stamp $(WEB_DIR)/node_modules/.stamp
+lint: $(API_DIR)/.venv/.stamp $(SCHEMAS_DIR)/.venv/.stamp $(LLM_ROUTER_DIR)/.venv/.stamp $(SANDBOX_DIR)/.venv/.stamp $(ORCHESTRATOR_DIR)/.venv/.stamp $(WEB_DIR)/node_modules/.stamp
 	cd $(API_DIR) && .venv/bin/ruff check .
 	cd $(SCHEMAS_DIR) && .venv/bin/ruff check .
+	cd $(LLM_ROUTER_DIR) && .venv/bin/ruff check .
 	cd $(SANDBOX_DIR) && .venv/bin/ruff check .
 	cd $(ORCHESTRATOR_DIR) && .venv/bin/ruff check .
 	cd $(WEB_DIR) && npm run lint
 
-typecheck: $(API_DIR)/.venv/.stamp $(SCHEMAS_DIR)/.venv/.stamp $(SANDBOX_DIR)/.venv/.stamp $(ORCHESTRATOR_DIR)/.venv/.stamp $(WEB_DIR)/node_modules/.stamp
+typecheck: $(API_DIR)/.venv/.stamp $(SCHEMAS_DIR)/.venv/.stamp $(LLM_ROUTER_DIR)/.venv/.stamp $(SANDBOX_DIR)/.venv/.stamp $(ORCHESTRATOR_DIR)/.venv/.stamp $(WEB_DIR)/node_modules/.stamp
 	cd $(API_DIR) && .venv/bin/mypy src
 	cd $(SCHEMAS_DIR) && .venv/bin/mypy src
+	cd $(LLM_ROUTER_DIR) && .venv/bin/mypy src
 	cd $(SANDBOX_DIR) && .venv/bin/mypy src
 	cd $(ORCHESTRATOR_DIR) && .venv/bin/mypy src
 	cd $(WEB_DIR) && npm run typecheck
 
-check: lint typecheck test ## Full QA gate: lint + typecheck + unit + integration
+llm-router-gate: ## Fail if anything outside packages/llm_router imports a provider SDK directly
+	python3 scripts/check_llm_router_gate.py
+
+check: lint typecheck test llm-router-gate ## Full QA gate: lint + typecheck + unit + integration + router gate
 
 e2e: $(WEB_DIR)/node_modules/.stamp ## Playwright end-to-end suite
 	cd $(WEB_DIR) && npx playwright install --with-deps chromium

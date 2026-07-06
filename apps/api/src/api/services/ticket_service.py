@@ -41,9 +41,10 @@ class TransitionRefused(Exception):
         super().__init__(reason)
 
 
-def create_ticket(session: Session, request: CreateTicketRequest) -> Ticket:
+def create_ticket(session: Session, request: CreateTicketRequest, *, org_id: str) -> Ticket:
     ticket = repo.create_ticket(
         session,
+        org_id=org_id,
         ticket_type=request.type,
         title=request.title,
         parent_id=request.parent_id,
@@ -58,24 +59,25 @@ def create_ticket(session: Session, request: CreateTicketRequest) -> Ticket:
     return ticket
 
 
-def get_ticket(session: Session, ticket_id: str) -> Ticket:
-    ticket = repo.get_ticket(session, ticket_id)
+def get_ticket(session: Session, ticket_id: str, *, org_id: str) -> Ticket:
+    ticket = repo.get_ticket(session, ticket_id, org_id=org_id)
     if ticket is None:
         raise TicketNotFound(ticket_id)
     return ticket
 
 
 def get_ticket_with_recent_events(
-    session: Session, ticket_id: str, *, limit: int = 20
+    session: Session, ticket_id: str, *, org_id: str, limit: int = 20
 ) -> tuple[Ticket, list[TicketEvent]]:
-    ticket = get_ticket(session, ticket_id)
-    events, _total = repo.list_events(session, ticket_id, limit=limit, offset=0)
+    ticket = get_ticket(session, ticket_id, org_id=org_id)
+    events, _total = repo.list_events(session, ticket_id, org_id=org_id, limit=limit, offset=0)
     return ticket, events
 
 
 def list_tickets(
     session: Session,
     *,
+    org_id: str,
     state: TicketState | None,
     ticket_type: TicketType | None,
     assignee_agent: str | None,
@@ -84,6 +86,7 @@ def list_tickets(
 ) -> tuple[list[Ticket], int]:
     return repo.list_tickets(
         session,
+        org_id=org_id,
         state=state,
         ticket_type=ticket_type,
         assignee_agent=assignee_agent,
@@ -93,22 +96,25 @@ def list_tickets(
 
 
 def list_events(
-    session: Session, ticket_id: str, *, limit: int, offset: int
+    session: Session, ticket_id: str, *, org_id: str, limit: int, offset: int
 ) -> tuple[list[TicketEvent], int]:
-    get_ticket(session, ticket_id)  # 404s if the ticket doesn't exist
-    return repo.list_events(session, ticket_id, limit=limit, offset=offset)
+    get_ticket(session, ticket_id, org_id=org_id)  # 404s if the ticket doesn't exist
+    return repo.list_events(session, ticket_id, org_id=org_id, limit=limit, offset=offset)
 
 
 def record_event(
     session: Session,
     ticket_id: str,
     *,
+    org_id: str,
     actor: str,
     kind: EventKind,
     payload: dict[str, object],
 ) -> TicketEvent:
-    get_ticket(session, ticket_id)  # 404s if the ticket doesn't exist
-    event = repo.append_event(session, ticket_id=ticket_id, actor=actor, kind=kind, payload=payload)
+    get_ticket(session, ticket_id, org_id=org_id)  # 404s if the ticket doesn't exist
+    event = repo.append_event(
+        session, org_id=org_id, ticket_id=ticket_id, actor=actor, kind=kind, payload=payload
+    )
     session.commit()
     broadcaster.publish(ticket_id, _event_ws_payload(event))
     return event
@@ -119,9 +125,9 @@ def _acceptance_criteria_count(ticket: Ticket) -> int:
 
 
 def request_transition(
-    session: Session, ticket_id: str, to_state: TicketState, actor: str
+    session: Session, ticket_id: str, to_state: TicketState, actor: str, *, org_id: str
 ) -> Ticket:
-    ticket = get_ticket(session, ticket_id)
+    ticket = get_ticket(session, ticket_id, org_id=org_id)
     from_state = ticket.state
 
     transition_request = state_machine.TransitionRequest(
@@ -138,6 +144,7 @@ def request_transition(
     except state_machine.TransitionRejected as exc:
         rejected_event = repo.append_event(
             session,
+            org_id=org_id,
             ticket_id=ticket.id,
             actor=actor,
             kind=EventKind.TRANSITION,
@@ -152,13 +159,14 @@ def request_transition(
         auto_escalated = False
         escalation_event = None
         if (
-            from_state is TicketState.IN_QA
+            from_state in (TicketState.IN_QA, TicketState.IN_REVIEW)
             and to_state is TicketState.BOUNCED
             and ticket.bounce_count >= state_machine.MAX_BOUNCES
         ):
             ticket.state = TicketState.ESCALATED
             escalation_event = repo.append_event(
                 session,
+                org_id=org_id,
                 ticket_id=ticket.id,
                 actor="system",
                 kind=EventKind.TRANSITION,
@@ -181,6 +189,7 @@ def request_transition(
     ticket.state = to_state
     event = repo.append_event(
         session,
+        org_id=org_id,
         ticket_id=ticket.id,
         actor=actor,
         kind=EventKind.TRANSITION,
@@ -195,14 +204,16 @@ def record_approval(
     session: Session,
     ticket_id: str,
     *,
+    org_id: str,
     gate: ApprovalGate,
     decided_by: str,
     decision: ApprovalDecision,
     note: str | None,
 ) -> Approval:
-    get_ticket(session, ticket_id)  # 404s if the ticket doesn't exist
+    get_ticket(session, ticket_id, org_id=org_id)  # 404s if the ticket doesn't exist
     approval = repo.create_approval(
         session,
+        org_id=org_id,
         ticket_id=ticket_id,
         gate=gate,
         decided_by=decided_by,
@@ -213,11 +224,13 @@ def record_approval(
     return approval
 
 
-def return_to_dev(session: Session, ticket_id: str, *, actor: str, note: str) -> Ticket:
+def return_to_dev(
+    session: Session, ticket_id: str, *, actor: str, note: str, org_id: str
+) -> Ticket:
     """Escalation inbox "return to dev with note" (SPEC-006 AC5): a bounce-style event
     carrying the human's note as a FailureReport, then escalated -> in_progress. Doesn't
     touch bounce_count — this is a fresh restart, not one more of the 3 QA bounces."""
-    ticket = get_ticket(session, ticket_id)
+    ticket = get_ticket(session, ticket_id, org_id=org_id)
     report = FailureReport(
         ticket_id=ticket_id,
         failing_suite="human-escalation-review",
@@ -229,11 +242,14 @@ def return_to_dev(session: Session, ticket_id: str, *, actor: str, note: str) ->
     record_event(
         session,
         ticket_id,
+        org_id=org_id,
         actor=actor,
         kind=EventKind.TEST_RESULT,
         payload={"conclusion": "returned_by_human", "failure_report": report.model_dump()},
     )
-    return request_transition(session, ticket_id, TicketState.IN_PROGRESS, actor=actor)
+    return request_transition(
+        session, ticket_id, TicketState.IN_PROGRESS, actor=actor, org_id=org_id
+    )
 
 
 __all__ = [
