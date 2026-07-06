@@ -16,7 +16,7 @@ export type TicketState =
   | "blocked"
   | "cancelled";
 
-export type EventKind = "message" | "tool_call" | "test_result" | "transition" | "cost";
+export type EventKind = "message" | "tool_call" | "test_result" | "transition" | "cost" | "edit";
 
 export type ApprovalGate = "idea" | "budget" | "deploy" | "escalation";
 
@@ -97,4 +97,15 @@ export interface Approval {
   decision: ApprovalDecision;
   note: string | null;
   ts: string;
+}
+
+export interface Descendants {
+  items: Ticket[];
+}
+
+export interface UpdateTaskRequest {
+  title?: string;
+  spec?: Record<string, unknown> | null;
+  acceptance_criteria?: AcceptanceCriterion[];
+  budget_usd?: number;
 }

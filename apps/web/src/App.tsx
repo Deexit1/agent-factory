@@ -4,8 +4,9 @@ import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { LoginPage } from "./auth/LoginPage";
 import { BoardPage } from "./board/BoardPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
+import { PlanningReviewPage } from "./planning/PlanningReviewPage";
 
-type View = "board" | "dashboard";
+type View = "board" | "planning" | "dashboard";
 
 function AuthedApp(): React.JSX.Element {
   const { status, actor, logout } = useAuth();
@@ -32,6 +33,13 @@ function AuthedApp(): React.JSX.Element {
           </button>
           <button
             type="button"
+            onClick={() => setView("planning")}
+            className={view === "planning" ? "font-semibold text-gray-900" : "text-gray-500"}
+          >
+            Planning
+          </button>
+          <button
+            type="button"
             onClick={() => setView("dashboard")}
             className={view === "dashboard" ? "font-semibold text-gray-900" : "text-gray-500"}
           >
@@ -46,7 +54,9 @@ function AuthedApp(): React.JSX.Element {
         </div>
       </nav>
       <div className="flex-1 overflow-hidden">
-        {view === "board" ? <BoardPage /> : <DashboardPage />}
+        {view === "board" && <BoardPage />}
+        {view === "planning" && <PlanningReviewPage />}
+        {view === "dashboard" && <DashboardPage />}
       </div>
     </div>
   );

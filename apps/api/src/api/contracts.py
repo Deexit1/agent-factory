@@ -36,6 +36,15 @@ class CreateTicketRequest(BaseModel):
             raise ValueError("task tickets require at least one acceptance criterion")
         return self
 
+    @model_validator(mode="after")
+    def _idea_requires_approved_budget(self) -> "CreateTicketRequest":
+        # Ideas enter directly at `approved` in Phase 2 (docs/03-state-machine.md) — a
+        # human already decided go + budget by creating it, so budget_usd must be set
+        # here rather than approved separately later.
+        if self.type is TicketType.IDEA and not (self.budget_usd and self.budget_usd > 0):
+            raise ValueError("idea tickets require a positive budget_usd")
+        return self
+
 
 class TicketOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -188,6 +197,21 @@ class SessionOut(BaseModel):
 
 class ReturnToDevRequest(BaseModel):
     note: str
+
+
+class AnswerPlanningQuestionsRequest(BaseModel):
+    answers: str
+
+
+class UpdateTaskRequest(BaseModel):
+    title: str | None = None
+    spec: dict[str, object] | None = None
+    acceptance_criteria: list[AcceptanceCriterionIn] | None = None
+    budget_usd: float | None = Field(default=None, gt=0)
+
+
+class DescendantsOut(BaseModel):
+    items: list[TicketOut]
 
 
 class EscapedDefectReportIn(BaseModel):

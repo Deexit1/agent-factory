@@ -1,0 +1,50 @@
+case_id: planner-006
+title: Inbound webhook receiver for a third-party status page
+source: synthetic
+idea:
+  title: Receive status-page webhooks and log them as ticket_events
+  description: >
+    A third-party status page can POST incident updates to us. Add a webhook
+    endpoint that verifies an HMAC signature (same convention as the CI webhook)
+    and records the payload as a ticket_event on the referenced ticket.
+  budget_usd: 80.0
+reference:
+  epics:
+    - id: epic-1
+      title: Status-page webhook receiver
+      description: Signature verification plus event recording.
+      budget_usd: 75.0
+  tasks:
+    - id: task-1
+      title: Add POST /webhooks/status-page with signature verification
+      context: Mirror the existing CI webhook's HMAC verification helper.
+      acceptance_criteria:
+        - id: AC-1
+          description: a request with a missing or wrong signature returns 401
+          verification: test_status_webhook.py::test_wrong_signature_returns_401
+        - id: AC-2
+          description: a correctly-signed request returns 200
+          verification: test_status_webhook.py::test_correctly_signed_request_returns_200
+      complexity: low
+      budget_usd: 30.0
+      depends_on: []
+      estimate_days: 0.5
+      epic_id: epic-1
+    - id: task-2
+      title: Record the payload as a ticket_event
+      context: Append a message-kind event carrying the incident payload to the
+        referenced ticket.
+      acceptance_criteria:
+        - id: AC-1
+          description: a valid webhook appends exactly one message event to the ticket
+          verification: test_status_webhook.py::test_valid_webhook_appends_one_event
+      complexity: low
+      budget_usd: 45.0
+      depends_on: [task-1]
+      estimate_days: 0.5
+      epic_id: epic-1
+rubric_weights:
+  schema_valid: 0.25
+  dag_valid: 0.25
+  budget_within_idea: 0.25
+  verification_hints_present: 0.25

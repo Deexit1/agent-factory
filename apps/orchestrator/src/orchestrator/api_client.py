@@ -30,6 +30,37 @@ class ApiClient:
         response.raise_for_status()
         return response.json()  # type: ignore[no-any-return]
 
+    def create_ticket(
+        self,
+        *,
+        ticket_type: str,
+        title: str,
+        created_by: str,
+        parent_id: str | None = None,
+        budget_usd: float | None = None,
+        acceptance_criteria: list[dict[str, Any]] | None = None,
+        spec: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        response = self._client.post(
+            "/tickets",
+            json={
+                "type": ticket_type,
+                "title": title,
+                "created_by": created_by,
+                "parent_id": parent_id,
+                "budget_usd": budget_usd,
+                "acceptance_criteria": acceptance_criteria or [],
+                "spec": spec,
+            },
+        )
+        response.raise_for_status()
+        return response.json()  # type: ignore[no-any-return]
+
+    def descendants(self, ticket_id: str) -> list[dict[str, Any]]:
+        response = self._client.get(f"/tickets/{ticket_id}/descendants")
+        response.raise_for_status()
+        return response.json()["items"]  # type: ignore[no-any-return]
+
     def append_event(
         self, ticket_id: str, *, actor: str, kind: str, payload: dict[str, Any]
     ) -> dict[str, Any]:

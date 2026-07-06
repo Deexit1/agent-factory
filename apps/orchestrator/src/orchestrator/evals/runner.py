@@ -10,14 +10,20 @@ import sys
 from pathlib import Path
 
 from orchestrator.claude_runner import SubprocessClaudeCodeRunner
-from orchestrator.evals import dev_scorer, distiller_scorer, report
+from orchestrator.evals import dev_scorer, distiller_scorer, planner_scorer, report
 from orchestrator.evals.langfuse_client import LangfuseClient, parse_prompt_version
-from orchestrator.evals.loader import load_dev_cases, load_distiller_cases, load_thresholds
+from orchestrator.evals.loader import (
+    load_dev_cases,
+    load_distiller_cases,
+    load_planner_cases,
+    load_thresholds,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 DEV_PROMPT_PATH = _REPO_ROOT / "prompts" / "dev-agent.md"
 DISTILLER_PROMPT_PATH = _REPO_ROOT / "prompts" / "failure-distiller.md"
-_SCORABLE_SETS = ("dev", "distiller")
+PLANNER_PROMPT_PATH = _REPO_ROOT / "prompts" / "planner.md"
+_SCORABLE_SETS = ("dev", "distiller", "planner")
 
 
 def _changed_prompt_files(base_ref: str) -> set[str]:
@@ -75,7 +81,29 @@ def run_distiller_set(*, floor: float | None, langfuse: LangfuseClient) -> repor
     return report.SetReport(set_name="distiller", floor=floor, scores=scores)
 
 
-_RUNNERS = {"dev": run_dev_set, "distiller": run_distiller_set}
+def run_planner_set(*, floor: float | None, langfuse: LangfuseClient) -> report.SetReport:
+    cases = load_planner_cases()
+    version = parse_prompt_version(PLANNER_PROMPT_PATH.read_text(encoding="utf-8"))
+    scores = []
+    for case in cases:
+        result = planner_scorer.score_case(case)
+        langfuse.log_case_run(
+            set_name="planner",
+            case_id=result.case_id,
+            prompt_version=version,
+            score=result.score,
+            rationale=result.rationale,
+        )
+        detail = result.candidate.model_dump_json(indent=2) if result.candidate else ""
+        scores.append(
+            report.CaseScore(
+                result.case_id, result.title, result.score, result.rationale, detail=detail
+            )
+        )
+    return report.SetReport(set_name="planner", floor=floor, scores=scores)
+
+
+_RUNNERS = {"dev": run_dev_set, "distiller": run_distiller_set, "planner": run_planner_set}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -101,7 +129,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.only_changed:
         changed = _changed_prompt_files(args.base_ref)
-        relevant = {"dev": "prompts/dev-agent.md", "distiller": "prompts/failure-distiller.md"}
+        relevant = {
+            "dev": "prompts/dev-agent.md",
+            "distiller": "prompts/failure-distiller.md",
+            "planner": "prompts/planner.md",
+        }
         set_names = [name for name in set_names if relevant[name] in changed]
         if not set_names:
             print("No relevant prompt files changed against", args.base_ref, "- skipping.")

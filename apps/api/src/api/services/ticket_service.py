@@ -41,6 +41,20 @@ class TransitionRefused(Exception):
         super().__init__(reason)
 
 
+def _initial_state(session: Session, request: CreateTicketRequest, *, org_id: str) -> TicketState:
+    # Ideas enter directly at `approved` in Phase 2 (docs/03-state-machine.md) — a human
+    # already decided go + budget by creating it with budget_usd set (contracts.py's
+    # validator enforces that). Epics/tasks created by the Planner under an idea that's
+    # still under review inherit `planning`; everything else keeps the Phase-1 default.
+    if request.type is TicketType.IDEA:
+        return TicketState.APPROVED
+    if request.parent_id is not None:
+        parent = repo.get_ticket(session, request.parent_id, org_id=org_id)
+        if parent is not None and parent.state is TicketState.PLANNING:
+            return TicketState.PLANNING
+    return TicketState.READY
+
+
 def create_ticket(session: Session, request: CreateTicketRequest, *, org_id: str) -> Ticket:
     ticket = repo.create_ticket(
         session,
@@ -53,7 +67,7 @@ def create_ticket(session: Session, request: CreateTicketRequest, *, org_id: str
         assignee_agent=request.assignee_agent,
         budget_usd=request.budget_usd,
         created_by=request.created_by,
-        state=TicketState.READY,
+        state=_initial_state(session, request, org_id=org_id),
     )
     session.commit()
     return ticket
@@ -124,11 +138,94 @@ def _acceptance_criteria_count(ticket: Ticket) -> int:
     return len(ticket.acceptance_criteria)
 
 
+def _plan_has_cycle(task_tickets: list[Ticket]) -> bool:
+    """DFS-with-recursion-stack cycle check over the TaskSpec-id space each task
+    ticket's `spec` JSONB carries (`spec["id"]`/`spec["depends_on"]`) — deliberately
+    NOT the real Ticket.id space, since the Planner assigns its own scratch ids to
+    reference sibling tasks before any Ticket row exists."""
+    graph: dict[str, list[str]] = {}
+    for ticket in task_tickets:
+        spec = ticket.spec or {}
+        task_id = spec.get("id")
+        if not isinstance(task_id, str):
+            continue
+        depends_on = spec.get("depends_on")
+        graph[task_id] = (
+            [dep for dep in depends_on if isinstance(dep, str)]
+            if isinstance(depends_on, list)
+            else []
+        )
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def _visit(node: str) -> bool:
+        if node in visiting:
+            return True
+        if node in visited:
+            return False
+        visiting.add(node)
+        for dep in graph.get(node, []):
+            if _visit(dep):
+                return True
+        visiting.discard(node)
+        visited.add(node)
+        return False
+
+    return any(_visit(node) for node in graph)
+
+
+def _plan_fields(
+    session: Session, ticket: Ticket, *, org_id: str
+) -> tuple[int, bool, float, bool]:
+    """Only computed for an idea's `planning -> ready` attempt — everywhere else these
+    default to the harmless zero-values on `state_machine.TransitionRequest`."""
+    descendants = repo.get_descendants(session, ticket.id, org_id=org_id)
+    task_tickets = [d for d in descendants if d.type is TicketType.TASK]
+    task_count = len(task_tickets)
+    has_cycle = _plan_has_cycle(task_tickets)
+    child_budget_total = sum(float(t.budget_usd or 0) for t in task_tickets)
+    has_budget_approval = repo.has_approval(
+        session,
+        ticket.id,
+        org_id=org_id,
+        gate=ApprovalGate.BUDGET,
+        decision=ApprovalDecision.APPROVED,
+    )
+    return task_count, has_cycle, child_budget_total, has_budget_approval
+
+
+def _cascade_plan_to_ready(session: Session, ticket: Ticket, *, org_id: str) -> None:
+    """Once an idea's plan is approved, its descendant epic/task tickets (created
+    directly into `planning`, mirroring the parent, since nothing else reaches them
+    for review) become `ready` too — the Delivery Manager (T-104) picks up tasks from
+    there."""
+    for descendant in repo.get_descendants(session, ticket.id, org_id=org_id):
+        if descendant.state is not TicketState.PLANNING:
+            continue
+        descendant.state = TicketState.READY
+        event = repo.append_event(
+            session,
+            org_id=org_id,
+            ticket_id=descendant.id,
+            actor="system",
+            kind=EventKind.TRANSITION,
+            payload={"from": "planning", "to": "ready", "reason": "parent idea plan approved"},
+        )
+        broadcaster.publish(descendant.id, _event_ws_payload(event))
+
+
 def request_transition(
     session: Session, ticket_id: str, to_state: TicketState, actor: str, *, org_id: str
 ) -> Ticket:
     ticket = get_ticket(session, ticket_id, org_id=org_id)
     from_state = ticket.state
+
+    plan_task_count, plan_has_cycle, plan_child_budget_total, plan_has_budget_approval = (
+        (0, False, 0.0, False)
+        if not (from_state is TicketState.PLANNING and to_state is TicketState.READY)
+        else _plan_fields(session, ticket, org_id=org_id)
+    )
 
     transition_request = state_machine.TransitionRequest(
         from_state=from_state,
@@ -137,6 +234,10 @@ def request_transition(
         bounce_count=ticket.bounce_count,
         budget_usd=float(ticket.budget_usd) if ticket.budget_usd is not None else None,
         acceptance_criteria_count=_acceptance_criteria_count(ticket),
+        plan_task_count=plan_task_count,
+        plan_has_cycle=plan_has_cycle,
+        plan_child_budget_total=plan_child_budget_total,
+        plan_has_budget_approval=plan_has_budget_approval,
     )
 
     try:
@@ -195,6 +296,10 @@ def request_transition(
         kind=EventKind.TRANSITION,
         payload={"from": from_state.value, "to": to_state.value},
     )
+
+    if from_state is TicketState.PLANNING and to_state is TicketState.READY:
+        _cascade_plan_to_ready(session, ticket, org_id=org_id)
+
     session.commit()
     broadcaster.publish(ticket.id, _event_ws_payload(event))
     return ticket
@@ -252,6 +357,75 @@ def return_to_dev(
     )
 
 
+def answer_planning_questions(
+    session: Session, ticket_id: str, *, actor: str, answers: str, org_id: str
+) -> Ticket:
+    """Human-answer round trip for an under-specified idea (SPEC-102 AC2): the human's
+    answers are recorded as an event, then the idea returns escalated -> planning so
+    the Planner can re-run with the new context."""
+    record_event(
+        session,
+        ticket_id,
+        org_id=org_id,
+        actor=actor,
+        kind=EventKind.MESSAGE,
+        payload={"conclusion": "planning_questions_answered", "answers": answers},
+    )
+    return request_transition(session, ticket_id, TicketState.PLANNING, actor=actor, org_id=org_id)
+
+
+def get_descendants(session: Session, ticket_id: str, *, org_id: str) -> list[Ticket]:
+    get_ticket(session, ticket_id, org_id=org_id)  # 404s if the ticket doesn't exist
+    return repo.get_descendants(session, ticket_id, org_id=org_id)
+
+
+def update_task(
+    session: Session,
+    ticket_id: str,
+    *,
+    org_id: str,
+    actor: str,
+    title: str | None,
+    spec: dict[str, object] | None,
+    acceptance_criteria: list[dict[str, object]] | None,
+    budget_usd: float | None,
+) -> Ticket:
+    """Human inline-edits a Planner-produced TaskSpec (SPEC-102 AC6): versioned as an
+    `edit` event carrying the full before/after ticket payload."""
+    ticket = get_ticket(session, ticket_id, org_id=org_id)
+    before = {
+        "title": ticket.title,
+        "spec": ticket.spec,
+        "acceptance_criteria": ticket.acceptance_criteria,
+        "budget_usd": float(ticket.budget_usd) if ticket.budget_usd is not None else None,
+    }
+    repo.update_ticket_fields(
+        session,
+        ticket,
+        title=title,
+        spec=spec,
+        acceptance_criteria=acceptance_criteria,
+        budget_usd=budget_usd,
+    )
+    after = {
+        "title": ticket.title,
+        "spec": ticket.spec,
+        "acceptance_criteria": ticket.acceptance_criteria,
+        "budget_usd": float(ticket.budget_usd) if ticket.budget_usd is not None else None,
+    }
+    event = repo.append_event(
+        session,
+        org_id=org_id,
+        ticket_id=ticket.id,
+        actor=actor,
+        kind=EventKind.EDIT,
+        payload={"before": before, "after": after},
+    )
+    session.commit()
+    broadcaster.publish(ticket.id, _event_ws_payload(event))
+    return ticket
+
+
 __all__ = [
     "TicketNotFound",
     "TransitionRefused",
@@ -264,4 +438,7 @@ __all__ = [
     "request_transition",
     "record_approval",
     "return_to_dev",
+    "answer_planning_questions",
+    "get_descendants",
+    "update_task",
 ]

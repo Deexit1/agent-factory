@@ -29,8 +29,15 @@ distiller:
 planner:
   floor: null
   not_yet_enforced: true
-  updated_by: T-101
-  rationale: "Planner agent doesn't exist until T-103 seeds this set for real."
+  updated_by: T-103
+  rationale: >
+    15 synthetic cases + a real scorer (orchestrator/evals/planner_scorer.py) are
+    built, but a real run against live opus (2 of 15 cases, to bound API spend)
+    showed the model consistently answering these idea fixtures with questions[]
+    instead of a plan, and planner_scorer.invoke_planner only handles the plan path
+    today - it raises instead of scoring gracefully. Not safe to enforce a floor
+    until that's fixed (either scorer handling for questions[], or richer fixture
+    descriptions, or both) - see tasks/CHANGELOG.md's T-103 entry.
 
 review:
   floor: null

@@ -6,6 +6,7 @@ export interface BoardColumn {
 }
 
 export const BOARD_COLUMNS: BoardColumn[] = [
+  { state: "planning", label: "Planning" },
   { state: "ready", label: "Ready" },
   { state: "in_progress", label: "In Progress" },
   { state: "in_review", label: "In Review" },

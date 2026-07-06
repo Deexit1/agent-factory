@@ -1,0 +1,47 @@
+case_id: planner-009
+title: Tag tickets with free-form labels
+source: synthetic
+idea:
+  title: Add free-form tags to tickets for lightweight categorization
+  description: >
+    Let a human add a handful of short text tags to a ticket (e.g. "frontend",
+    "flaky"), shown as small chips in the board card and filterable later. Storage
+    only + display for this idea; filtering is a follow-up.
+  budget_usd: 65.0
+reference:
+  epics:
+    - id: epic-1
+      title: Ticket tags
+      description: Storage for tags plus display as chips on the board.
+      budget_usd: 60.0
+  tasks:
+    - id: task-1
+      title: Add a tags column and an endpoint to set them
+      context: A text[] column on tickets plus a small PATCH-style endpoint to
+        replace a ticket's tag list.
+      acceptance_criteria:
+        - id: AC-1
+          description: setting tags on a ticket persists and is returned by GET
+          verification: test_tags_api.py::test_set_tags_persists_and_is_returned
+      complexity: low
+      budget_usd: 30.0
+      depends_on: []
+      estimate_days: 0.5
+      epic_id: epic-1
+    - id: task-2
+      title: Show tags as chips on the board card
+      context: Render each tag as a small chip under the ticket title.
+      acceptance_criteria:
+        - id: AC-1
+          description: a ticket with tags shows one chip per tag on its card
+          verification: board.spec.ts::ticket_with_tags_shows_one_chip_per_tag
+      complexity: low
+      budget_usd: 35.0
+      depends_on: [task-1]
+      estimate_days: 0.5
+      epic_id: epic-1
+rubric_weights:
+  schema_valid: 0.25
+  dag_valid: 0.25
+  budget_within_idea: 0.25
+  verification_hints_present: 0.25

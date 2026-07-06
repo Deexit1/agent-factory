@@ -3,10 +3,12 @@ from sqlalchemy.orm import Session
 
 from api.auth import ActorContext, get_actor_context
 from api.contracts import (
+    AnswerPlanningQuestionsRequest,
     ApprovalOut,
     ApproveRequest,
     CreateEventRequest,
     CreateTicketRequest,
+    DescendantsOut,
     EventOut,
     PaginatedEvents,
     PaginatedTickets,
@@ -14,6 +16,7 @@ from api.contracts import (
     TicketOut,
     TicketWithEventsOut,
     TransitionRequest,
+    UpdateTaskRequest,
 )
 from api.db.models import TicketState, TicketType
 from api.db.session import get_db
@@ -145,6 +148,79 @@ def return_to_dev(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ticket_service.TransitionRefused as exc:
         raise HTTPException(status_code=409, detail=exc.reason) from exc
+
+    return TicketOut.model_validate(ticket)
+
+
+@router.get("/{ticket_id}/descendants", response_model=DescendantsOut)
+def get_descendants(
+    ticket_id: str,
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
+) -> DescendantsOut:
+    try:
+        items = ticket_service.get_descendants(db, ticket_id, org_id=actor_context.org_id)
+    except ticket_service.TicketNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return DescendantsOut(items=[TicketOut.model_validate(t) for t in items])
+
+
+@router.post("/{ticket_id}/answer-planning-questions", response_model=TicketOut)
+def answer_planning_questions(
+    ticket_id: str,
+    request: AnswerPlanningQuestionsRequest,
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
+) -> TicketOut:
+    if actor_context.role not in APPROVER_ROLES:
+        raise HTTPException(
+            status_code=403, detail="only an approver or admin may answer planning questions"
+        )
+
+    try:
+        ticket = ticket_service.answer_planning_questions(
+            db,
+            ticket_id,
+            actor=actor_context.actor,
+            answers=request.answers,
+            org_id=actor_context.org_id,
+        )
+    except ticket_service.TicketNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ticket_service.TransitionRefused as exc:
+        raise HTTPException(status_code=409, detail=exc.reason) from exc
+
+    return TicketOut.model_validate(ticket)
+
+
+@router.patch("/{ticket_id}", response_model=TicketOut)
+def update_task(
+    ticket_id: str,
+    request: UpdateTaskRequest,
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
+) -> TicketOut:
+    if actor_context.role not in APPROVER_ROLES:
+        raise HTTPException(status_code=403, detail="only an approver or admin may edit a task")
+
+    try:
+        ticket = ticket_service.update_task(
+            db,
+            ticket_id,
+            org_id=actor_context.org_id,
+            actor=actor_context.actor,
+            title=request.title,
+            spec=request.spec,
+            acceptance_criteria=(
+                [ac.model_dump() for ac in request.acceptance_criteria]
+                if request.acceptance_criteria is not None
+                else None
+            ),
+            budget_usd=request.budget_usd,
+        )
+    except ticket_service.TicketNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return TicketOut.model_validate(ticket)
 

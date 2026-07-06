@@ -5,13 +5,24 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from schemas.models import AcceptanceCriterion, BusinessCase, FailureReport, TaskSpec
+from schemas.models import (
+    AcceptanceCriterion,
+    BusinessCase,
+    Epic,
+    FailureReport,
+    PlannerPlan,
+    PlannerQuestions,
+    TaskSpec,
+)
 
 MODELS: dict[str, type[BaseModel]] = {
     "task-spec": TaskSpec,
     "acceptance-criterion": AcceptanceCriterion,
     "failure-report": FailureReport,
     "business-case": BusinessCase,
+    "epic": Epic,
+    "planner-plan": PlannerPlan,
+    "planner-questions": PlannerQuestions,
 }
 
 # packages/schemas/src/schemas/cli.py -> repo root is 4 parents up.

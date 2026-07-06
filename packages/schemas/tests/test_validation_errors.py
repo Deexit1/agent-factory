@@ -5,7 +5,9 @@ from schemas.models import (
     AcceptanceCriterion,
     BusinessCase,
     Complexity,
+    Epic,
     FailureReport,
+    PlannerQuestions,
     TaskSpec,
 )
 
@@ -63,6 +65,40 @@ def test_failure_report_rejects_attempt_no_above_max() -> None:
 
     errors = exc_info.value.errors()
     assert any(error["loc"] == ("attempt_no",) for error in errors)
+
+
+def test_task_spec_rejects_non_positive_estimate_days(
+    acceptance_criterion: AcceptanceCriterion,
+) -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        TaskSpec(
+            id="T-001",
+            title="Bad estimate",
+            context="ctx",
+            acceptance_criteria=[acceptance_criterion],
+            complexity=Complexity.LOW,
+            budget_usd=10,
+            estimate_days=0,
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["loc"] == ("estimate_days",) for error in errors)
+
+
+def test_epic_rejects_non_positive_budget() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Epic(id="E-001", title="t", description="d", budget_usd=0)
+
+    errors = exc_info.value.errors()
+    assert any(error["loc"] == ("budget_usd",) for error in errors)
+
+
+def test_planner_questions_rejects_empty_list() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        PlannerQuestions(questions=[])
+
+    errors = exc_info.value.errors()
+    assert any(error["loc"] == ("questions",) for error in errors)
 
 
 def test_business_case_rejects_invalid_source_url() -> None:

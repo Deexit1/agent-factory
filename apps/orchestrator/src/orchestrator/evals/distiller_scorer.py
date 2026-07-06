@@ -41,7 +41,7 @@ def invoke_distiller(
     attempt_no: int,
     system_prompt: str,
 ) -> FailureReport:
-    text = route(
+    result = route(
         "eval-distiller",
         system=system_prompt,
         messages=[
@@ -55,7 +55,7 @@ def invoke_distiller(
         ],
         max_tokens=_MAX_TOKENS,
     )
-    parsed = extract_json_object(text)
+    parsed = extract_json_object(result.text)
     parsed.setdefault("ticket_id", ticket_id)
     parsed.setdefault("attempt_no", attempt_no)
     return FailureReport(**parsed)

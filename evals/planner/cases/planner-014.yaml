@@ -1,0 +1,51 @@
+case_id: planner-014
+title: A new "reviewer" RBAC role
+source: synthetic
+idea:
+  title: Add a reviewer role that can comment but not approve
+  description: >
+    Introduce a `reviewer` role, distinct from viewer/approver/admin, that can see
+    everything a viewer can plus post comments (see the comments feature), but
+    still cannot approve gates or return tickets to dev.
+  budget_usd: 85.0
+reference:
+  epics:
+    - id: epic-1
+      title: Reviewer RBAC role
+      description: Extend the role enum and enforce its permissions.
+      budget_usd: 80.0
+  tasks:
+    - id: task-1
+      title: Add "reviewer" to the UserRole enum
+      context: Extend the enum and its native Postgres type via migration, matching
+        the existing enum-extension pattern.
+      acceptance_criteria:
+        - id: AC-1
+          description: a user can be created with role=reviewer
+          verification: test_user_service.py::test_create_user_with_reviewer_role
+      complexity: low
+      budget_usd: 25.0
+      depends_on: []
+      estimate_days: 0.5
+      epic_id: epic-1
+    - id: task-2
+      title: Allow reviewer to comment but block approve/return-to-dev
+      context: Extend the comment endpoint's role check to include reviewer; leave
+        approve/return-to-dev restricted to approver/admin.
+      acceptance_criteria:
+        - id: AC-1
+          description: a reviewer can post a comment
+          verification: test_comments_api.py::test_reviewer_can_post_a_comment
+        - id: AC-2
+          description: a reviewer attempting to approve a gate gets 403
+          verification: test_tickets_api.py::test_reviewer_cannot_approve_returns_403
+      complexity: low
+      budget_usd: 55.0
+      depends_on: [task-1]
+      estimate_days: 0.75
+      epic_id: epic-1
+rubric_weights:
+  schema_valid: 0.25
+  dag_valid: 0.25
+  budget_within_idea: 0.25
+  verification_hints_present: 0.25

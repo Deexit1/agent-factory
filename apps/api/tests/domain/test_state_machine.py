@@ -12,6 +12,10 @@ def _request(
     bounce_count: int = 0,
     budget_usd: float | None = 100.0,
     acceptance_criteria_count: int = 1,
+    plan_task_count: int = 0,
+    plan_has_cycle: bool = False,
+    plan_child_budget_total: float = 0.0,
+    plan_has_budget_approval: bool = False,
 ) -> TransitionRequest:
     return TransitionRequest(
         from_state=from_state,
@@ -20,6 +24,10 @@ def _request(
         bounce_count=bounce_count,
         budget_usd=budget_usd,
         acceptance_criteria_count=acceptance_criteria_count,
+        plan_task_count=plan_task_count,
+        plan_has_cycle=plan_has_cycle,
+        plan_child_budget_total=plan_child_budget_total,
+        plan_has_budget_approval=plan_has_budget_approval,
     )
 
 
@@ -102,6 +110,87 @@ def test_planning_to_ready_requires_acceptance_criteria() -> None:
     validate_transition(
         _request(TicketState.PLANNING, TicketState.READY, acceptance_criteria_count=2)
     )
+
+
+def test_approved_to_planning_requires_positive_budget() -> None:
+    validate_transition(_request(TicketState.APPROVED, TicketState.PLANNING, budget_usd=50.0))
+
+    with pytest.raises(TransitionRejected):
+        validate_transition(_request(TicketState.APPROVED, TicketState.PLANNING, budget_usd=0))
+
+
+def test_planning_to_ready_with_a_real_plan_requires_dag_budget_and_approval() -> None:
+    # A cyclic dependency graph blocks ready even if everything else is fine (AC3).
+    with pytest.raises(TransitionRejected, match="cycle"):
+        validate_transition(
+            _request(
+                TicketState.PLANNING,
+                TicketState.READY,
+                plan_task_count=2,
+                plan_has_cycle=True,
+                plan_child_budget_total=50.0,
+                plan_has_budget_approval=True,
+            )
+        )
+
+    # Task budgets exceeding the idea's budget block ready (AC4).
+    with pytest.raises(TransitionRejected, match="exceeds"):
+        validate_transition(
+            _request(
+                TicketState.PLANNING,
+                TicketState.READY,
+                budget_usd=100.0,
+                plan_task_count=2,
+                plan_child_budget_total=150.0,
+                plan_has_budget_approval=True,
+            )
+        )
+
+    # No recorded budget-gate approval blocks ready even with a valid, in-budget plan.
+    with pytest.raises(TransitionRejected, match="approved budget gate"):
+        validate_transition(
+            _request(
+                TicketState.PLANNING,
+                TicketState.READY,
+                budget_usd=100.0,
+                plan_task_count=2,
+                plan_child_budget_total=50.0,
+                plan_has_budget_approval=False,
+            )
+        )
+
+    # All gates satisfied -> allowed.
+    validate_transition(
+        _request(
+            TicketState.PLANNING,
+            TicketState.READY,
+            budget_usd=100.0,
+            plan_task_count=2,
+            plan_child_budget_total=50.0,
+            plan_has_budget_approval=True,
+        )
+    )
+
+
+def test_planning_to_escalated_allowed_for_planner_or_human() -> None:
+    validate_transition(
+        _request(TicketState.PLANNING, TicketState.ESCALATED, actor="agent:planner-1")
+    )
+    validate_transition(_request(TicketState.PLANNING, TicketState.ESCALATED, actor="human:alice"))
+
+    with pytest.raises(TransitionRejected):
+        validate_transition(
+            _request(TicketState.PLANNING, TicketState.ESCALATED, actor="agent:dev-1")
+        )
+
+
+def test_escalated_to_planning_requires_human_actor() -> None:
+    validate_transition(_request(TicketState.ESCALATED, TicketState.PLANNING, actor="human:alice"))
+
+    with pytest.raises(TransitionRejected):
+        validate_transition(
+            _request(TicketState.ESCALATED, TicketState.PLANNING, actor="agent:planner-1")
+        )
 
 
 def test_blocked_and_cancelled_require_human_actor_from_any_state() -> None:
