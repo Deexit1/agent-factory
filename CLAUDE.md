@@ -4,6 +4,14 @@ You are helping build the **Autonomous Agent Factory**: a Jira-style platform wh
 agents execute tickets end-to-end (plan → build → test → ship) under human supervision.
 Phase 1 (core loop) is live. Phase 2 adds the **management layer**.
 
+**Product end state (docs/00-vision.md, docs/09-saas-model.md):** a multi-tenant SaaS
+where users bring their own idea and their own LLM API keys (BYOK), connect their GitHub,
+and the factory delivers the project. Two SaaS-readiness rules apply to ALL work from now:
+1. Every domain table carries `org_id`; every repository query is tenant-scoped.
+2. Every LLM call goes through `packages/llm_router` — never import a provider SDK
+   anywhere else. Provider keys are secrets: never in DB, logs, events, traces, or
+   anything visible inside a sandbox.
+
 This file is your permanent context. Read it before every task.
 
 ## What changed in Phase 2
@@ -21,8 +29,9 @@ This file is your permanent context. Read it before every task.
 
 ## How we work in this repo (unchanged core)
 
-1. `tasks/BACKLOG.md` is the board. Phase 1 (T-001…T-009) is marked done at the top;
-   active Phase-2 work is T-101…T-110 below it. Keep both sections — history stays.
+1. `tasks/BACKLOG.md` is the board. Phase 1 (T-001…T-009) is done at the top; active
+   Phase-2 work is T-101…T-110; the Phase-2.5 SaaS track (T-201…T-207) is queued below
+   it. Keep all sections — history stays.
 2. You are the dev agent for the task the human points you at — never invent scope.
 3. Done = acceptance criteria pass as automated tests AND `make check` green
    AND `make eval` green if you touched anything under `prompts/` or model routing.

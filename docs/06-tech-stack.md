@@ -16,8 +16,13 @@
 | Tests | pytest, Vitest, Testcontainers, Playwright; smoke suite tagged `@smoke` |
 | Static gates | ruff, mypy, eslint, tsc, Semgrep, gitleaks, pip-audit/npm audit |
 | Evals | Golden-set harness (`make eval`) — promptfoo-style YAML cases + custom scorer, runs in CI on `prompts/**` or routing diffs |
-| Observability | Langfuse (Cloud, Phase-2 pragmatic choice — see T-101 changelog; self-hosting is a separate future migration) for agent traces + cost; OpenTelemetry → Prometheus/Grafana/Loki |
+| Observability | Langfuse (self-hosted) for agent traces + cost; OpenTelemetry → Prometheus/Grafana/Loki |
 | Merge safety | GitHub merge queue (or bors-style bot) — required for all `agent/*` PRs |
+| LLM routing | `packages/llm_router` (thin custom router, LiteLLM-style): role+complexity+org → provider/model; sole owner of provider SDKs |
+| Tenant secrets (BYOK) | Vault KV `tenants/<org>/llm/<provider>`; keys never in DB/logs/traces/sandboxes |
+| Repo delivery | GitHub App (contents + PRs on selected repos), per-ticket installation tokens |
+| Billing | Stripe (subscriptions + metered usage records) |
+| Multi-tenant sandbox | Firecracker/Kata microVMs — REQUIRED at multi-tenant GA (gVisor allowed for single-tenant/dev and closed beta only) |
 
 ## Phase-2 activations (pre-approved escalation paths)
 - **Runner pool → Kubernetes** (EKS/GKE + autoscaling runners) WHEN sustained parallel
