@@ -1221,3 +1221,61 @@ Format:
   (BACKLOG points at docs/02-data-model.md directly); doc updates landed in
   this PR per CLAUDE.md's "schema changes need a doc update in the same PR"
   rule rather than a separate spec.
+
+## T-109 · End-to-end management flow test — 2026-07-08
+- What changed: every agent (planner, DM, dev, review, merge-queue) already
+  had its own real integration test against a live `apps/api`, but nothing
+  chained more than one together — `test_delivery_manager_agent.py`'s own
+  `_finish_task` helper explicitly faked the rest of the pipeline via direct
+  API transitions instead of calling `run_review_agent`/`run_merge_queue`.
+  New `apps/orchestrator/tests/integration/test_e2e_management_flow.py`
+  drives the real chain once: creates an idea, transitions it to `planning`,
+  runs the real `run_planner_agent` (mocked `route()`, same pattern as
+  `test_planner_agent.py`) against a canned two-task plan (one
+  `required_skills=["frontend"]`, one `["backend"]`); approves the idea's
+  budget for real (`POST /tickets/{id}/approve` gate=budget) and transitions
+  it to `ready`, cascading the epic/tasks; runs the real
+  `run_delivery_manager_agent` (mocked `route()`) which assigns each task to
+  its one skill-eligible profile; then runs **two real `run_dev_agent` calls
+  genuinely concurrently** via `ThreadPoolExecutor` (new test infra — every
+  existing test called agents strictly sequentially) against two clones of
+  one shared bare-origin fixture repo seeded with two files
+  (`frontend.py`/`backend.py`, so the branches never conflict), each dev
+  agent replaying its own canned `FixtureClaudeCodeRunner` transcript (new
+  fixtures: `apps/orchestrator/fixtures/e2e_{frontend,backend}_task/`); runs
+  two real `run_review_agent` calls (mocked `route()`, approve verdict,
+  per-task diff swapped onto one shared `FakeGitHubClient`); reports CI
+  success for both (enqueuing both for merge); then one real
+  `run_merge_queue` call (unmodified, no LLM involved) merges both — disjoint
+  files, no conflict — to `done`. New `orchestrator.config.
+  scenario_cost_cap_usd()` (env-overridable `SCENARIO_COST_CAP_USD`, default
+  $1.00) plus a new `ApiClient.cost_rollup()` wrapper (mirrors the existing
+  `cost_summary` method) checks the whole idea tree's real summed cost via
+  T-108's `GET /tickets/{id}/cost-rollup` stays under the cap. Every LLM call
+  in the whole scenario is mocked or fixture-replayed — real Anthropic spend
+  is $0 — so a nightly run can never fail on provider billing exhaustion
+  instead of a real regression, a real recurring problem on this project's
+  eval runs (T-105/T-106). New `.github/workflows/nightly-e2e.yml`
+  (`schedule: cron "0 3 * * *"` + `workflow_dispatch` for on-demand
+  verification) runs just this one test file — no nightly/cron trigger
+  existed anywhere in the repo before this.
+- Files touched: `apps/orchestrator/src/orchestrator/{config.py
+  (`scenario_cost_cap_usd`), api_client.py (`cost_rollup`)}`,
+  `apps/orchestrator/fixtures/e2e_{frontend,backend}_task/{transcript.jsonl,
+  workspace_diff/}` (new), `apps/orchestrator/tests/integration/
+  test_e2e_management_flow.py` (new), `.github/workflows/nightly-e2e.yml`
+  (new), `docs/04-agent-specs.md` (pointer note, no schema change).
+- Test evidence: `apps/orchestrator` 65/65, up from 64 (1 new scenario test,
+  full suite re-run to confirm no ordering/residue interference with the
+  existing DM/merge-queue tests that share one session-wide Postgres)
+  against a real Postgres + live `apps/api` + real local git; ruff/mypy
+  clean. The new nightly workflow itself is `workflow_dispatch`-triggerable
+  for on-demand verification in CI, since a live 03:00 UTC cron firing can't
+  be observed from this dev session. `apps/api`: unaffected by this task
+  (no api-side code changes beyond what T-108 already shipped and merged);
+  not re-verified here.
+- Notes / follow-ups: `scripts/run_pilot.py` (T-009, real-cost, real-GitHub,
+  single-agent) was deliberately left alone — this scenario needed the
+  opposite properties (cheap, deterministic, fully-chained) and reuses none
+  of its machinery beyond the general "drive a ticket through the API"
+  pattern every other agent test already follows.

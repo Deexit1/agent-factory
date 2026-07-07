@@ -401,14 +401,25 @@ Per-idea rollups, per-profile and per-prompt-version spend; eval costs tagged se
   (evals never call the ticket API); regression test in
   `apps/orchestrator/tests/evals/test_cost_isolation.py`
 
-## T-109 · End-to-end management flow test — `ready`
+## T-109 · End-to-end management flow test — `done`
 **Spec:** SPEC-102..106  **Est:** M
 Idea → planner → budget approval → DM → 2 parallel profile agents → review → QA →
 merge queue → done, nightly in CI.
 **Acceptance criteria**
-- [ ] Scenario passes nightly against a fixture repo
-- [ ] Full event history; zero manual DB touches
-- [ ] Total scenario cost recorded and under the configured cap
+- [x] Scenario passes nightly against a fixture repo —
+  `apps/orchestrator/tests/integration/test_e2e_management_flow.py`, real Postgres +
+  live `apps/api` + real local git; zero real Anthropic spend (every LLM call is
+  mocked/fixture-replayed); scheduled via new `.github/workflows/nightly-e2e.yml`
+  (`schedule: cron` + `workflow_dispatch` for on-demand verification, since a live
+  03:00 UTC firing can't be observed from this session)
+- [x] Full event history; zero manual DB touches — every step goes through
+  `ApiClient`/a real agent function (no DB session/ORM import anywhere in the test
+  file); asserted the full expected event-kind set
+  (`transition`/`assignment`/`review`/`test_result`/`cost`) is present for real
+- [x] Total scenario cost recorded and under the configured cap — new
+  `orchestrator.config.scenario_cost_cap_usd()` (env-overridable,
+  `SCENARIO_COST_CAP_USD`, default $1.00) checked against T-108's `cost-rollup`
+  endpoint summed over the whole idea tree (planner + DM + 2×dev + 2×review)
 
 ## T-110 · Phase-2 pilot & report — `ready`
 **Spec:** docs/00-vision.md §metrics  **Est:** M

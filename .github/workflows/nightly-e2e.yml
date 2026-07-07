@@ -1,0 +1,33 @@
+name: Nightly E2E Management Flow
+
+# T-109 (SPEC-102..106): runs the full idea -> planner -> budget approval -> Delivery
+# Manager -> 2 parallel profile agents -> review -> QA -> merge queue -> done chain
+# once, against a real Postgres + live apps/api + real local git fixture repo. No real
+# Anthropic spend: planner/Delivery Manager/review mock route(), both dev-agent legs
+# replay a canned FixtureClaudeCodeRunner transcript (see apps/orchestrator/tests/
+# integration/test_e2e_management_flow.py's own docstring for the full breakdown) —
+# a scheduled job that could fail on provider billing instead of a real regression
+# would be worse than not having it at all.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  e2e-management-flow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Build apps/api and apps/orchestrator venvs
+        run: make apps/api/.venv/.stamp apps/orchestrator/.venv/.stamp
+
+      - name: Run the T-109 end-to-end scenario
+        run: |
+          cd apps/orchestrator
+          .venv/bin/pytest tests/integration/test_e2e_management_flow.py -v

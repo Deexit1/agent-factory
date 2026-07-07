@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 
 from schemas import Complexity
@@ -15,6 +16,18 @@ _MODEL_BY_COMPLEXITY = {
 }
 
 DEFAULT_TIMEOUT_S = 45 * 60  # SPEC-004: wall-clock timeout, default 45 min
+
+# T-109: a scenario-level cap (planner + DM + every dev/review agent run combined),
+# distinct from a single ticket's own budget_usd. Fixture-driven scenarios (no real
+# LLM calls) cost fractions of a cent, so this default is generous headroom, not a
+# tight bound - it exists to catch a scenario that unexpectedly starts spending for
+# real, not to tune day-to-day cost.
+DEFAULT_SCENARIO_COST_CAP_USD = 1.0
+
+
+def scenario_cost_cap_usd() -> float:
+    raw = os.environ.get("SCENARIO_COST_CAP_USD")
+    return float(raw) if raw else DEFAULT_SCENARIO_COST_CAP_USD
 
 
 @dataclass(frozen=True)
