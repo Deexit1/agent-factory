@@ -1,0 +1,45 @@
+case_id: review-001-clean-health-endpoint
+title: Clean PR adding a /health endpoint with a matching test
+
+task_spec:
+  id: EVAL-REVIEW-001
+  title: Add /health endpoint
+  context: >
+    The app has no health check. Add a /health route returning 200.
+  acceptance_criteria:
+    - id: AC-1
+      description: GET /health returns 200
+      verification: test_app.py::test_health_returns_200
+  complexity: low
+  budget_usd: 20.0
+
+diff: |
+  diff --git a/app.py b/app.py
+  index 1111111..2222222 100644
+  --- a/app.py
+  +++ b/app.py
+  @@ -1,3 +1,7 @@
+   def create_app():
+       routes = {}
+  +
+  +    @routes.get("/health")
+  +    def health():
+  +        return {"status": "ok"}, 200
+       return routes
+  diff --git a/test_app.py b/test_app.py
+  index 3333333..4444444 100644
+  --- a/test_app.py
+  +++ b/test_app.py
+  @@ -0,0 +1,4 @@
+  +def test_health_returns_200():
+  +    app = create_app()
+  +    response = app["/health"]()
+  +    assert response[1] == 200
+
+expected:
+  verdict: approve
+  scope_violations: []
+
+rubric_weights:
+  verdict_match: 0.7
+  scope_violation_precision: 0.3

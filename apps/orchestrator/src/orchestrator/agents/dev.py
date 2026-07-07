@@ -104,10 +104,11 @@ def run_dev_agent(
         body=_pr_body(task_spec),
     )
 
-    # T-102 inserted in_review between dev and QA; until the Review agent (T-106) exists
-    # to actually hold tickets there, the dev agent advances straight through it.
+    # T-106: the dev agent's job ends at in_review — the Review agent
+    # (agents/review.py) now actually holds the ticket there and decides
+    # in_qa (approve) vs bounced (block); apps/api enforces that only a review
+    # agent or human actor may move a ticket out of in_review.
     api.transition(ticket_id, to_state="in_review")
-    api.transition(ticket_id, to_state="in_qa")
     return DevAgentResult(
         run_id=run_id, status="completed", pr_url=pr.url, cost_usd=cumulative_cost
     )

@@ -1,0 +1,43 @@
+case_id: review-003-clean-bugfix
+title: Clean off-by-one bug fix with a regression test
+
+task_spec:
+  id: EVAL-REVIEW-003
+  title: Fix off-by-one in pagination
+  context: >
+    GET /tickets?limit=10&offset=10 returns 11 rows instead of 10 due to an
+    off-by-one in the SQL LIMIT/OFFSET calculation.
+  acceptance_criteria:
+    - id: AC-1
+      description: GET /tickets with limit=10 returns exactly 10 rows
+      verification: test_pagination.py::test_limit_returns_exact_row_count
+  complexity: low
+  budget_usd: 15.0
+
+diff: |
+  diff --git a/pagination.py b/pagination.py
+  index 1111111..2222222 100644
+  --- a/pagination.py
+  +++ b/pagination.py
+  @@ -3,4 +3,4 @@ def paginate(query, limit, offset):
+       return query.offset(offset).limit(limit + 1)
+  -    return query.offset(offset).limit(limit + 1)
+  +    return query.offset(offset).limit(limit)
+  diff --git a/test_pagination.py b/test_pagination.py
+  index 3333333..4444444 100644
+  --- a/test_pagination.py
+  +++ b/test_pagination.py
+  @@ -0,0 +1,5 @@
+  +def test_limit_returns_exact_row_count():
+  +    rows = list(range(20))
+  +    query = FakeQuery(rows)
+  +    page = paginate(query, limit=10, offset=10)
+  +    assert len(page) == 10
+
+expected:
+  verdict: approve
+  scope_violations: []
+
+rubric_weights:
+  verdict_match: 0.7
+  scope_violation_precision: 0.3

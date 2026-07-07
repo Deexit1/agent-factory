@@ -278,6 +278,27 @@ def test_blocked_and_cancelled_require_human_actor_from_any_state() -> None:
         )
 
 
+def test_in_review_to_in_qa_requires_review_agent_or_human_actor() -> None:
+    validate_transition(
+        _request(TicketState.IN_REVIEW, TicketState.IN_QA, actor="agent:review-1")
+    )
+    validate_transition(_request(TicketState.IN_REVIEW, TicketState.IN_QA, actor="human:alice"))
+
+    with pytest.raises(TransitionRejected):
+        validate_transition(
+            _request(TicketState.IN_REVIEW, TicketState.IN_QA, actor="agent:dev-1")
+        )
+
+
+def test_bounced_to_in_qa_is_a_human_only_override() -> None:
+    validate_transition(_request(TicketState.BOUNCED, TicketState.IN_QA, actor="human:alice"))
+
+    with pytest.raises(TransitionRejected):
+        validate_transition(
+            _request(TicketState.BOUNCED, TicketState.IN_QA, actor="agent:review-1")
+        )
+
+
 def test_human_actor_detection() -> None:
     from api.domain.state_machine import is_human_actor
 

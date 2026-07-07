@@ -25,6 +25,7 @@ in_progress → in_review → in_qa → done` plus `bounced`, `escalated`, `bloc
 | in_qa | done | ALL CI suites pass | merge-queue slot acquired; human deploy gate still applies |
 | in_qa | bounced | any CI suite fails | bounce_count < 3; FailureReport attached |
 | bounced | in_progress | orchestrator | same agent profile, FailureReport injected |
+| bounced | in_qa | HUMAN | overrides a review-block bounce straight into QA; records an `Approval(gate=review)` row |
 | in_review / in_qa | escalated | block/fail | bounce_count == 3 |
 | in_progress | escalated | system | budget exhausted OR wall-clock timeout |
 | escalated | ready | HUMAN | requeues the task for Delivery Manager (re)assignment; distinct from `bounced → in_progress`'s same-agent retry |

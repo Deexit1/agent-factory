@@ -1,0 +1,74 @@
+case_id: review-002-clean-widget-crud
+title: Clean PR adding widget create/read endpoints with matching tests
+
+task_spec:
+  id: EVAL-REVIEW-002
+  title: Add widgets table + create/read endpoints
+  context: >
+    Add a widgets table (name, quantity, price) and POST/GET endpoints.
+  acceptance_criteria:
+    - id: AC-1
+      description: POST /widgets creates a widget and returns 201
+      verification: test_widgets_api.py::test_create_widget_returns_201
+    - id: AC-2
+      description: GET /widgets/{id} returns the created widget
+      verification: test_widgets_api.py::test_get_widget_returns_the_created_widget
+  complexity: low
+  budget_usd: 50.0
+
+diff: |
+  diff --git a/widgets.py b/widgets.py
+  new file mode 100644
+  index 0000000..1111111
+  --- /dev/null
+  +++ b/widgets.py
+  @@ -0,0 +1,20 @@
+  +from dataclasses import dataclass
+  +
+  +_WIDGETS: dict[int, "Widget"] = {}
+  +_NEXT_ID = 1
+  +
+  +
+  +@dataclass
+  +class Widget:
+  +    id: int
+  +    name: str
+  +    quantity: int
+  +    price: float
+  +
+  +
+  +def create_widget(name: str, quantity: int, price: float) -> Widget:
+  +    global _NEXT_ID
+  +    widget = Widget(id=_NEXT_ID, name=name, quantity=quantity, price=price)
+  +    _WIDGETS[widget.id] = widget
+  +    _NEXT_ID += 1
+  +    return widget
+  +
+  +
+  +def get_widget(widget_id: int) -> Widget | None:
+  +    return _WIDGETS.get(widget_id)
+  diff --git a/test_widgets_api.py b/test_widgets_api.py
+  new file mode 100644
+  index 0000000..2222222
+  --- /dev/null
+  +++ b/test_widgets_api.py
+  @@ -0,0 +1,10 @@
+  +from widgets import create_widget, get_widget
+  +
+  +
+  +def test_create_widget_returns_201():
+  +    widget = create_widget("bolt", 10, 0.5)
+  +    assert widget.id is not None
+  +
+  +
+  +def test_get_widget_returns_the_created_widget():
+  +    widget = create_widget("nut", 5, 0.25)
+  +    assert get_widget(widget.id) == widget
+
+expected:
+  verdict: approve
+  scope_violations: []
+
+rubric_weights:
+  verdict_match: 0.7
+  scope_violation_precision: 0.3

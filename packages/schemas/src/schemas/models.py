@@ -88,6 +88,24 @@ class FailureReport(BaseModel):
     attempt_no: int = Field(ge=1, le=3, description="Bounce attempt number; max 3 then escalated")
 
 
+class ReviewComment(BaseModel):
+    """A single Review agent comment on a PR diff."""
+
+    schema_version: Literal["1.0"] = SCHEMA_VERSION
+    file: str
+    line: int | None = None
+    comment: str
+
+
+class ReviewResult(BaseModel):
+    """Review agent -> orchestrator hand-off contract (SPEC-105)."""
+
+    schema_version: Literal["1.0"] = SCHEMA_VERSION
+    verdict: Literal["approve", "block"]
+    comments: list[ReviewComment] = Field(default_factory=list)
+    scope_violations: list[str] = Field(default_factory=list)
+
+
 class MarketEvidence(BaseModel):
     """A single cited claim backing a BusinessCase."""
 

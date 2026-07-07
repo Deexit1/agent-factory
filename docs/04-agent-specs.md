@@ -12,7 +12,7 @@ must pass the golden-set eval in CI before merge.
 | Dev agent | Claude Code headless (assigned profile's model; opus if `complexity=high`) | git, terminal, editor, test runner (sandbox only) | `TaskSpec` (+ `FailureReport` on bounce) → branch + PR + checklist |
 | Test author | sonnet-class | repo, coverage report | `AcceptanceCriteria` → new/updated tests in the same PR |
 | Failure distiller | haiku-class | CI logs, artifacts | raw logs → `FailureReport` (failing test, expected vs actual, suspect files) |
-| Review agent | sonnet-class | PR diff, style guide, Semgrep output | PR → comments + block/approve recommendation (human may override) |
+| Review agent | sonnet-class | PR diff, style guide, Semgrep output (T-106: an injectable string param today — CI's real Semgrep output isn't wired back to the agent yet) | PR → `ReviewResult` (comments + scope_violations + approve/block verdict; human may override) |
 
 ## Shared schema contracts (`packages/schemas`)
 - `TaskSpec`: id, title, context, constraints, acceptance_criteria[], complexity,
@@ -25,6 +25,7 @@ must pass the golden-set eval in CI before merge.
 - `PlannerPlan` (T-103): epics[], tasks[] — the Planner's normal output
 - `PlannerQuestions` (T-103): questions[] — Planner output when the idea is under-specified
 - `FailureReport`: ticket_id, failing_suite, failing_tests[], expected_vs_actual, suspect_files[], attempt_no
+- `ReviewResult` (T-106): verdict (approve|block), comments[] (`ReviewComment`: file, line, comment), scope_violations[]
 - `BusinessCase`: idea_id, opportunity, market_evidence[cited], cost_estimate, risks[], recommendation
 
 Schemas are versioned; hand-offs validate or the orchestrator rejects the transition.

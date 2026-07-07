@@ -46,6 +46,7 @@ class EventKind(StrEnum):
     COST = "cost"
     EDIT = "edit"
     ASSIGNMENT = "assignment"
+    REVIEW = "review"
 
 
 class ApprovalGate(StrEnum):
@@ -53,6 +54,7 @@ class ApprovalGate(StrEnum):
     BUDGET = "budget"
     DEPLOY = "deploy"
     ESCALATION = "escalation"
+    REVIEW = "review"
 
 
 class ApprovalDecision(StrEnum):

@@ -32,7 +32,7 @@ row to it; real per-request org resolution (invites, per-org membership) is T-20
 | ticket_id | text FK | |
 | ts | timestamptz | |
 | actor | text | `agent:dev-1` \| `human:uid` \| `system` |
-| kind | enum | `message` \| `tool_call` \| `test_result` \| `transition` \| `cost` \| `edit` (T-103: human edits to a Planner-produced TaskSpec, before/after payload) \| `assignment` (T-104: Delivery Manager decision + reason + profiles considered) |
+| kind | enum | `message` \| `tool_call` \| `test_result` \| `transition` \| `cost` \| `edit` (T-103: human edits to a Planner-produced TaskSpec, before/after payload) \| `assignment` (T-104: Delivery Manager decision + reason + profiles considered) \| `review` (T-106: Review agent verdict + comments + scope_violations) |
 | payload | jsonb | |
 
 ## agent_runs
@@ -43,7 +43,7 @@ status, tokens_in, tokens_out, cost_usd, trace_id` (links to Langfuse).
 `id, ticket_id, agent_run_id, provider, model, usd, ts` — source of truth for $/ticket.
 
 ## approvals
-`id, ticket_id, gate (idea|budget|deploy|escalation), decided_by, decision, note, ts`.
+`id, ticket_id, gate (idea|budget|deploy|escalation|review), decided_by, decision, note, ts`.
 
 ## artifacts
 `id, ticket_id, kind (diff|ci_log|trace|coverage), s3_key, ts`.

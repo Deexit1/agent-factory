@@ -253,9 +253,64 @@ and still calls `run_dev_agent` with `profile=None`, falling back to the legacy
 complexity-only model routing; this was already a disclosed gap before T-105 and
 remains one.
 
-## T-106 · Review agent + in_review gate — `ready`
+## T-106 · Review agent + in_review gate — `done`
 **Spec:** SPEC-105  **Est:** M
-All five criteria apply. Requires T-101, T-102.
+`in_review` was a true no-op before this task: `agents/dev.py` transitioned straight
+through it to `in_qa` with zero gate (`state_machine.py` had no guard at all for
+`IN_REVIEW → IN_QA` — any actor could request it). New
+`apps/orchestrator/src/orchestrator/agents/review.py` (single-node LangGraph,
+mirrors `planner.py`/`delivery_manager.py`) now actually holds the ticket there:
+one sonnet call scores a PR diff + TaskSpec + style guide (+ an injectable
+`semgrep_findings` string — see Known gaps) against `prompts/review-agent.md`
+(pre-seeded, v0.1, unedited), producing a `ReviewResult` (verdict + comments +
+scope_violations). `apps/api` enforces the real gate: `IN_REVIEW → IN_QA` now
+requires a review-agent or human actor; a new `BOUNCED → IN_QA` human-only edge
+is the override path for a review-block a human disagrees with, recording an
+`Approval(gate=review)` row.
+**Acceptance criteria**
+- [x] A PR with a planted out-of-scope file edit is blocked with a
+      scope_violation naming the file — verified:
+      `apps/orchestrator/tests/integration/test_review_agent.py::test_scope_violation_diff_is_blocked_and_bounces_the_ticket`
+      (real bounce to `bounced`, `bounce_count == 1`, PR comment posted)
+- [x] A clean fixture PR is approved and transitions to `in_qa` automatically —
+      verified: `test_review_agent.py::test_clean_diff_is_approved_and_transitions_to_in_qa`
+- [x] Review-block then QA-fail on the same ticket yields `bounce_count == 2`
+      (shared counter) — verified:
+      `test_review_agent.py::test_review_bounce_then_qa_bounce_share_bounce_count`
+      (review-block via the agent, then a simulated QA failure via the existing
+      `ci-result` webhook) and, at the pure-gate level,
+      `apps/api/tests/integration/test_review_gate.py::test_review_bounce_then_qa_bounce_share_the_bounce_counter`
+- [x] Human override on a blocked PR transitions to `in_qa` and records the
+      approval row — verified:
+      `test_review_agent.py::test_human_override_on_a_blocked_pr_transitions_to_in_qa_with_approval_row`
+      and `test_review_gate.py::test_bounced_review_can_be_overridden_by_human_with_approval_row`
+      (an agent actor is refused the same override — 409 — proving it's genuinely
+      human-only, not just unenforced)
+- [~] Review set false-block rate ≤10% (eval floor) — **seeded but unverified**:
+      8 real cases (4 clean, 4 planted-defect: scope violation, missing test,
+      hardcoded secret, swallowed exception) + `review_scorer.py` +
+      `runner.py` wiring all real and working (confirmed via direct invocation —
+      the scorer runs, parses, and blends deterministic+judge scores correctly
+      when the API responds). But every attempt to actually run it against live
+      Anthropic in this environment returned 400 "credit balance is too low" —
+      the same billing exhaustion that hit T-105's CI eval-gate. No real passing
+      run exists behind `evals/thresholds.yaml`'s `review.floor: 70`; the user
+      was offered the choice to wait for credits or leave `not_yet_enforced:
+      true`, and explicitly chose to enable enforcement anyway with an
+      unverified floor — see that file's rationale for the full disclosure.
+      **Follow-up required**: re-run `python -m orchestrator.evals.runner run
+      --set review` for real once credits are available and correct the floor
+      from actual scores.
+
+Known gaps, disclosed: `semgrep_findings` is an injectable string parameter, not
+real Semgrep integration — CI already runs Semgrep (`agent-pr-gate.yml`) but
+nothing parses its output back into the agent yet, deliberately deferred as
+infra work orthogonal to the review mechanism. No auto-dispatch connects a
+ticket's arrival at `in_review` to an automatic `run_review_agent` invocation —
+matches the same disclosed gap as the Planner/Delivery Manager/dev agent (all
+callable entry points, not auto-triggered). No retry-loop reconstructs a
+FailureReport from a review-block event to automatically re-invoke the dev
+agent — matches the existing QA-bounce gap.
 
 ## T-107 · Merge queue + parallelism — `ready`
 **Spec:** SPEC-106  **Est:** L

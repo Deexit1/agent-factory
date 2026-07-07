@@ -49,7 +49,21 @@ planner:
     yet separately verified for this set.
 
 review:
-  floor: null
-  not_yet_enforced: true
-  updated_by: T-101
-  rationale: "Review agent doesn't exist until T-106 seeds this set for real."
+  floor: 70
+  not_yet_enforced: false
+  updated_by: T-106
+  rationale: >
+    UNVERIFIED FLOOR — flagged explicitly, not hidden. T-106 seeded 8 real cases
+    (4 clean, 4 planted-defect: scope violation, missing test, hardcoded secret,
+    swallowed exception) and wired review_scorer.py, but every attempt to run the
+    set for real against live Anthropic returned 400 "credit balance is too low"
+    — the account backing ANTHROPIC_API_KEY in this environment was exhausted at
+    authorship time, same root cause as T-105's CI eval-gate failure. No actual
+    passing run exists behind this floor; 70 is copied from every other set's
+    initial-floor convention, not derived from observed scores. The user was
+    offered the choice to pause for credits or leave not_yet_enforced=true
+    instead, and explicitly chose to enable enforcement anyway despite the
+    missing evidence. Whoever next touches prompts/review-agent.md MUST run
+    `python -m orchestrator.evals.runner run --set review` for real once credits
+    are available and correct this floor from actual scores — treat a green run
+    at this floor as unconfirmed, not as a real pass.

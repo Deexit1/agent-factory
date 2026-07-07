@@ -968,3 +968,89 @@ Format:
   invocation; `run_pilot.py` is unchanged and still the only real (non-test)
   caller of `run_dev_agent`, calling it with `profile=None` — an already-disclosed
   gap from earlier tasks that this one doesn't attempt to close.
+
+## T-106 · Review agent + in_review gate — 2026-07-06
+- What changed: `in_review` was a true no-op before this task —
+  `apps/orchestrator/agents/dev.py` transitioned straight through it to `in_qa`
+  with zero enforcement, and `state_machine.py` had no guard at all for
+  `IN_REVIEW → IN_QA` (any actor could request it). New
+  `apps/orchestrator/src/orchestrator/agents/review.py`: single-node LangGraph
+  (mirrors `planner.py`/`delivery_manager.py`'s exact shape, no
+  `PostgresSaver` checkpointing yet) that fetches a PR diff
+  (`GitHubClient.get_pr_diff`, new method) and calls `llm_router.route(role=
+  "review", ...)` against the pre-existing, unedited `prompts/review-agent.md`
+  (v0.1), parsing a new `ReviewResult` (`verdict: approve|block`,
+  `comments: ReviewComment[]`, `scope_violations: list[str]`). On approve:
+  posts a PR comment (`GitHubClient.post_comment`, new method), transitions
+  the ticket to `in_qa`. On block: posts the comments, transitions to
+  `bounced` (bounce_count shared with QA failures — same counter, same
+  `MAX_BOUNCES=3` escalation). `agents/dev.py`'s job now genuinely ends at
+  opening the PR — the automatic `to_state="in_qa"` line right after
+  `to_state="in_review"` is gone. `apps/api`'s `state_machine.py` gained two
+  real guards: `IN_REVIEW → IN_QA` now requires a review-agent or human actor
+  (closing the exact gap above), and a new `BOUNCED → IN_QA` human-only edge —
+  the override path for a review-block a human disagrees with (records an
+  `Approval(gate=review)` row via the existing `/tickets/{id}/approve`
+  endpoint, reusing the same two-call pattern T-103 established for budget
+  approval; no new router/service code needed). New `EventKind.REVIEW` +
+  `ApprovalGate.REVIEW` + one migration adding both enum values.
+- Eval seeding (SPEC-105 AC5): 8 real cases under `evals/review/cases/` (4
+  clean: health endpoint, widget CRUD, bugfix, refactor; 4 planted-defect:
+  out-of-scope file edit, missing test for an AC, hardcoded API key, a
+  swallowed-exception correctness smell) + new `review_scorer.py` (invokes
+  the Review agent directly via `llm_router`, like `planner_scorer.py` does —
+  no repo cloning needed since review judges a *given* diff, not one it
+  produces) + `runner.py` wiring (`_SCORABLE_SETS`, `run_review_set`,
+  `--only-changed` map). **Left genuinely unverified, disclosed not hidden**:
+  every attempt to actually run the set against live Anthropic in this
+  environment returned 400 "credit balance is too low" (same billing
+  exhaustion that hit T-105's CI eval-gate run). The scorer's wiring is
+  confirmed correct — it runs, parses, and blends deterministic+judge scores
+  properly, and fails gracefully (score 0, no crash) on the API error, same
+  as every other scorer's error-handling convention — but no real passing
+  run exists behind `evals/thresholds.yaml`'s `review.floor: 70`. Presented
+  the user a choice (wait for credits / leave `not_yet_enforced: true` /
+  enable anyway with an unverified floor); the user explicitly chose to
+  enable enforcement anyway. `evals/thresholds.yaml`'s `review` rationale
+  spells this out in full and flags it as a required follow-up for whoever
+  next touches `prompts/review-agent.md`.
+- Files touched: `packages/schemas/src/schemas/models.py`
+  (`ReviewComment`/`ReviewResult`, +tests), `packages/llm_router/src/
+  llm_router/__init__.py` (`"review"` role, +test),
+  `apps/api/src/api/db/models.py` (`EventKind.REVIEW`,
+  `ApprovalGate.REVIEW`) + migration,
+  `apps/api/src/api/domain/state_machine.py` (two new guards, +2 unit
+  tests), `apps/api/tests/integration/test_review_gate.py` (new, 3 tests),
+  `apps/orchestrator/src/orchestrator/github_client.py`
+  (`get_pr_diff`/`post_comment`), `apps/orchestrator/src/orchestrator/
+  agents/review.py` (new), `apps/orchestrator/src/orchestrator/agents/
+  dev.py` (stops at `in_review`), `apps/orchestrator/tests/integration/
+  test_dev_agent.py` (updated final-state assertion + 1 new test from
+  T-105, untouched here), `apps/orchestrator/tests/integration/
+  test_review_agent.py` (new, 4 tests), `apps/orchestrator/tests/
+  integration/test_delivery_manager_agent.py` (`_finish_task` helper
+  fixed — its `in_review → in_qa` step needed an explicit review/human
+  actor once the new guard landed), `apps/orchestrator/src/orchestrator/
+  evals/{loader.py, review_scorer.py, runner.py, judge.py}`,
+  `evals/review/cases/*.yaml` (new, 8 cases), `evals/thresholds.yaml`,
+  `docs/{02-data-model.md, 03-state-machine.md, 04-agent-specs.md}`.
+- Test evidence: `packages/schemas` 22/22. `packages/llm_router` 6/6.
+  `apps/api` 98/98 (5 new: 2 state-machine unit tests + 3 review-gate
+  integration tests) against a real Postgres testcontainer; ruff/mypy
+  clean. `apps/orchestrator` 60/60 (4 new integration tests in
+  `test_review_agent.py`, 1 updated assertion, 1 loader test updated + 1
+  new) against a real Postgres + live `apps/api`, LLM mocked; ruff/mypy
+  clean. `apps/web`: no code changes; `npm run typecheck`/`lint` not
+  re-verified this task since nothing on the wire format changed (Review
+  agent has no web surface yet — no board button for the override, per
+  the plan's non-goals).
+- Notes / follow-ups: **AC5's floor is unverified — re-run the real eval once
+  API credits are available** (see thresholds.yaml). No real Semgrep
+  integration — `semgrep_findings` is an injectable string parameter;
+  CI already runs Semgrep (`agent-pr-gate.yml`) but nothing parses its
+  output back into the agent yet. No auto-dispatch connects a ticket's
+  arrival at `in_review` to an automatic `run_review_agent` invocation,
+  matching the same disclosed gap as every other agent in this repo. No
+  board UI for the human-override button — exercised via the existing
+  `/tickets/{id}/approve` + `/tickets/{id}/transition` endpoints only, same
+  as every gate before a board button existed for it.

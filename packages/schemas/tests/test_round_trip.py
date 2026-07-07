@@ -5,6 +5,8 @@ from schemas.models import (
     FailureReport,
     PlannerPlan,
     PlannerQuestions,
+    ReviewComment,
+    ReviewResult,
     TaskSpec,
 )
 
@@ -112,3 +114,22 @@ def test_task_spec_required_skills_defaults_to_empty(
         budget_usd=10.0,
     )
     assert task.required_skills == []
+
+
+def test_review_result_round_trips() -> None:
+    result = ReviewResult(
+        verdict="block",
+        comments=[ReviewComment(file="app.py", line=42, comment="unhandled exception")],
+        scope_violations=["unrelated_file.py"],
+    )
+    dumped = result.model_dump()
+    assert ReviewResult.model_validate(dumped) == result
+
+    dumped_json = result.model_dump_json()
+    assert ReviewResult.model_validate_json(dumped_json) == result
+
+
+def test_review_result_defaults_to_empty_comments_and_scope_violations() -> None:
+    result = ReviewResult(verdict="approve")
+    assert result.comments == []
+    assert result.scope_violations == []
