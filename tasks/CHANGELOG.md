@@ -1279,3 +1279,25 @@ Format:
   opposite properties (cheap, deterministic, fully-chained) and reuses none
   of its machinery beyond the general "drive a ticket through the API"
   pattern every other agent test already follows.
+
+## T-110 · Phase-2 pilot & report — blocked, 2026-07-08
+- What happened: before spending any real budget on 3-5 real ideas, ran a
+  direct smoke-test call through `llm_router.route()` with the repo's
+  configured `ANTHROPIC_API_KEY` — it returned
+  `anthropic.BadRequestError: ... credit balance is too low to access the
+  Anthropic API`, confirming the account has zero balance right now, not a
+  transient failure. This is the same recurring billing-exhaustion issue
+  that hit T-105/T-106's eval-gate CI runs, but here it blocks the task
+  itself rather than a CI check, since T-110 requires real planner/dev/
+  review LLM calls across 3-5 real ideas to produce a genuine go/no-go
+  report — there was no funded fallback key and no prior real run to point
+  to as evidence, so a fabricated report was never an option.
+- Decision: presented the blocker plus three options (top up credits and
+  retry; defer and move to other work; use a different funded key). Human
+  chose to defer T-110 and move on to Phase-2.5 (T-201+) engineering work
+  that doesn't need real LLM spend.
+- Files touched: `tasks/BACKLOG.md` (T-110 marked `ready (blocked: no
+  Anthropic credit)` with the full blocker + unblock instructions inline).
+- Notes / follow-ups: T-110 stays open, unblock by topping up the Anthropic
+  account (or supplying a funded key) and re-running the pilot for real —
+  no code changes needed to start it once credit exists.
