@@ -88,11 +88,22 @@ class ApiClient:
         return response.json()  # type: ignore[no-any-return]
 
     def create_agent_run(
-        self, ticket_id: str, *, agent_role: str, model: str, trace_id: str | None = None
+        self,
+        ticket_id: str,
+        *,
+        agent_role: str,
+        model: str,
+        trace_id: str | None = None,
+        prompt_version: str | None = None,
     ) -> dict[str, Any]:
         response = self._client.post(
             f"/tickets/{ticket_id}/agent-runs",
-            json={"agent_role": agent_role, "model": model, "trace_id": trace_id},
+            json={
+                "agent_role": agent_role,
+                "model": model,
+                "trace_id": trace_id,
+                "prompt_version": prompt_version,
+            },
         )
         response.raise_for_status()
         return response.json()  # type: ignore[no-any-return]

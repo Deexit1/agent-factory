@@ -135,6 +135,7 @@ class CreateAgentRunRequest(BaseModel):
     agent_role: str
     model: str
     trace_id: str | None = None
+    prompt_version: str | None = None
 
 
 class CompleteAgentRunRequest(BaseModel):
@@ -164,6 +165,7 @@ class AgentRunOut(BaseModel):
     tokens_out: int
     cost_usd: float
     trace_id: str | None
+    prompt_version: str | None
 
 
 class CostLedgerEntryOut(BaseModel):
@@ -182,6 +184,14 @@ class CostSummaryOut(BaseModel):
     ticket_id: str
     agent_runs_total_usd: float
     cost_ledger_total_usd: float
+
+
+class CostRollupOut(BaseModel):
+    """T-108: cost_ledger sum for a ticket and every descendant (idea -> epic -> task)."""
+
+    ticket_id: str
+    descendant_count: int
+    rollup_usd: float
 
 
 class DevLoginRequest(BaseModel):
@@ -272,6 +282,15 @@ class DashboardMetricsOut(BaseModel):
     median_cost_per_closed_ticket_usd: float | None
     escaped_defects: int
     median_cycle_time_hours: float | None
+
+
+class SpendBreakdownRow(BaseModel):
+    label: str
+    total_usd: float
+
+
+class SpendBreakdownOut(BaseModel):
+    rows: list[SpendBreakdownRow]
 
 
 class CIResultWebhook(BaseModel):

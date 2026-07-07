@@ -7,16 +7,11 @@ that SDK's current documented env var name (`LANGFUSE_HOST` is its older/fallbac
 """
 
 import os
-import re
 import warnings
 
-_VERSION_HEADER_RE = re.compile(r"·\s*v([0-9]+\.[0-9]+)")
+from orchestrator.prompt_version import parse_prompt_version
 
-
-def parse_prompt_version(prompt_text: str) -> str:
-    """Extracts 'X.Y' from a prompt file's `# ... · vX.Y` header (prompts/README.md)."""
-    match = _VERSION_HEADER_RE.search(prompt_text.splitlines()[0] if prompt_text else "")
-    return match.group(1) if match else "unknown"
+__all__ = ["LangfuseClient", "parse_prompt_version"]
 
 
 class LangfuseClient:

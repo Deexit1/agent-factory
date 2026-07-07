@@ -32,6 +32,7 @@ from llm_router import route
 from orchestrator.api_client import ApiClient
 from orchestrator.capability_registry import CapabilityRegistry, load_registry
 from orchestrator.json_utils import extract_json_object
+from orchestrator.prompt_version import parse_prompt_version
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_DM_PROMPT_PATH = _REPO_ROOT / "prompts" / "delivery-manager.md"
@@ -233,7 +234,10 @@ def run_delivery_manager_agent(
     # first considered task rather than inventing a proportional split — a disclosed
     # simplification, not a real multi-ticket cost model.
     run = api.create_agent_run(
-        llm_tasks[0]["id"], agent_role="delivery-manager", model=final_state["model"]
+        llm_tasks[0]["id"],
+        agent_role="delivery-manager",
+        model=final_state["model"],
+        prompt_version=parse_prompt_version(system_prompt),
     )
     api.complete_agent_run(
         llm_tasks[0]["id"],

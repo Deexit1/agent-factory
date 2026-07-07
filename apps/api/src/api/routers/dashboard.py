@@ -3,7 +3,12 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
 from api.auth import ActorContext, get_actor_context
-from api.contracts import DashboardMetricsOut, EscapedDefectReportIn, EscapedDefectReportOut
+from api.contracts import (
+    DashboardMetricsOut,
+    EscapedDefectReportIn,
+    EscapedDefectReportOut,
+    SpendBreakdownOut,
+)
 from api.db.session import get_db
 from api.services import dashboard_service, ticket_service
 
@@ -28,6 +33,20 @@ def export_csv(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=pilot-dashboard.csv"},
     )
+
+
+@router.get("/spend-by-profile", response_model=SpendBreakdownOut)
+def get_spend_by_profile(
+    actor_context: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)
+) -> SpendBreakdownOut:
+    return dashboard_service.spend_by_profile(db, org_id=actor_context.org_id)
+
+
+@router.get("/spend-by-prompt-version", response_model=SpendBreakdownOut)
+def get_spend_by_prompt_version(
+    actor_context: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)
+) -> SpendBreakdownOut:
+    return dashboard_service.spend_by_prompt_version(db, org_id=actor_context.org_id)
 
 
 @router.post("/escaped-defects", response_model=EscapedDefectReportOut, status_code=201)

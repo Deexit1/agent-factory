@@ -6,6 +6,7 @@ from api.contracts import (
     AgentRunOut,
     CompleteAgentRunRequest,
     CostLedgerEntryOut,
+    CostRollupOut,
     CostSummaryOut,
     CreateAgentRunRequest,
 )
@@ -32,6 +33,7 @@ def create_agent_run(
             model=request.model,
             trace_id=request.trace_id,
             org_id=actor_context.org_id,
+            prompt_version=request.prompt_version,
         )
     except ticket_service.TicketNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -102,5 +104,17 @@ def cost_summary(
 ) -> CostSummaryOut:
     try:
         return agent_run_service.cost_summary(db, ticket_id, org_id=actor_context.org_id)
+    except ticket_service.TicketNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{ticket_id}/cost-rollup", response_model=CostRollupOut)
+def cost_rollup(
+    ticket_id: str,
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
+) -> CostRollupOut:
+    try:
+        return agent_run_service.cost_rollup(db, ticket_id, org_id=actor_context.org_id)
     except ticket_service.TicketNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

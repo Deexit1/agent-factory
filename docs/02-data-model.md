@@ -37,10 +37,26 @@ row to it; real per-request org resolution (invites, per-org membership) is T-20
 
 ## agent_runs
 one row per agent invocation: `id, ticket_id, agent_role, model, started_at, ended_at,
-status, tokens_in, tokens_out, cost_usd, trace_id` (links to Langfuse).
+status, tokens_in, tokens_out, cost_usd, trace_id, prompt_version` (links to Langfuse).
+`agent_role` is the dev agent's assigned capability-registry profile id
+(`dev-frontend`/`dev-backend`/`dev-devops`/`dev-generalist`) when one was assigned,
+else the generic role (`planner`/`review`/`delivery-manager`/`dev`) — this doubles as
+the "spend by profile" dimension (T-108). `prompt_version` is parsed from the agent's
+own prompt file's `# ... · vX.Y` header at run time; `null` for runs that predate T-108.
 
 ## cost_ledger
 `id, ticket_id, agent_run_id, provider, model, usd, ts` — source of truth for $/ticket.
+
+## cost rollups (T-108)
+No new tables — `GET /tickets/{id}/cost-rollup` sums `cost_ledger` over a ticket and
+every descendant (`ticket_repository.get_descendants`, walking `parent_id`), closing
+the idea-drawer rollup gap. `GET /dashboard/spend-by-profile` and
+`GET /dashboard/spend-by-prompt-version` group `cost_ledger` by `agent_runs.agent_role`
+and `agent_runs.prompt_version` respectively — the org-level "spend by model & agent
+role" view originally promised in SPEC-006 but never built until now. Eval harness
+runs (`apps/orchestrator/.../evals/`) never call the ticket API or write `agent_runs`/
+`cost_ledger` rows, so these metrics are ticket-work-only by construction (T-108 adds a
+regression test for this).
 
 ## approvals
 `id, ticket_id, gate (idea|budget|deploy|escalation|review), decided_by, decision, note, ts`.

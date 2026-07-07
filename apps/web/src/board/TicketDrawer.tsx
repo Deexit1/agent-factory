@@ -1,6 +1,13 @@
 import { useState } from "react";
 
-import { useApproveTicket, useCostSummary, useReturnToDev, useTicket } from "../api/queries";
+import {
+  useApproveTicket,
+  useCostRollup,
+  useCostSummary,
+  useDescendants,
+  useReturnToDev,
+  useTicket,
+} from "../api/queries";
 import { useTicketEventsFeed } from "../api/useTicketEventsFeed";
 import type { ApprovalGate, TicketState } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
@@ -20,6 +27,8 @@ export function TicketDrawer({
   const { role } = useAuth();
   const { data: ticket } = useTicket(ticketId);
   const { data: costSummary } = useCostSummary(ticketId);
+  const { data: descendants } = useDescendants(ticketId);
+  const { data: costRollup } = useCostRollup(ticketId);
   const approve = useApproveTicket();
   const returnToDev = useReturnToDev();
   const [note, setNote] = useState("");
@@ -84,6 +93,16 @@ export function TicketDrawer({
           ${spentUsd.toFixed(2)} / ${(ticket.budget_usd ?? 0).toFixed(2)}
         </p>
       </div>
+
+      {descendants && descendants.items.length > 0 && costRollup && (
+        <div>
+          <h3 className="mb-1 text-sm font-semibold text-gray-700">Rollup spend</h3>
+          <p data-testid="cost-rollup" className="text-sm text-gray-600">
+            ${costRollup.rollup_usd.toFixed(2)} across {costRollup.descendant_count} descendant
+            {costRollup.descendant_count === 1 ? "" : "s"}
+          </p>
+        </div>
+      )}
 
       <div>
         <h3 className="mb-1 text-sm font-semibold text-gray-700">Acceptance criteria</h3>

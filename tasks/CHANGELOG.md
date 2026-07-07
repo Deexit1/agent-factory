@@ -1155,3 +1155,69 @@ Format:
   own disclosed gap), closing that is separate work. No auto-dispatch loop
   invokes `run_merge_queue` on a timer/webhook, matching every other agent
   in this repo.
+
+## T-108 · Cost ledger v2 — 2026-07-08
+- What changed: the core cost plumbing (`agent_runs`, `cost_ledger`,
+  per-ticket cost summary, drawer budget bar, org-wide dashboard metrics) was
+  already real from T-001/T-008/T-102-104 — this task closed the three gaps
+  actually asked for. **AC1 (idea rollup):** new
+  `GET /tickets/{id}/cost-rollup` sums `cost_ledger` over a ticket and every
+  descendant, reusing `ticket_repository.get_descendants` (BFS over
+  `parent_id`, already used by budget/capacity checks) — the drawer's budget
+  bar only ever showed a single ticket's spend before this. **AC2
+  (spend-by-profile / spend-by-prompt-version):** this was actually promised
+  in SPEC-006 ("org-level spend by model & agent role") but never built.
+  Closed via two real gaps: `agents/dev.py`'s `run_dev_agent` hardcoded
+  `agent_role="dev"` even when a `Profile` was passed in (dev-frontend/
+  backend/devops/generalist from T-105) — it now uses `profile.id`, so
+  `agent_runs.agent_role` doubles as the "profile" dimension; and a new
+  `agent_runs.prompt_version` column (nullable, new migration) is now
+  populated by every orchestrator agent (dev/planner/review/delivery-manager)
+  parsing its own prompt file's `# ... · vX.Y` header via a `parse_prompt_
+  version` helper extracted out of `evals/langfuse_client.py` into a neutral
+  `orchestrator/prompt_version.py` (agents importing from `evals/` would have
+  been backwards layering). New `GET /dashboard/spend-by-profile` and
+  `GET /dashboard/spend-by-prompt-version` group `cost_ledger` by
+  `agent_runs.agent_role`/`prompt_version` via a join; `DashboardPage.tsx`
+  renders both as simple horizontal bar-list charts, matching the existing
+  budget-bar visual style (no new charting dependency). **AC3 (eval
+  exclusion):** confirmed already true by construction — the eval harness
+  (`apps/orchestrator/.../evals/`) calls `llm_router.route()` directly with
+  no `ticket_id` and never imports the ticket API client or agent-run
+  repository, so there's no code path for an eval run to write cost. Added a
+  structural regression test (AST-parses every `evals/*.py` file's imports)
+  instead of an integration test that would actually invoke a real LLM
+  call — this environment has repeatedly hit Anthropic API credit exhaustion
+  on real eval runs (T-105/T-106), so a DB-round-trip test here would be
+  flaky for reasons unrelated to the invariant being proven.
+- Files touched: `apps/api/src/api/db/models.py` (`AgentRun.prompt_version`)
+  + migration, `apps/api/src/api/repositories/{agent_run_repository.py
+  (`sum_cost_ledger_for_tickets`), dashboard_repository.py
+  (`sum_cost_ledger_by_agent_role`, `sum_cost_ledger_by_prompt_version`)}`,
+  `apps/api/src/api/services/{agent_run_service.py (`cost_rollup`),
+  dashboard_service.py (`spend_by_profile`, `spend_by_prompt_version`)}`,
+  `apps/api/src/api/{contracts.py (`CostRollupOut`, `SpendBreakdownOut`),
+  routers/{agent_runs.py, dashboard.py}}`, `apps/api/tests/integration/
+  {test_cost_rollup_api.py (new, 4 tests), test_dashboard_api.py (+1 golden
+  test)}`, `apps/orchestrator/src/orchestrator/{prompt_version.py (new),
+  evals/langfuse_client.py (re-exports from the new module),
+  agents/{dev.py, planner.py, review.py, delivery_manager.py}, api_client.py}`,
+  `apps/orchestrator/tests/{integration/test_dev_agent.py (+1 test),
+  evals/test_cost_isolation.py (new)}`, `apps/web/src/{api/{client.ts,
+  queries.ts, types.ts}, board/TicketDrawer.tsx, dashboard/DashboardPage.tsx}`,
+  `docs/02-data-model.md`.
+- Test evidence: `apps/api` 108/108, up from 103 (4 new in
+  `test_cost_rollup_api.py`, 1 new golden fixture test in
+  `test_dashboard_api.py`) against a real Postgres testcontainer; ruff/mypy
+  clean. `apps/orchestrator` 64/64, up from 62 (1 new `test_dev_agent.py`
+  case proving `agent_role`/`prompt_version` land on the real row, 1 new
+  structural `test_cost_isolation.py`) against a real Postgres + live
+  `apps/api`; ruff/mypy clean. `apps/web`: `tsc -b --noEmit` clean, `eslint`
+  clean (1 pre-existing unrelated warning in `AuthContext.tsx`), `vitest run`
+  1/1 (no dedicated component tests existed for `TicketDrawer`/
+  `DashboardPage` before this task, so none were extended — only the existing
+  smoke test re-verified).
+- Notes / follow-ups: none — no SPEC-107/108 file exists for this task
+  (BACKLOG points at docs/02-data-model.md directly); doc updates landed in
+  this PR per CLAUDE.md's "schema changes need a doc update in the same PR"
+  rule rather than a separate spec.

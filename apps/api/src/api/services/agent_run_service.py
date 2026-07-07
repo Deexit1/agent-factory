@@ -1,8 +1,9 @@
 from sqlalchemy.orm import Session
 
-from api.contracts import CostSummaryOut
+from api.contracts import CostRollupOut, CostSummaryOut
 from api.db.models import AgentRun, AgentRunStatus, CostLedgerEntry
 from api.repositories import agent_run_repository as repo
+from api.repositories import ticket_repository
 from api.services.ticket_service import TicketNotFound, get_ticket
 
 
@@ -20,6 +21,7 @@ def create_agent_run(
     model: str,
     trace_id: str | None,
     org_id: str,
+    prompt_version: str | None = None,
 ) -> AgentRun:
     get_ticket(session, ticket_id, org_id=org_id)  # 404s if the ticket doesn't exist
     run = repo.create_agent_run(
@@ -29,6 +31,7 @@ def create_agent_run(
         agent_role=agent_role,
         model=model,
         trace_id=trace_id,
+        prompt_version=prompt_version,
     )
     session.commit()
     return run
@@ -79,6 +82,16 @@ def cost_summary(session: Session, ticket_id: str, *, org_id: str) -> CostSummar
     )
 
 
+def cost_rollup(session: Session, ticket_id: str, *, org_id: str) -> CostRollupOut:
+    get_ticket(session, ticket_id, org_id=org_id)  # 404s if the ticket doesn't exist
+    descendants = ticket_repository.get_descendants(session, ticket_id, org_id=org_id)
+    ticket_ids = [ticket_id, *(d.id for d in descendants)]
+    rollup_usd = repo.sum_cost_ledger_for_tickets(session, ticket_ids, org_id=org_id)
+    return CostRollupOut(
+        ticket_id=ticket_id, descendant_count=len(descendants), rollup_usd=rollup_usd
+    )
+
+
 __all__ = [
     "AgentRunNotFound",
     "TicketNotFound",
@@ -87,4 +100,5 @@ __all__ = [
     "list_agent_runs",
     "list_cost_ledger",
     "cost_summary",
+    "cost_rollup",
 ]

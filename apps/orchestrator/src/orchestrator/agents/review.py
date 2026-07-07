@@ -31,6 +31,7 @@ from schemas import ReviewResult, TaskSpec
 from orchestrator.api_client import ApiClient
 from orchestrator.github_client import GitHubClient, PullRequest
 from orchestrator.json_utils import extract_json_object
+from orchestrator.prompt_version import parse_prompt_version
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_REVIEW_PROMPT_PATH = _REPO_ROOT / "prompts" / "review-agent.md"
@@ -142,7 +143,12 @@ def run_review_agent(
     parsed = extract_json_object(final_state["text"])
     result = ReviewResult.model_validate(parsed)
 
-    run = api.create_agent_run(ticket_id, agent_role="review", model=final_state["model"])
+    run = api.create_agent_run(
+        ticket_id,
+        agent_role="review",
+        model=final_state["model"],
+        prompt_version=parse_prompt_version(system_prompt),
+    )
     api.complete_agent_run(
         ticket_id,
         run["id"],

@@ -14,6 +14,7 @@ def create_agent_run(
     agent_role: str,
     model: str,
     trace_id: str | None,
+    prompt_version: str | None = None,
 ) -> AgentRun:
     run = AgentRun(
         org_id=org_id,
@@ -26,6 +27,7 @@ def create_agent_run(
         tokens_out=0,
         cost_usd=0,
         trace_id=trace_id,
+        prompt_version=prompt_version,
     )
     session.add(run)
     session.flush()
@@ -120,6 +122,17 @@ def sum_cost_ledger(session: Session, ticket_id: str, *, org_id: str) -> float:
     total = session.execute(
         select(func.coalesce(func.sum(CostLedgerEntry.usd), 0)).where(
             CostLedgerEntry.ticket_id == ticket_id, CostLedgerEntry.org_id == org_id
+        )
+    ).scalar_one()
+    return float(total)
+
+
+def sum_cost_ledger_for_tickets(
+    session: Session, ticket_ids: list[str], *, org_id: str
+) -> float:
+    total = session.execute(
+        select(func.coalesce(func.sum(CostLedgerEntry.usd), 0)).where(
+            CostLedgerEntry.ticket_id.in_(ticket_ids), CostLedgerEntry.org_id == org_id
         )
     ).scalar_one()
     return float(total)
