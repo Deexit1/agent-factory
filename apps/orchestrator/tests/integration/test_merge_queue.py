@@ -93,6 +93,8 @@ def _resolve_conflict_and_requeue(
         check=True,
         capture_output=True,
     )
+    _git(clone, "config", "user.email", "merge-queue-test@example.com")
+    _git(clone, "config", "user.name", "Test")
     _git(clone, "fetch", "origin", "main")
     rebase = subprocess.run(
         ["git", "rebase", "origin/main"], cwd=clone, capture_output=True, text=True

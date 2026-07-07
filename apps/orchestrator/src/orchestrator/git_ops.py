@@ -18,6 +18,15 @@ def clone_branch(repo_url: str, branch: str, dest: Path) -> None:
     if result.returncode != 0:
         raise RuntimeError(f"git clone --branch {branch} failed:\n{result.stderr}")
 
+    # A rebase that must replay a commit (create a new commit object with a new
+    # parent) needs a committer identity, same as any other commit — a bare
+    # environment with no global git config (a fresh CI runner, a minimal
+    # container) has none. Setting it locally here means the merge-queue never
+    # depends on whatever identity happens to be configured on the machine it
+    # runs on.
+    _run(["git", "config", "user.email", "merge-queue@agent-factory.local"], dest)
+    _run(["git", "config", "user.name", "Agent Factory Merge Queue"], dest)
+
 
 def has_uncommitted_changes(workspace_dir: Path) -> bool:
     result = _run(["git", "status", "--porcelain"], workspace_dir)
@@ -70,4 +79,16 @@ def rebase_onto(workspace_dir: Path, base_branch: str) -> tuple[bool, list[str]]
     )
     conflicting_paths = [p.strip() for p in conflicts.stdout.splitlines() if p.strip()]
     subprocess.run(["git", "rebase", "--abort"], cwd=workspace_dir, capture_output=True, text=True)
+
+    if not conflicting_paths:
+        # The rebase failed but nothing is actually in conflict — a real error
+        # (bad identity, corrupt object, disk full, ...), not the expected
+        # "two branches touched the same lines" outcome this function exists to
+        # handle. Silently reporting this as an empty conflict would hide a real
+        # bug behind a plausible-looking bounce, exactly like it did before this
+        # comment existed.
+        raise RuntimeError(
+            f"git rebase onto {base_branch} failed with no conflicting paths:\n{result.stderr}"
+        )
+
     return False, conflicting_paths
