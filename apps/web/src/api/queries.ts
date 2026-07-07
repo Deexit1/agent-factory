@@ -4,9 +4,12 @@ import { useAuth } from "../auth/AuthContext";
 import {
   answerPlanningQuestions,
   approveTicket,
+  fetchCostRollup,
   fetchCostSummary,
   fetchDashboardMetrics,
   fetchDescendants,
+  fetchSpendByPromptVersion,
+  fetchSpendByProfile,
   fetchTicket,
   fetchTickets,
   fetchUtilisation,
@@ -20,9 +23,11 @@ import type {
   Approval,
   ApprovalDecision,
   ApprovalGate,
+  CostRollup,
   CostSummary,
   DashboardMetrics,
   Descendants,
+  SpendBreakdown,
   Ticket,
   TicketState,
   UpdateTaskRequest,
@@ -71,6 +76,15 @@ export function useCostSummary(ticketId: string | null) {
   });
 }
 
+export function useCostRollup(ticketId: string | null) {
+  const actorContext = useAuth();
+  return useQuery<CostRollup>({
+    queryKey: ["cost-rollup", ticketId],
+    queryFn: () => fetchCostRollup(actorContext, ticketId as string),
+    enabled: ticketId !== null,
+  });
+}
+
 export function useApproveTicket() {
   const actorContext = useAuth();
   const queryClient = useQueryClient();
@@ -105,6 +119,22 @@ export function useDashboardMetrics() {
   return useQuery<DashboardMetrics>({
     queryKey: ["dashboard-metrics"],
     queryFn: () => fetchDashboardMetrics(actorContext),
+  });
+}
+
+export function useSpendByProfile() {
+  const actorContext = useAuth();
+  return useQuery<SpendBreakdown>({
+    queryKey: ["spend-by-profile"],
+    queryFn: () => fetchSpendByProfile(actorContext),
+  });
+}
+
+export function useSpendByPromptVersion() {
+  const actorContext = useAuth();
+  return useQuery<SpendBreakdown>({
+    queryKey: ["spend-by-prompt-version"],
+    queryFn: () => fetchSpendByPromptVersion(actorContext),
   });
 }
 

@@ -2,11 +2,13 @@ import type {
   Approval,
   ApprovalDecision,
   ApprovalGate,
+  CostRollup,
   CostSummary,
   CreateTicketRequest,
   DashboardMetrics,
   Descendants,
   Paginated,
+  SpendBreakdown,
   Ticket,
   TicketEvent,
   TicketState,
@@ -146,6 +148,13 @@ export function fetchCostSummary(
   return request(`/tickets/${ticketId}/cost-summary`, actorContext);
 }
 
+export function fetchCostRollup(
+  actorContext: ActorContext,
+  ticketId: string,
+): Promise<CostRollup> {
+  return request(`/tickets/${ticketId}/cost-rollup`, actorContext);
+}
+
 export function fetchTicketEvents(
   actorContext: ActorContext,
   ticketId: string,
@@ -215,6 +224,14 @@ export function answerPlanningQuestions(
 
 export function fetchUtilisation(actorContext: ActorContext): Promise<Utilisation> {
   return request("/capability-registry/utilisation", actorContext);
+}
+
+export function fetchSpendByProfile(actorContext: ActorContext): Promise<SpendBreakdown> {
+  return request("/dashboard/spend-by-profile", actorContext);
+}
+
+export function fetchSpendByPromptVersion(actorContext: ActorContext): Promise<SpendBreakdown> {
+  return request("/dashboard/spend-by-prompt-version", actorContext);
 }
 
 export async function downloadDashboardCsv(actorContext: ActorContext): Promise<void> {

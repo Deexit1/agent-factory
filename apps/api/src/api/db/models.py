@@ -159,6 +159,7 @@ class AgentRun(Base):
     tokens_out: Mapped[int] = mapped_column(default=0)
     cost_usd: Mapped[float] = mapped_column(Numeric, default=0)
     trace_id: Mapped[str | None] = mapped_column()
+    prompt_version: Mapped[str | None] = mapped_column()
 
 
 class CostLedgerEntry(Base):

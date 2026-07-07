@@ -56,6 +56,21 @@ export interface CostSummary {
   cost_ledger_total_usd: number;
 }
 
+export interface CostRollup {
+  ticket_id: string;
+  descendant_count: number;
+  rollup_usd: number;
+}
+
+export interface SpendBreakdownRow {
+  label: string;
+  total_usd: number;
+}
+
+export interface SpendBreakdown {
+  rows: SpendBreakdownRow[];
+}
+
 export interface DashboardMetrics {
   tickets_closed: number;
   tickets_escalated: number;

@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from api.contracts import DashboardMetricsOut
+from api.contracts import DashboardMetricsOut, SpendBreakdownOut, SpendBreakdownRow
 from api.db.models import EscapedDefectReport
 from api.repositories import dashboard_repository as repo
 from api.repositories.dashboard_repository import DashboardRow
@@ -63,6 +63,23 @@ def _metrics_from_rows(rows: list[DashboardRow]) -> DashboardMetricsOut:
     )
 
 
+def spend_by_profile(session: Session, *, org_id: str) -> SpendBreakdownOut:
+    rows = repo.sum_cost_ledger_by_agent_role(session, org_id=org_id)
+    return SpendBreakdownOut(
+        rows=[SpendBreakdownRow(label=role, total_usd=total) for role, total in rows]
+    )
+
+
+def spend_by_prompt_version(session: Session, *, org_id: str) -> SpendBreakdownOut:
+    rows = repo.sum_cost_ledger_by_prompt_version(session, org_id=org_id)
+    return SpendBreakdownOut(
+        rows=[
+            SpendBreakdownRow(label=f"{role}:{version}", total_usd=total)
+            for role, version, total in rows
+        ]
+    )
+
+
 def export_csv(session: Session, *, org_id: str) -> str:
     rows = repo.list_dashboard_rows(session, org_id=org_id)
     buffer = io.StringIO()
@@ -97,4 +114,10 @@ def record_escaped_defect(
     return report
 
 
-__all__ = ["compute_metrics", "export_csv", "record_escaped_defect"]
+__all__ = [
+    "compute_metrics",
+    "export_csv",
+    "record_escaped_defect",
+    "spend_by_profile",
+    "spend_by_prompt_version",
+]

@@ -50,6 +50,15 @@ def _get_events(running_api: str, ticket_id: str) -> list[dict[str, object]]:
         return items
 
 
+def _get_agent_runs(running_api: str, ticket_id: str) -> list[dict[str, object]]:
+    request = urllib.request.Request(
+        f"{running_api}/tickets/{ticket_id}/agent-runs", headers=_AUTH_HEADERS
+    )
+    with urllib.request.urlopen(request) as response:
+        items: list[dict[str, object]] = json.loads(response.read())
+        return items
+
+
 def test_agent_produces_pr_with_endpoint_and_test(
     running_api: str,
     api: ApiClient,
@@ -126,6 +135,47 @@ def test_assigned_profiles_model_reaches_the_runner_for_low_complexity_tasks(
     )
 
     assert runner.last_model == "claude-opus-4-8"
+
+
+def test_dev_agent_run_is_tagged_with_profile_and_prompt_version(
+    running_api: str,
+    api: ApiClient,
+    config: DevAgentConfig,
+    create_ticket,
+    transition,
+    toy_repo,
+    fixture_dir,
+) -> None:
+    """T-108 AC2: agent_runs.agent_role becomes the assigned profile id (not the
+    generic "dev" role) so spend can be broken down by profile; prompt_version is
+    parsed from prompts/dev-agent.md's own version header."""
+    ticket = create_ticket()
+    ticket_id = ticket["id"]
+    transition(ticket_id, "in_progress")
+
+    frontend_profile = Profile(
+        id="dev-frontend",
+        model="claude-sonnet-5",
+        base_image="agent-factory-sandbox:latest",
+        skills=("frontend",),
+        max_parallel=2,
+    )
+
+    run_dev_agent(
+        ticket_id=ticket_id,
+        task_spec=_task_spec(ticket_id),
+        workspace_dir=toy_repo,
+        api=api,
+        claude_runner=FixtureClaudeCodeRunner(fixture_dir),
+        github=FakeGitHubClient(),
+        config=config,
+        profile=frontend_profile,
+    )
+
+    runs = _get_agent_runs(running_api, ticket_id)
+    assert len(runs) == 1
+    assert runs[0]["agent_role"] == "dev-frontend"
+    assert runs[0]["prompt_version"] not in (None, "unknown")
 
 
 def test_transcript_events_stream_incrementally(

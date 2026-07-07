@@ -16,6 +16,7 @@ from schemas import PlannerPlan, PlannerQuestions
 
 from orchestrator.api_client import ApiClient
 from orchestrator.json_utils import extract_json_object
+from orchestrator.prompt_version import parse_prompt_version
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_PLANNER_PROMPT_PATH = _REPO_ROOT / "prompts" / "planner.md"
@@ -123,7 +124,12 @@ def run_planner_agent(
     system_prompt = prompt_path.read_text(encoding="utf-8")
     user_message = build_planner_prompt(idea_title, idea_description, idea_budget_usd)
 
-    run = api.create_agent_run(ticket_id, agent_role="planner", model="claude-opus-4-8")
+    run = api.create_agent_run(
+        ticket_id,
+        agent_role="planner",
+        model="claude-opus-4-8",
+        prompt_version=parse_prompt_version(system_prompt),
+    )
     run_id = run["id"]
 
     raw_state = _GRAPH.invoke(

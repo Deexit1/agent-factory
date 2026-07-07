@@ -386,13 +386,20 @@ Known gaps, disclosed:
   every other agent in this repo (Planner/Delivery Manager/dev agent/Review
   agent are all callable entry points, not auto-triggered).
 
-## T-108 · Cost ledger v2 — `ready`
+## T-108 · Cost ledger v2 — `done`
 **Spec:** docs/02-data-model.md  **Est:** S
 Per-idea rollups, per-profile and per-prompt-version spend; eval costs tagged separately.
 **Acceptance criteria**
-- [ ] Idea drawer rollup equals ledger sum of all descendants (golden test)
-- [ ] Spend-by-profile and spend-by-prompt-version charts match seeded fixtures
-- [ ] Eval runs excluded from ticket unit-economics metrics
+- [x] Idea drawer rollup equals ledger sum of all descendants (golden test) —
+  `GET /tickets/{id}/cost-rollup` (`apps/api/tests/integration/test_cost_rollup_api.py`)
+- [x] Spend-by-profile and spend-by-prompt-version charts match seeded fixtures —
+  `GET /dashboard/spend-by-{profile,prompt-version}`
+  (`apps/api/tests/integration/test_dashboard_api.py::test_spend_by_profile_and_prompt_version_match_seeded_fixture_exactly`);
+  closes the "org-level spend by model & agent role" AC promised in SPEC-006 but never
+  built
+- [x] Eval runs excluded from ticket unit-economics metrics — true by construction
+  (evals never call the ticket API); regression test in
+  `apps/orchestrator/tests/evals/test_cost_isolation.py`
 
 ## T-109 · End-to-end management flow test — `ready`
 **Spec:** SPEC-102..106  **Est:** M

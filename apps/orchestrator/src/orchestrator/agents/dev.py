@@ -8,9 +8,10 @@ from orchestrator import git_ops
 from orchestrator.agents.prompt import build_prompt
 from orchestrator.api_client import ApiClient
 from orchestrator.capability_registry import Profile
-from orchestrator.claude_runner import ClaudeCodeRunner
+from orchestrator.claude_runner import DEFAULT_DEV_AGENT_PROMPT_PATH, ClaudeCodeRunner
 from orchestrator.config import DevAgentConfig
 from orchestrator.github_client import GitHubClient
+from orchestrator.prompt_version import parse_prompt_version
 
 
 @dataclass(frozen=True)
@@ -40,7 +41,13 @@ def run_dev_agent(
     prompt = build_prompt(task_spec, failure_report, attempt_no)
     actor = f"agent:dev-{ticket_id}"
 
-    run = api.create_agent_run(ticket_id, agent_role="dev", model=model)
+    agent_role = profile.id if profile is not None else "dev"
+    prompt_version = parse_prompt_version(
+        DEFAULT_DEV_AGENT_PROMPT_PATH.read_text(encoding="utf-8")
+    )
+    run = api.create_agent_run(
+        ticket_id, agent_role=agent_role, model=model, prompt_version=prompt_version
+    )
     run_id = run["id"]
 
     budget_usd = task_spec.budget_usd

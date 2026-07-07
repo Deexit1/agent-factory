@@ -29,6 +29,25 @@ def _record_cost(client: TestClient, ticket_id: str, cost_usd: float) -> None:
     assert resp.status_code == 200, resp.text
 
 
+def _record_cost_for_role(
+    client: TestClient,
+    ticket_id: str,
+    *,
+    agent_role: str,
+    prompt_version: str | None,
+    cost_usd: float,
+) -> None:
+    run = client.post(
+        f"/tickets/{ticket_id}/agent-runs",
+        json={"agent_role": agent_role, "model": "sonnet", "prompt_version": prompt_version},
+    ).json()
+    resp = client.post(
+        f"/tickets/{ticket_id}/agent-runs/{run['id']}/complete",
+        json={"status": "completed", "cost_usd": cost_usd},
+    )
+    assert resp.status_code == 200, resp.text
+
+
 def _close_ticket(
     client: TestClient, db_session: Session, *, bounces: int, cost_usd: float, hours_ago: float
 ) -> str:
@@ -124,6 +143,52 @@ def test_escaped_defect_404_for_missing_ticket(client: TestClient) -> None:
         "/dashboard/escaped-defects", json={"ticket_id": "does-not-exist", "note": "x"}
     )
     assert response.status_code == 404
+
+
+def test_spend_by_profile_and_prompt_version_match_seeded_fixture_exactly(
+    client: TestClient,
+) -> None:
+    frontend_task = _create_task(client)
+    backend_task = _create_task(client)
+    review_task = _create_task(client)
+
+    _record_cost_for_role(
+        client,
+        frontend_task["id"],
+        agent_role="dev-frontend",
+        prompt_version="0.1",
+        cost_usd=2.0,
+    )
+    _record_cost_for_role(
+        client,
+        frontend_task["id"],
+        agent_role="dev-frontend",
+        prompt_version="0.2",
+        cost_usd=1.0,
+    )
+    _record_cost_for_role(
+        client, backend_task["id"], agent_role="dev-backend", prompt_version="0.1", cost_usd=4.0
+    )
+    _record_cost_for_role(
+        client, review_task["id"], agent_role="review", prompt_version=None, cost_usd=0.5
+    )
+
+    by_profile = {
+        row["label"]: row["total_usd"]
+        for row in client.get("/dashboard/spend-by-profile").json()["rows"]
+    }
+    assert by_profile == {"dev-backend": 4.0, "dev-frontend": 3.0, "review": 0.5}
+
+    by_prompt_version = {
+        row["label"]: row["total_usd"]
+        for row in client.get("/dashboard/spend-by-prompt-version").json()["rows"]
+    }
+    assert by_prompt_version == {
+        "dev-backend:0.1": 4.0,
+        "dev-frontend:0.1": 2.0,
+        "dev-frontend:0.2": 1.0,
+        "review:unknown": 0.5,
+    }
 
 
 def test_dashboard_metrics_are_null_when_no_terminal_tickets_exist(client: TestClient) -> None:
