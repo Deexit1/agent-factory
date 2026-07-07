@@ -8,6 +8,8 @@ from api.db.models import (
     ApprovalDecision,
     ApprovalGate,
     EventKind,
+    MergeQueueEntry,
+    MergeQueueStatus,
     Ticket,
     TicketEvent,
     TicketState,
@@ -177,9 +179,7 @@ def _plan_has_cycle(task_tickets: list[Ticket]) -> bool:
     return any(_visit(node) for node in graph)
 
 
-def _plan_fields(
-    session: Session, ticket: Ticket, *, org_id: str
-) -> tuple[int, bool, float, bool]:
+def _plan_fields(session: Session, ticket: Ticket, *, org_id: str) -> tuple[int, bool, float, bool]:
     """Only computed for an idea's `planning -> ready` attempt — everywhere else these
     default to the harmless zero-values on `state_machine.TransitionRequest`."""
     descendants = repo.get_descendants(session, ticket.id, org_id=org_id)
@@ -252,6 +252,13 @@ def _capacity_fields(
     return profile_at_capacity, repo_at_capacity
 
 
+def _has_merged_queue_entry(session: Session, ticket: Ticket, *, org_id: str) -> bool:
+    """Only meaningful for an `in_qa -> done` attempt — CI-green alone no longer
+    completes a ticket (SPEC-106); it must have a real `merged` merge-queue entry,
+    written by the merge-queue processor after a genuine rebase-and-retest."""
+    return repo.has_merged_queue_entry(session, ticket.id, org_id=org_id)
+
+
 def _cascade_plan_to_ready(session: Session, ticket: Ticket, *, org_id: str) -> None:
     """Once an idea's plan is approved, its descendant epic/task tickets (created
     directly into `planning`, mirroring the parent, since nothing else reaches them
@@ -298,6 +305,10 @@ def request_transition(
         if is_assignment_attempt
         else (False, False)
     )
+    is_completion_attempt = from_state is TicketState.IN_QA and to_state is TicketState.DONE
+    has_merged_queue_entry = (
+        _has_merged_queue_entry(session, ticket, org_id=org_id) if is_completion_attempt else True
+    )
 
     transition_request = state_machine.TransitionRequest(
         from_state=from_state,
@@ -315,6 +326,7 @@ def request_transition(
         assignee_agent=assignee_agent,
         profile_at_capacity=profile_at_capacity,
         repo_at_capacity=repo_at_capacity,
+        has_merged_queue_entry=has_merged_queue_entry,
     )
 
     try:
@@ -505,14 +517,104 @@ def update_task(
     return ticket
 
 
+class MergeQueueEntryNotFound(Exception):
+    def __init__(self, entry_id: int) -> None:
+        self.entry_id = entry_id
+        super().__init__(f"merge queue entry {entry_id} not found")
+
+
+def enqueue_for_merge(session: Session, ticket_id: str, *, org_id: str) -> MergeQueueEntry:
+    """SPEC-106: CI-green no longer completes a ticket by itself — it enqueues a
+    real FIFO slot instead. The merge-queue processor (apps/orchestrator's
+    merge_queue.py) is what actually rebases, retests, merges, and transitions the
+    ticket to `done` (or `bounced` on a rebase conflict)."""
+    ticket = get_ticket(session, ticket_id, org_id=org_id)
+    repo_str = (ticket.spec or {}).get("repo", DEFAULT_REPO)
+    if not isinstance(repo_str, str):
+        repo_str = DEFAULT_REPO
+    entry = repo.create_merge_queue_entry(
+        session, org_id=org_id, ticket_id=ticket_id, repo=repo_str
+    )
+    session.commit()
+    return entry
+
+
+def list_queued_merge_queue_entries(
+    session: Session, *, org_id: str, repo_name: str
+) -> list[MergeQueueEntry]:
+    return repo.list_queued_merge_queue_entries(session, org_id=org_id, repo=repo_name)
+
+
+def _get_merge_queue_entry(session: Session, entry_id: int, *, org_id: str) -> MergeQueueEntry:
+    entry = repo.get_merge_queue_entry(session, entry_id, org_id=org_id)
+    if entry is None:
+        raise MergeQueueEntryNotFound(entry_id)
+    return entry
+
+
+def resolve_merge_success(session: Session, entry_id: int, *, org_id: str, actor: str) -> Ticket:
+    entry = _get_merge_queue_entry(session, entry_id, org_id=org_id)
+    repo.resolve_merge_queue_entry(session, entry, status=MergeQueueStatus.MERGED)
+    session.commit()
+    return request_transition(
+        session, entry.ticket_id, TicketState.DONE, actor=actor, org_id=org_id
+    )
+
+
+def resolve_merge_conflict(
+    session: Session,
+    entry_id: int,
+    *,
+    org_id: str,
+    actor: str,
+    conflicting_paths: list[str],
+) -> Ticket:
+    entry = _get_merge_queue_entry(session, entry_id, org_id=org_id)
+    ticket = get_ticket(session, entry.ticket_id, org_id=org_id)
+    repo.resolve_merge_queue_entry(session, entry, status=MergeQueueStatus.CONFLICT)
+
+    report = FailureReport(
+        ticket_id=entry.ticket_id,
+        failing_suite="conflict",
+        failing_tests=[],
+        expected_vs_actual=(
+            f"rebase onto the target branch conflicted in: {', '.join(conflicting_paths)}"
+        ),
+        suspect_files=conflicting_paths,
+        attempt_no=min(max(ticket.bounce_count + 1, 1), 3),
+    )
+    repo.append_event(
+        session,
+        org_id=org_id,
+        ticket_id=entry.ticket_id,
+        actor=actor,
+        kind=EventKind.TEST_RESULT,
+        payload={"conclusion": "rebase_conflict", "failure_report": report.model_dump()},
+    )
+    session.commit()
+    return request_transition(
+        session, entry.ticket_id, TicketState.BOUNCED, actor=actor, org_id=org_id
+    )
+
+
+def tickets_done_without_merge_queue_entry(session: Session, *, org_id: str) -> list[str]:
+    return repo.tickets_done_without_merge_queue_entry(session, org_id=org_id)
+
+
 __all__ = [
     "TicketNotFound",
     "TransitionRefused",
+    "MergeQueueEntryNotFound",
     "create_ticket",
     "get_ticket",
     "get_ticket_with_recent_events",
     "list_tickets",
     "list_events",
+    "enqueue_for_merge",
+    "list_queued_merge_queue_entries",
+    "resolve_merge_success",
+    "resolve_merge_conflict",
+    "tickets_done_without_merge_queue_entry",
     "record_event",
     "request_transition",
     "record_approval",

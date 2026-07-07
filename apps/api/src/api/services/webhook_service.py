@@ -47,9 +47,11 @@ def handle_ci_result(
         raise TicketNotInQA(ticket_id, ticket.state)
 
     if conclusion == "success":
-        return ticket_service.request_transition(
-            session, ticket_id, TicketState.DONE, actor=CI_ACTOR, org_id=org_id
-        )
+        # SPEC-106: CI-green no longer completes a ticket directly — it enqueues a
+        # real FIFO merge-queue slot; the ticket stays `in_qa` until the queue
+        # processor actually rebases, retests, and merges it.
+        ticket_service.enqueue_for_merge(session, ticket_id, org_id=org_id)
+        return ticket_service.get_ticket(session, ticket_id, org_id=org_id)
 
     attempt_no = ticket.bounce_count + 1
     report = failure_distiller.distill(

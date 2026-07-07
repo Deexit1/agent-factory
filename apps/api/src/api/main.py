@@ -13,6 +13,7 @@ from api.routers import (
     capability_registry,
     dashboard,
     health,
+    merge_queue,
     tickets,
     webhooks,
     ws_tickets,
@@ -52,3 +53,4 @@ app.include_router(webhooks.router)
 app.include_router(dashboard.router)
 app.include_router(ws_tickets.router)
 app.include_router(capability_registry.router)
+app.include_router(merge_queue.router)

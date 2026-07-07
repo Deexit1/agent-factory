@@ -148,5 +148,42 @@ class ApiClient:
         response.raise_for_status()
         return response.json()["items"]  # type: ignore[no-any-return]
 
+    def report_ci_result(
+        self, ticket_id: str, *, conclusion: str, suite: str = "", raw_log: str = ""
+    ) -> dict[str, Any]:
+        response = self._client.post(
+            "/webhooks/ci-result",
+            json={
+                "ticket_id": ticket_id,
+                "conclusion": conclusion,
+                "suite": suite,
+                "raw_log": raw_log,
+            },
+        )
+        response.raise_for_status()
+        return response.json()  # type: ignore[no-any-return]
+
+    def list_merge_queue_entries(self, *, repo: str) -> list[dict[str, Any]]:
+        response = self._client.get("/merge-queue", params={"repo": repo})
+        response.raise_for_status()
+        return response.json()["items"]  # type: ignore[no-any-return]
+
+    def resolve_merge_success(self, entry_id: int, *, actor: str) -> dict[str, Any]:
+        response = self._client.post(
+            f"/merge-queue/{entry_id}/merge", json={"actor": actor}
+        )
+        response.raise_for_status()
+        return response.json()  # type: ignore[no-any-return]
+
+    def resolve_merge_conflict(
+        self, entry_id: int, *, actor: str, conflicting_paths: list[str]
+    ) -> dict[str, Any]:
+        response = self._client.post(
+            f"/merge-queue/{entry_id}/conflict",
+            json={"actor": actor, "conflicting_paths": conflicting_paths},
+        )
+        response.raise_for_status()
+        return response.json()  # type: ignore[no-any-return]
+
     def close(self) -> None:
         self._client.close()

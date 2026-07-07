@@ -43,6 +43,9 @@ class TransitionRequest:
     assignee_agent: str | None = None
     profile_at_capacity: bool = False
     repo_at_capacity: bool = False
+    # Merge queue gate (SPEC-106), computed by the service layer — state_machine.py
+    # stays a pure function, no I/O.
+    has_merged_queue_entry: bool = True
 
 
 class TransitionRejected(Exception):
@@ -142,6 +145,10 @@ def _check_guard(request: TransitionRequest) -> None:
         if request.bounce_count >= MAX_BOUNCES:
             raise TransitionRejected(
                 f"bounce_count reached the max ({MAX_BOUNCES}); ticket must be escalated, not done"
+            )
+        if not request.has_merged_queue_entry:
+            raise TransitionRejected(
+                "ticket has no merged queue entry; CI-green alone does not complete a ticket"
             )
 
     if request.to_state is TicketState.BOUNCED and request.from_state in (

@@ -45,6 +45,12 @@ status, tokens_in, tokens_out, cost_usd, trace_id` (links to Langfuse).
 ## approvals
 `id, ticket_id, gate (idea|budget|deploy|escalation|review), decided_by, decision, note, ts`.
 
+## merge_queue_entries (T-107)
+`id, ticket_id, repo, status (queued|merged|conflict), enqueued_at, resolved_at` — one
+FIFO slot per ticket whose CI went green. `in_qa -> done` requires a `merged` row here;
+CI-green alone only creates a `queued` one. Written by `apps/orchestrator`'s
+`merge_queue.py` after a real rebase-and-retest, not by the CI webhook directly.
+
 ## artifacts
 `id, ticket_id, kind (diff|ci_log|trace|coverage), s3_key, ts`.
 

@@ -5,6 +5,7 @@ import json
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from schemas import DEFAULT_REPO
 
 from .test_tickets_api import _create_task, _transition
 
@@ -33,13 +34,31 @@ def _post_ci_result(
     return client.post("/webhooks/ci-result", content=body, headers=headers)
 
 
-def test_green_pipeline_transitions_ticket_to_done(client: TestClient) -> None:
+def test_green_pipeline_enqueues_for_merge_instead_of_completing_directly(
+    client: TestClient,
+) -> None:
+    """SPEC-106: CI-green alone no longer completes a ticket — it enqueues a real
+    FIFO merge-queue slot; the ticket stays `in_qa` until the queue processor
+    actually merges it."""
     ticket_id = _ready_ticket_in_qa(client)
 
     response = _post_ci_result(client, {"ticket_id": ticket_id, "conclusion": "success"})
 
     assert response.status_code == 200, response.text
-    assert response.json()["state"] == "done"
+    assert response.json()["state"] == "in_qa"
+
+    queued = client.get("/merge-queue", params={"repo": DEFAULT_REPO}).json()["items"]
+    entry = next(e for e in queued if e["ticket_id"] == ticket_id)
+    assert entry["status"] == "queued"
+
+    # Direct done attempts are refused — only the merge-queue endpoint can complete it.
+    assert _transition(client, ticket_id, "done").status_code == 409
+
+    merged = client.post(
+        f"/merge-queue/{entry['id']}/merge", json={"actor": "system:merge-queue"}
+    )
+    assert merged.status_code == 200, merged.text
+    assert merged.json()["state"] == "done"
 
 
 def test_red_pipeline_bounces_with_failure_report_matching_ci_log(client: TestClient) -> None:

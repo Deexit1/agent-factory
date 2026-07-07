@@ -7,7 +7,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from .test_idea_planning_workflow import _approve_budget, _create_epic, _create_idea, _create_task
-from .test_tickets_api import _dev_login, _transition
+from .test_tickets_api import _complete_via_merge_queue, _dev_login, _transition
 
 
 def _ready_task(
@@ -65,7 +65,7 @@ def test_dependent_task_cannot_start_before_its_dependency_is_done(client: TestC
     assert _transition(client, task_a["id"], "in_progress").status_code == 200
     assert _transition(client, task_a["id"], "in_review").status_code == 200
     assert _transition(client, task_a["id"], "in_qa").status_code == 200
-    assert _transition(client, task_a["id"], "done").status_code == 200
+    assert _complete_via_merge_queue(client, task_a["id"]).status_code == 200
 
     # Now B can start.
     assert _transition(client, task_b["id"], "in_progress").status_code == 200

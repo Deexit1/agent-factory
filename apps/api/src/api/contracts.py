@@ -8,6 +8,7 @@ from api.db.models import (
     ApprovalDecision,
     ApprovalGate,
     EventKind,
+    MergeQueueStatus,
     TicketState,
     TicketType,
     UserRole,
@@ -223,6 +224,30 @@ class ProfileUtilisationOut(BaseModel):
 
 class UtilisationOut(BaseModel):
     items: list[ProfileUtilisationOut]
+
+
+class MergeQueueEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ticket_id: str
+    repo: str
+    status: MergeQueueStatus
+    enqueued_at: datetime
+    resolved_at: datetime | None
+
+
+class MergeQueueListOut(BaseModel):
+    items: list[MergeQueueEntryOut]
+
+
+class MergeConflictIn(BaseModel):
+    actor: str
+    conflicting_paths: list[str] = Field(default_factory=list)
+
+
+class MergeSuccessIn(BaseModel):
+    actor: str
 
 
 class EscapedDefectReportIn(BaseModel):

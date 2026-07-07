@@ -1,6 +1,7 @@
 from typing import Any
 
 from fastapi.testclient import TestClient
+from schemas import DEFAULT_REPO
 
 
 def _create_task(
@@ -36,6 +37,24 @@ def _dev_login(client: TestClient, email: str, role: str) -> str:
     response = client.post("/auth/dev-login", json={"email": email, "role": role})
     assert response.status_code == 200, response.text
     return response.json()["token"]  # type: ignore[no-any-return]
+
+
+def _complete_via_merge_queue(
+    client: TestClient, ticket_id: str, *, repo: str = DEFAULT_REPO
+) -> Any:
+    """SPEC-106: CI-green only enqueues a ticket now — this drives it the rest of
+    the way to `done` through the real merge-queue endpoints, standing in for
+    apps/orchestrator's merge_queue.py in tests that don't need the real git/gh
+    mechanics, just the end state."""
+    ci_response = client.post(
+        "/webhooks/ci-result", json={"ticket_id": ticket_id, "conclusion": "success"}
+    )
+    assert ci_response.status_code == 200, ci_response.text
+    queued = client.get("/merge-queue", params={"repo": repo}).json()["items"]
+    entry = next(e for e in queued if e["ticket_id"] == ticket_id)
+    return client.post(
+        f"/merge-queue/{entry['id']}/merge", json={"actor": "system:merge-queue"}
+    )
 
 
 def test_create_task_with_empty_acceptance_criteria_fails_422(client: TestClient) -> None:
@@ -81,8 +100,8 @@ def test_ready_to_in_progress_to_in_review_to_in_qa_to_done_writes_one_event_eac
     assert _transition(client, ticket_id, "in_progress").status_code == 200
     assert _transition(client, ticket_id, "in_review").status_code == 200
     assert _transition(client, ticket_id, "in_qa").status_code == 200
-    done_response = _transition(client, ticket_id, "done")
-    assert done_response.status_code == 200
+    done_response = _complete_via_merge_queue(client, ticket_id)
+    assert done_response.status_code == 200, done_response.text
     assert done_response.json()["state"] == "done"
 
     events = client.get(f"/tickets/{ticket_id}/events").json()

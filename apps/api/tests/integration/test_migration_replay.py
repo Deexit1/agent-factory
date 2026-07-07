@@ -22,6 +22,8 @@ from testcontainers.postgres import PostgresContainer
 from api.db.session import get_db, make_session_factory
 from api.main import app
 
+from .test_tickets_api import _complete_via_merge_queue
+
 API_DIR = Path(__file__).resolve().parents[2]
 PRE_T102_REVISION = "0cf581260d39"
 
@@ -90,10 +92,12 @@ def test_phase1_ticket_survives_migration_and_replays_through_new_machine(
             assert get_response.status_code == 200
             assert get_response.json()["state"] == "ready"
 
-            for to_state in ("in_progress", "in_review", "in_qa", "done"):
+            for to_state in ("in_progress", "in_review", "in_qa"):
                 body = {"to_state": to_state, "actor": "human:alice"}
                 response = client.post("/tickets/T-PHASE1/transition", json=body)
                 assert response.status_code == 200, response.text
+
+            assert _complete_via_merge_queue(client, "T-PHASE1").status_code == 200
 
             final = client.get("/tickets/T-PHASE1")
             assert final.json()["state"] == "done"

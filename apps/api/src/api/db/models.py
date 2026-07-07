@@ -62,6 +62,12 @@ class ApprovalDecision(StrEnum):
     REJECTED = "rejected"
 
 
+class MergeQueueStatus(StrEnum):
+    QUEUED = "queued"
+    MERGED = "merged"
+    CONFLICT = "conflict"
+
+
 class AgentRunStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
@@ -178,6 +184,26 @@ class User(Base):
     org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
     role: Mapped[UserRole] = mapped_column(_pg_enum(UserRole, "user_role"), default=UserRole.VIEWER)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class MergeQueueEntry(Base):
+    """SPEC-106: one FIFO slot per ticket whose CI went green. `in_qa -> done` is
+    gated on a `merged` entry existing for the ticket (T-107) — CI-green alone no
+    longer completes a ticket; the merge-queue processor
+    (apps/orchestrator/src/orchestrator/merge_queue.py) does, after a real
+    rebase-and-retest against the target branch."""
+
+    __tablename__ = "merge_queue_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
+    ticket_id: Mapped[str] = mapped_column(ForeignKey("tickets.id"))
+    repo: Mapped[str] = mapped_column()
+    status: Mapped[MergeQueueStatus] = mapped_column(
+        _pg_enum(MergeQueueStatus, "merge_queue_status"), default=MergeQueueStatus.QUEUED
+    )
+    enqueued_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
 
 class EscapedDefectReport(Base):
