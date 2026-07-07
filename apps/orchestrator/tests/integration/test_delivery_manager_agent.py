@@ -11,6 +11,7 @@ import re
 import urllib.request
 
 import pytest
+from schemas import DEFAULT_REPO
 
 from orchestrator.agents import delivery_manager as delivery_manager_module
 from orchestrator.agents.delivery_manager import run_delivery_manager_agent
@@ -86,10 +87,15 @@ def _finish_task(api: ApiClient, ticket_id: str) -> None:
     wide resource (tests run against one long-lived Postgres), so tests that
     deliberately fill capacity must release it or later tests in this file would
     see stale utilisation. T-106: in_review -> in_qa now requires a review-agent or
-    human actor, not just anyone."""
+    human actor, not just anyone. T-107: CI-green only enqueues a merge-queue slot
+    now — done requires actually resolving it, standing in for a real merge_queue.py
+    run since these tests don't need real git/gh mechanics, just the end state."""
     api.transition(ticket_id, to_state="in_review")
     api.transition(ticket_id, to_state="in_qa", actor="agent:review-1")
-    api.transition(ticket_id, to_state="done")
+    api.report_ci_result(ticket_id, conclusion="success")
+    entries = api.list_merge_queue_entries(repo=DEFAULT_REPO)
+    entry = next(e for e in entries if e["ticket_id"] == ticket_id)
+    api.resolve_merge_success(entry["id"], actor="system:merge-queue")
 
 
 def _ready_task(

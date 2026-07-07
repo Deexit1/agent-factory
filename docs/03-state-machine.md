@@ -22,8 +22,8 @@ in_progress → in_review → in_qa → done` plus `bounced`, `escalated`, `bloc
 | in_progress | in_review | dev agent opens PR | diff non-empty |
 | in_review | in_qa | Review agent approves OR human overrides | review comments recorded |
 | in_review | bounced | Review agent blocks | bounce_count < 3; review notes attached as FailureReport(kind=review) |
-| in_qa | done | ALL CI suites pass | merge-queue slot acquired; human deploy gate still applies |
-| in_qa | bounced | any CI suite fails | bounce_count < 3; FailureReport attached |
+| in_qa | done | merge-queue processor merges the PR | CI-green alone only enqueues a `merge_queue_entries` row (T-107); `done` requires a real `merged` entry, written after a genuine rebase-and-retest against the target branch — human deploy gate still applies |
+| in_qa | bounced | any CI suite fails, OR a queue rebase conflicts | bounce_count < 3; FailureReport attached (`kind=conflict` for a rebase conflict, shares the same bounce_count) |
 | bounced | in_progress | orchestrator | same agent profile, FailureReport injected |
 | bounced | in_qa | HUMAN | overrides a review-block bounce straight into QA; records an `Approval(gate=review)` row |
 | in_review / in_qa | escalated | block/fail | bounce_count == 3 |

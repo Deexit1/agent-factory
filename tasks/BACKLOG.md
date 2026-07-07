@@ -312,9 +312,79 @@ callable entry points, not auto-triggered). No retry-loop reconstructs a
 FailureReport from a review-block event to automatically re-invoke the dev
 agent — matches the existing QA-bounce gap.
 
-## T-107 · Merge queue + parallelism — `ready`
+## T-107 · Merge queue + parallelism — `done` (software mechanism; infra deferred — see below)
 **Spec:** SPEC-106  **Est:** L
-All five criteria apply. Requires T-104.
+`in_qa -> done` was a bare state flip before this task — CI-green transitioned a
+ticket straight to `done` with zero git operation anywhere in the codebase; the
+doc's own "merge-queue slot acquired" guard text had no code behind it. New
+`merge_queue_entries` table (`queued`/`merged`/`conflict`) + a real home-grown
+FIFO processor (`apps/orchestrator/src/orchestrator/merge_queue.py`) that clones
+each queued ticket's `agent/{ticket_id}` branch, rebases it onto the target
+branch for real, and either force-pushes + merges (via a new
+`GitHubClient.merge_pr`) or bounces with a `FailureReport(failing_suite=
+"conflict")` — bounce_count shared with QA failures, matching the existing
+review-block precedent (T-106). `apps/api`'s `IN_QA -> DONE` guard now requires
+a real `merged` queue entry; `handle_ci_result`'s success path enqueues instead
+of completing directly.
+**Acceptance criteria**
+- [x] Two tickets editing the same file: first merges; second gets a conflict
+      bounce and succeeds after agent rebase — verified with REAL git
+      operations (no mocked git, no real GitHub — `FakeGitHubClient.merge_pr`
+      performs an actual git push to simulate what GitHub's merge would do,
+      since proving a second ticket's rebase genuinely conflicts against a
+      first ticket's real merge is the whole point):
+      `apps/orchestrator/tests/integration/test_merge_queue.py::test_two_tickets_editing_the_same_file_first_merges_second_conflicts_then_succeeds`
+- [x] No ticket reaches `done` without a queue entry (audit query returns zero
+      violations) — verified:
+      `apps/api/tests/integration/test_merge_queue_api.py::test_audit_query_is_clean_after_a_real_merge_queue_completion`
+      and `test_audit_query_catches_a_done_ticket_with_no_merge_queue_entry`
+      (real fault injection: a `done` ticket with no queue entry at all is
+      caught by `ticket_service.tickets_done_without_merge_queue_entry`)
+- [x] Concurrency limit 3 with 5 ready tickets → exactly 3 sandboxes ("sandboxes"
+      = concurrently in_progress tickets on one repo, the existing T-104
+      `repo_concurrency_limit` mechanism — see Known gaps) exist — verified:
+      `apps/api/tests/integration/test_merge_queue_api.py::test_repo_concurrency_limit_defers_two_of_five_ready_tickets`
+      (5 tickets assigned across 4 *different* profiles so no single profile's
+      own `max_parallel` is what blocks anything — isolates the repo-wide limit
+      as the actual gate). This test uncovered and fixed a REAL pre-existing
+      bug: `count_in_progress_by_repo`'s query matched `Ticket.spec["repo"]`
+      literally, so a ticket with no `spec` at all (the common case) was
+      invisible to it — Postgres JSONB path access on a NULL column is NULL,
+      not a match, silently undercounting to zero. Fixed with `COALESCE(...,
+      DEFAULT_REPO)`, matching `ticket_service`'s own fallback logic.
+- [x] Load test completes with all 5 tickets `done`/`escalated`, zero orphaned
+      scratch directories — verified:
+      `test_merge_queue.py::test_load_five_tickets_three_independent_two_conflicting`
+      (3 independent tickets + 2 sharing a file, real conflict-then-resolve
+      cycle, real git fixture repos). Hit and fixed a real Windows-specific bug
+      along the way: `shutil.rmtree(..., ignore_errors=True)` silently leaves
+      git's read-only object files behind instead of raising — fixed with an
+      `onexc` callback that clears the read-only bit before retrying.
+- [ ] Terraform apply from a clean state brings up both runners unattended —
+      **not attempted this task, disclosed, not silently dropped.** See "Part B
+      (deferred)" below.
+
+Known gaps, disclosed:
+- **Part B (deferred): real infra.** No Terraform/Ansible for a second
+  self-hosted GitHub Actions runner VM, and no real Grafana queue-wait-time
+  dashboard — both require real cloud credentials and a real Grafana instance
+  this dev environment doesn't have. The user was shown this split explicitly
+  before work began and chose to scope this PR to the software mechanism only,
+  logging the infra half as a future follow-up once real infra access exists —
+  same reasoning as T-105 deferring real sandbox images and T-106 deferring
+  real Semgrep integration.
+- **Not using GitHub's native merge-queue feature or a bors-style bot** — that
+  needs GitHub org/repo admin configuration this session has no reason to
+  assume exists. The orchestrator's own FIFO `run_merge_queue` is the real,
+  disclosed substitute (docs/06-tech-stack.md's "Merge safety" row updated to
+  say so plainly).
+- **"Sandboxes" (AC3) == "concurrently in_progress tickets on one repo"**, not
+  literal Docker containers — `apps/sandbox` still isn't wired into the
+  dev-agent path at all (T-105's own disclosed gap); closing that is a
+  separate piece of work, out of scope here.
+- No auto-dispatch loop invoking `run_merge_queue` on a timer/webhook — matches
+  every other agent in this repo (Planner/Delivery Manager/dev agent/Review
+  agent are all callable entry points, not auto-triggered).
 
 ## T-108 · Cost ledger v2 — `ready`
 **Spec:** docs/02-data-model.md  **Est:** S

@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+from schemas import DEFAULT_REPO
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -8,6 +9,8 @@ from api.db.models import (
     ApprovalDecision,
     ApprovalGate,
     EventKind,
+    MergeQueueEntry,
+    MergeQueueStatus,
     Ticket,
     TicketEvent,
     TicketState,
@@ -142,13 +145,19 @@ def count_in_progress_by_assignee(session: Session, *, org_id: str, assignee_age
 
 
 def count_in_progress_by_repo(session: Session, *, org_id: str, repo: str) -> int:
+    # A ticket with no `spec` (or no `spec.repo`) at all is NOT invisible to this
+    # count — it defaults to DEFAULT_REPO (matching ticket_service._capacity_fields'
+    # own fallback), same as any ticket that explicitly names it. Without the
+    # COALESCE, Postgres JSONB path access on a NULL spec column is NULL, not a
+    # match, silently undercounting the common no-spec case to zero.
+    repo_expr = func.coalesce(Ticket.spec["repo"].astext, DEFAULT_REPO)
     return session.execute(
         select(func.count())
         .select_from(Ticket)
         .where(
             Ticket.org_id == org_id,
             Ticket.state == TicketState.IN_PROGRESS,
-            Ticket.spec["repo"].astext == repo,
+            repo_expr == repo,
         )
     ).scalar_one()
 
@@ -239,6 +248,93 @@ def list_events(
         .all()
     )
     return list(items), total
+
+
+def create_merge_queue_entry(
+    session: Session, *, org_id: str, ticket_id: str, repo: str
+) -> MergeQueueEntry:
+    entry = MergeQueueEntry(
+        org_id=org_id,
+        ticket_id=ticket_id,
+        repo=repo,
+        status=MergeQueueStatus.QUEUED,
+        enqueued_at=datetime.now(UTC),
+    )
+    session.add(entry)
+    session.flush()
+    return entry
+
+
+def list_queued_merge_queue_entries(
+    session: Session, *, org_id: str, repo: str
+) -> list[MergeQueueEntry]:
+    return list(
+        session.execute(
+            select(MergeQueueEntry)
+            .where(
+                MergeQueueEntry.org_id == org_id,
+                MergeQueueEntry.repo == repo,
+                MergeQueueEntry.status == MergeQueueStatus.QUEUED,
+            )
+            .order_by(MergeQueueEntry.enqueued_at, MergeQueueEntry.id)
+        )
+        .scalars()
+        .all()
+    )
+
+
+def get_merge_queue_entry(
+    session: Session, entry_id: int, *, org_id: str
+) -> MergeQueueEntry | None:
+    entry = session.get(MergeQueueEntry, entry_id)
+    if entry is None or entry.org_id != org_id:
+        return None
+    return entry
+
+
+def resolve_merge_queue_entry(
+    session: Session, entry: MergeQueueEntry, *, status: MergeQueueStatus
+) -> MergeQueueEntry:
+    entry.status = status
+    entry.resolved_at = datetime.now(UTC)
+    session.flush()
+    return entry
+
+
+def has_merged_queue_entry(session: Session, ticket_id: str, *, org_id: str) -> bool:
+    return (
+        session.execute(
+            select(func.count())
+            .select_from(MergeQueueEntry)
+            .where(
+                MergeQueueEntry.org_id == org_id,
+                MergeQueueEntry.ticket_id == ticket_id,
+                MergeQueueEntry.status == MergeQueueStatus.MERGED,
+            )
+        ).scalar_one()
+        > 0
+    )
+
+
+def tickets_done_without_merge_queue_entry(session: Session, *, org_id: str) -> list[str]:
+    """AC2's audit query: every `done` ticket must have a `merged` queue entry —
+    this returns the ids of any that don't (should always be empty in practice;
+    a non-empty result is a real invariant violation, not just a warning)."""
+    merged_ticket_ids = (
+        select(MergeQueueEntry.ticket_id)
+        .where(
+            MergeQueueEntry.org_id == org_id, MergeQueueEntry.status == MergeQueueStatus.MERGED
+        )
+        .scalar_subquery()
+    )
+    rows = session.execute(
+        select(Ticket.id).where(
+            Ticket.org_id == org_id,
+            Ticket.state == TicketState.DONE,
+            Ticket.id.not_in(merged_ticket_ids),
+        )
+    ).scalars().all()
+    return list(rows)
 
 
 def create_approval(

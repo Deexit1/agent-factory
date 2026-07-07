@@ -21,6 +21,7 @@ def _request(
     assignee_agent: str | None = None,
     profile_at_capacity: bool = False,
     repo_at_capacity: bool = False,
+    has_merged_queue_entry: bool = True,
 ) -> TransitionRequest:
     return TransitionRequest(
         from_state=from_state,
@@ -38,6 +39,7 @@ def _request(
         assignee_agent=assignee_agent,
         profile_at_capacity=profile_at_capacity,
         repo_at_capacity=repo_at_capacity,
+        has_merged_queue_entry=has_merged_queue_entry,
     )
 
 
@@ -83,6 +85,17 @@ def test_ready_to_in_progress_requires_positive_budget() -> None:
 def test_in_qa_to_done_refused_once_bounce_count_maxed() -> None:
     with pytest.raises(TransitionRejected):
         validate_transition(_request(TicketState.IN_QA, TicketState.DONE, bounce_count=3))
+
+
+def test_in_qa_to_done_refused_without_a_merged_queue_entry() -> None:
+    with pytest.raises(TransitionRejected, match="merge"):
+        validate_transition(
+            _request(TicketState.IN_QA, TicketState.DONE, has_merged_queue_entry=False)
+        )
+
+    validate_transition(
+        _request(TicketState.IN_QA, TicketState.DONE, has_merged_queue_entry=True)
+    )
 
 
 def test_in_qa_to_bounced_allowed_below_max_and_refused_at_max() -> None:

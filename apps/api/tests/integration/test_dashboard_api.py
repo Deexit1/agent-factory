@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from .test_tickets_api import _create_task, _transition
+from .test_tickets_api import _complete_via_merge_queue, _create_task, _transition
 
 
 def _backdate_created_at(db_session: Session, ticket_id: str, hours_ago: float) -> None:
@@ -44,7 +44,7 @@ def _close_ticket(
         assert _transition(client, ticket_id, "in_progress").status_code == 200
     assert _transition(client, ticket_id, "in_review").status_code == 200
     assert _transition(client, ticket_id, "in_qa").status_code == 200
-    assert _transition(client, ticket_id, "done").status_code == 200
+    assert _complete_via_merge_queue(client, ticket_id).status_code == 200
 
     _record_cost(client, ticket_id, cost_usd)
     return ticket_id

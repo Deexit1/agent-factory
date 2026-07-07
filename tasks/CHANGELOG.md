@@ -1054,3 +1054,104 @@ Format:
   board UI for the human-override button — exercised via the existing
   `/tickets/{id}/approve` + `/tickets/{id}/transition` endpoints only, same
   as every gate before a board button existed for it.
+
+## T-107 · Merge queue + parallelism — 2026-07-06
+- What changed: `in_qa -> done` was a bare state flip before this task —
+  `webhook_service.handle_ci_result`'s success path transitioned straight to
+  `done` with zero git operation; `docs/03-state-machine.md`'s own
+  "merge-queue slot acquired" guard text had no code behind it. New
+  `merge_queue_entries` table (`queued`/`merged`/`conflict`,
+  `MergeQueueStatus`) — CI-green now only creates a `queued` row
+  (`ticket_service.enqueue_for_merge`); the ticket stays `in_qa`. New
+  `apps/orchestrator/src/orchestrator/merge_queue.py`: a callable entry point
+  (`run_merge_queue`, no auto-dispatch — matches Planner/Delivery
+  Manager/dev agent/Review agent's own precedent) that processes one repo's
+  queued entries strictly in FIFO order — the ordering itself is the
+  serialization, no locking primitive needed since the orchestrator drives
+  entries one at a time. Per entry: fresh clone of `agent/{ticket_id}`
+  (matching `agents/dev.py`'s own branch-naming convention), a REAL
+  `git_ops.rebase_onto()` (new — the one `git_ops` function that deliberately
+  does NOT raise on a non-zero git exit, since a conflict is an expected
+  outcome, not a bug) onto the target branch. Success: force-push + a new
+  `GitHubClient.merge_pr()` (new method, alongside `get_pr_for_branch`),
+  `apps/api`'s `IN_QA -> DONE` guard now genuinely requires a `has_merged_
+  queue_entry` (a new service-computed `TransitionRequest` field, same
+  pattern as every other gate since T-102). Conflict: aborts the rebase,
+  reports the real conflicting paths (`git diff --name-only
+  --diff-filter=U`), records a `FailureReport(failing_suite="conflict",
+  suspect_files=<conflicting paths>)` and bounces — bounce_count shared with
+  QA failures, reusing `FailureReport`'s generic fields exactly like T-106's
+  `failing_suite="review"` precedent (no schema change needed). AC2's audit
+  query (`ticket_repository.tickets_done_without_merge_queue_entry`) proves
+  the invariant holds by joining `tickets(state=done)` against
+  `merge_queue_entries(status=merged)`.
+- Two real, pre-existing bugs found and fixed while building the tests that
+  actually exercise these mechanisms for the first time (both are latent gaps
+  from earlier tasks, not introduced here):
+  1. `ticket_repository.count_in_progress_by_repo` (T-104) matched
+     `Ticket.spec["repo"]` literally — a ticket with no `spec` at all (the
+     common case; most tickets in this repo's own test suite) was invisible
+     to the query, since Postgres JSONB path access on a NULL column returns
+     NULL, not a match, silently undercounting to zero. This meant the
+     `repo_concurrency_limit` gate (AC3, `capability_registry.yaml`) never
+     actually fired for any ticket without an explicit `spec.repo` — writing
+     the first real "5 ready tickets, exactly 3 succeed" integration test
+     (rather than a unit test with a mocked bool) is what surfaced it. Fixed
+     with `COALESCE(Ticket.spec["repo"].astext, DEFAULT_REPO)`, matching
+     `ticket_service._capacity_fields`'s own existing fallback logic exactly.
+  2. `shutil.rmtree(scratch, ignore_errors=True)` silently left git's
+     read-only object files behind on Windows instead of actually removing
+     them or raising — the "zero orphaned scratch directories" load-test
+     assertion caught this immediately. Fixed with an `onexc` callback
+     (`os.chmod(path, stat.S_IWRITE)` then retry), a well-known Windows
+     git-cleanup workaround.
+- Files touched: `apps/api/src/api/db/models.py` (`MergeQueueStatus`,
+  `MergeQueueEntry`) + migration, `apps/api/src/api/repositories/
+  ticket_repository.py` (merge-queue CRUD + the audit query + the
+  `count_in_progress_by_repo` COALESCE fix), `apps/api/src/api/services/
+  {ticket_service.py, webhook_service.py}`, `apps/api/src/api/domain/
+  state_machine.py` (+2 unit tests), `apps/api/src/api/{contracts.py,
+  routers/merge_queue.py, main.py}` (new router), `apps/api/tests/
+  integration/{test_merge_queue_api.py (new, 4 tests), test_tickets_api.py
+  (`_complete_via_merge_queue` helper), test_ci_webhook_api.py,
+  test_dashboard_api.py, test_delivery_manager_gates.py,
+  test_migration_replay.py}` (all updated to route through the real
+  merge-queue endpoints instead of a direct `done` transition),
+  `apps/orchestrator/src/orchestrator/{git_ops.py (`rebase_onto`,
+  `force_push`, `clone_branch`), github_client.py (`merge_pr`,
+  `get_pr_for_branch`, + `FakeGitHubClient`'s real-git-push simulation),
+  api_client.py, merge_queue.py (new)}`, `apps/orchestrator/tests/
+  integration/{test_merge_queue.py (new, 2 tests), test_delivery_manager_
+  agent.py (`_finish_task` now drives the real CI-webhook + merge-queue
+  path)}`, `docs/{02-data-model.md, 03-state-machine.md,
+  06-tech-stack.md}`.
+- Test evidence: `apps/api` 103/103, up from 98 (5 new: 1 state-machine unit
+  test + 4 in the new `test_merge_queue_api.py`; several existing tests in
+  `test_ci_webhook_api.py`/`test_dashboard_api.py`/
+  `test_delivery_manager_gates.py`/`test_migration_replay.py`/
+  `test_tickets_api.py` updated to route through the real merge-queue
+  endpoints instead of a direct `done` transition) against a real Postgres
+  testcontainer; ruff/mypy clean. `apps/orchestrator` 62/62 (2 new
+  `test_merge_queue.py` tests using REAL local git fixture repos — no
+  mocked git, no real GitHub) against a real Postgres + live `apps/api`;
+  ruff/mypy clean. `packages/schemas`, `packages/llm_router` unaffected
+  (22/22, 6/6). `apps/web`: no code changes; not re-verified this task (no
+  wire-format change).
+- Notes / follow-ups: **Part B (real infra) deliberately not attempted** —
+  Terraform/Ansible for a second self-hosted GitHub Actions runner VM, and a
+  real Grafana queue-wait-time dashboard, both require real cloud
+  credentials and a real Grafana instance this dev environment doesn't
+  have. The user was shown this split explicitly before implementation
+  began (software mechanism vs. infra deliverables) and chose to scope this
+  PR to the mechanism only — the infra half is logged as a future follow-up,
+  not silently dropped, matching how T-105 deferred real sandbox images and
+  T-106 deferred real Semgrep integration. Not using GitHub's native
+  merge-queue feature or a bors-style bot (needs GitHub org/repo admin
+  configuration this session has no reason to assume exists) — the
+  orchestrator's own FIFO processor is the disclosed substitute. AC3's
+  "sandboxes" is interpreted as "concurrently in_progress tickets on one
+  repo" (the existing T-104 mechanism), not literal Docker containers —
+  `apps/sandbox` still isn't wired into the dev-agent path at all (T-105's
+  own disclosed gap), closing that is separate work. No auto-dispatch loop
+  invokes `run_merge_queue` on a timer/webhook, matching every other agent
+  in this repo.
