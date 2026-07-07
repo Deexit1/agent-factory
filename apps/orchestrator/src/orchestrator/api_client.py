@@ -154,6 +154,11 @@ class ApiClient:
         response.raise_for_status()
         return response.json()  # type: ignore[no-any-return]
 
+    def cost_rollup(self, ticket_id: str) -> dict[str, Any]:
+        response = self._client.get(f"/tickets/{ticket_id}/cost-rollup")
+        response.raise_for_status()
+        return response.json()  # type: ignore[no-any-return]
+
     def utilisation(self) -> list[dict[str, Any]]:
         response = self._client.get("/capability-registry/utilisation")
         response.raise_for_status()

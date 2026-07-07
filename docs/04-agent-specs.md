@@ -29,3 +29,13 @@ must pass the golden-set eval in CI before merge.
 - `BusinessCase`: idea_id, opportunity, market_evidence[cited], cost_estimate, risks[], recommendation
 
 Schemas are versioned; hand-offs validate or the orchestrator rejects the transition.
+
+## End-to-end verification (T-109)
+The full chain above (idea → planner → budget approval → Delivery Manager → 2 parallel
+profile agents → review → QA → merge queue → done) has one real, nightly-verified
+integration test:
+`apps/orchestrator/tests/integration/test_e2e_management_flow.py`, run by
+`.github/workflows/nightly-e2e.yml` (`workflow_dispatch`-triggerable on demand). Every
+LLM call in it is mocked/fixture-replayed (zero real Anthropic spend); only the
+merge-queue step runs real, unmodified git mechanics — deliberate, so a scheduled run
+can never fail on provider billing instead of a real regression.
