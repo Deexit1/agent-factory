@@ -18,6 +18,7 @@ from api.routers import (
     merge_queue,
     orgs,
     provider_keys,
+    repos,
     tickets,
     webhooks,
     ws_tickets,
@@ -63,3 +64,6 @@ app.include_router(admin.router)
 app.include_router(provider_keys.router)
 app.include_router(provider_keys.runtime_router)
 app.include_router(eval_floors.router)
+app.include_router(repos.router)
+app.include_router(repos.connect_callback_router)
+app.include_router(repos.install_token_router)

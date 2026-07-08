@@ -68,6 +68,25 @@ staff action).
 | bounce_count | int | max 3 then `escalated` |
 | created_by | text | user id or agent id |
 | created_at | timestamptz | ticket creation time; Phase 1 tickets start in `ready`, so this doubles as the "ready" timestamp for the cycle-time metric (docs/00-vision.md) |
+| repo_id | int FK→repos, nullable | T-203: which connected/provisioned repo this ticket delivers to. `null` = the pre-T-203 dogfood path (this platform monorepo itself, via the ambient `GITHUB_TOKEN`/`spec.repo`) — never backfilled. |
+
+## repos (T-203)
+`id (PK), org_id (FK orgs), mode (connected|provisioned), github_installation_id,
+github_repo_id (nullable until resolved), github_full_name, clone_url, default_branch,
+ci_mode (platform_runners|customer_ci), protected_branch_rules_verified (bool),
+protected_branch_rules_verified_at, status (active|disconnected|exported),
+disconnected_at, disconnected_reason, created_at, created_by` — unique on
+`(org_id, github_repo_id)`. `connected` repos come from a customer's GitHub App
+install (`POST /orgs/{id}/repos/connect-url` → GitHub → `GET /repos/connect-callback`);
+`provisioned` repos are created under the platform's own org from a template
+(`POST /orgs/{id}/repos/provisioned`). Never holds a GitHub token or the App's private
+key — those are minted on demand (`apps/api/src/api/github_app_client.py`) and never
+persisted anywhere, mirroring `provider_keys`' "audit-only metadata, secret lives
+elsewhere" shape. `protected_branch_rules_verified` is a real result of a
+connect-time `GET .../branches/{branch}/protection` check — false doesn't block the
+connect (warn-and-allow, matches T-202's precedent), since the platform's own code
+(`git_ops.py`'s `agent/*`-only push guard) refuses direct pushes to any other branch
+regardless of what GitHub-side protection is configured.
 
 ## ticket_events (append-only, partitioned monthly)
 | column | type | notes |

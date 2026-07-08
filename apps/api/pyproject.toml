@@ -11,7 +11,10 @@ dependencies = [
   "alembic>=1.13,<2.0",
   "psycopg[binary]>=3.2,<4.0",
   "authlib>=1.3,<2.0",
-  "pyjwt>=2.9,<3.0",
+  # T-203: RS256-signs GitHub App JWTs (github_app_client.py) as well as verifying
+  # HS256 session tokens (auth.py). RS256 needs `cryptography`; today it rides in only
+  # transitively via authlib/hvac, so [crypto] makes the real hard dependency explicit.
+  "pyjwt[crypto]>=2.9,<3.0",
   "itsdangerous>=2.2,<3.0",
   # authlib.integrations.starlette_client imports httpx at module load time (the OIDC
   # client's transport) — a real runtime dependency, not just a test one. Easy to miss
@@ -37,6 +40,10 @@ dev = [
   "mypy>=1.10",
   "testcontainers[postgres]>=4.8,<5.0",
   "types-PyYAML>=6.0",
+  # T-203: HTTP-boundary fault injection for github_app_client.py's real httpx calls to
+  # api.github.com — no live GitHub App exists in this environment (same precedent as
+  # packages/llm_router's OpenAI/Anthropic adapters, T-202).
+  "respx>=0.21,<1.0",
 ]
 
 [build-system]

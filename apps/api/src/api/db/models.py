@@ -125,6 +125,10 @@ class Ticket(Base):
     bounce_count: Mapped[int] = mapped_column(default=0)
     created_by: Mapped[str] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    # T-203: which connected/provisioned repo this ticket delivers to. Nullable, never
+    # backfilled — historical/dogfood tickets predate the repo registry and keep
+    # targeting the platform monorepo via the ambient GITHUB_TOKEN/spec.repo path.
+    repo_id: Mapped[int | None] = mapped_column(ForeignKey("repos.id"), default=None)
 
     events: Mapped[list["TicketEvent"]] = relationship(back_populates="ticket")
 
@@ -344,3 +348,57 @@ class ProviderEvalOptIn(Base):
     provider: Mapped[str] = mapped_column()
     opted_in_by: Mapped[str] = mapped_column()
     ts: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class RepoMode(StrEnum):
+    CONNECTED = "connected"
+    PROVISIONED = "provisioned"
+
+
+class RepoCIMode(StrEnum):
+    PLATFORM_RUNNERS = "platform_runners"
+    CUSTOMER_CI = "customer_ci"
+
+
+class RepoStatus(StrEnum):
+    ACTIVE = "active"
+    DISCONNECTED = "disconnected"
+    EXPORTED = "exported"
+
+
+class Repo(Base):
+    """T-203 (SPEC-203): a repo registry entry — either a customer repo connected via
+    the GitHub App install flow (`mode=connected`) or a repo we created under the
+    platform's own org from a template (`mode=provisioned`). Never holds a GitHub
+    token/private key; those are minted on demand (github_app_client.py) and never
+    persisted here or anywhere else (docs/09-saas-model.md's BYOK "never persist"
+    doctrine, extended verbatim to installation tokens)."""
+
+    __tablename__ = "repos"
+    __table_args__ = (
+        UniqueConstraint("org_id", "github_repo_id", name="uq_repos_org_github_repo_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
+    mode: Mapped[RepoMode] = mapped_column(_pg_enum(RepoMode, "repo_mode"))
+    github_installation_id: Mapped[int] = mapped_column()
+    # Nullable until the connect/provision call resolves the real GitHub-side repo.
+    github_repo_id: Mapped[int | None] = mapped_column()
+    github_full_name: Mapped[str | None] = mapped_column()
+    clone_url: Mapped[str | None] = mapped_column()
+    default_branch: Mapped[str | None] = mapped_column()
+    ci_mode: Mapped[RepoCIMode] = mapped_column(
+        _pg_enum(RepoCIMode, "repo_ci_mode"), default=RepoCIMode.PLATFORM_RUNNERS
+    )
+    protected_branch_rules_verified: Mapped[bool] = mapped_column(default=False)
+    protected_branch_rules_verified_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    status: Mapped[RepoStatus] = mapped_column(
+        _pg_enum(RepoStatus, "repo_status"), default=RepoStatus.ACTIVE
+    )
+    disconnected_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    disconnected_reason: Mapped[str | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    created_by: Mapped[str] = mapped_column()

@@ -1,5 +1,39 @@
+import base64
 import subprocess
 from pathlib import Path
+
+from schemas.branches import AGENT_BRANCH_PREFIX
+
+
+class BranchNotAllowed(Exception):
+    def __init__(self, branch: str) -> None:
+        self.branch = branch
+        super().__init__(
+            f"refusing to push to {branch!r}; only {AGENT_BRANCH_PREFIX}* branches are allowed"
+        )
+
+
+def _assert_agent_branch(branch: str) -> None:
+    """T-203 (SPEC-203 AC1): the real, live-testable half of "push to the default
+    branch is impossible" — enforced in our own code, before any subprocess or network
+    call, independent of whatever GitHub-side branch protection is (or isn't)
+    configured on the customer's repo."""
+    if not branch.startswith(AGENT_BRANCH_PREFIX):
+        raise BranchNotAllowed(branch)
+
+
+def build_auth_header(token: str) -> str:
+    """T-203: a per-invocation `git -c http.extraheader=...` value for a minted GitHub
+    App installation token — never written to `.git/config` (unlike URL-embedding),
+    never argv-visible in a process listing beyond this one git invocation, never
+    logged. `None` (every pre-T-203 call site) preserves ambient git-credential
+    behavior exactly."""
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    return f"AUTHORIZATION: basic {basic}"
+
+
+def _auth_args(auth_header: str | None) -> list[str]:
+    return ["-c", f"http.extraheader={auth_header}"] if auth_header else []
 
 
 def _run(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -9,9 +43,20 @@ def _run(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def clone_branch(repo_url: str, branch: str, dest: Path) -> None:
+def clone_branch(
+    repo_url: str, branch: str, dest: Path, *, auth_header: str | None = None
+) -> None:
     result = subprocess.run(
-        ["git", "clone", "--quiet", "--branch", branch, repo_url, str(dest)],
+        [
+            "git",
+            *_auth_args(auth_header),
+            "clone",
+            "--quiet",
+            "--branch",
+            branch,
+            repo_url,
+            str(dest),
+        ],
         capture_output=True,
         text=True,
     )
@@ -38,15 +83,30 @@ def commit_all(workspace_dir: Path, message: str) -> None:
     _run(["git", "commit", "-q", "-m", message], workspace_dir)
 
 
-def push(workspace_dir: Path, branch: str) -> None:
-    _run(["git", "push", "origin", f"HEAD:{branch}"], workspace_dir)
+def push(workspace_dir: Path, branch: str, *, auth_header: str | None = None) -> None:
+    _assert_agent_branch(branch)
+    _run(
+        ["git", *_auth_args(auth_header), "push", "origin", f"HEAD:{branch}"],
+        workspace_dir,
+    )
 
 
-def force_push(workspace_dir: Path, branch: str) -> None:
+def force_push(workspace_dir: Path, branch: str, *, auth_header: str | None = None) -> None:
     """Post-rebase push — history was rewritten, a plain push would be refused.
     `--force-with-lease` still refuses if someone else pushed to this branch in
     the meantime (unlike a bare `--force`)."""
-    _run(["git", "push", "--force-with-lease", "origin", f"HEAD:{branch}"], workspace_dir)
+    _assert_agent_branch(branch)
+    _run(
+        [
+            "git",
+            *_auth_args(auth_header),
+            "push",
+            "--force-with-lease",
+            "origin",
+            f"HEAD:{branch}",
+        ],
+        workspace_dir,
+    )
 
 
 def diff_against(workspace_dir: Path, base_ref: str) -> str:
@@ -54,14 +114,16 @@ def diff_against(workspace_dir: Path, base_ref: str) -> str:
     return result.stdout
 
 
-def rebase_onto(workspace_dir: Path, base_branch: str) -> tuple[bool, list[str]]:
+def rebase_onto(
+    workspace_dir: Path, base_branch: str, *, auth_header: str | None = None
+) -> tuple[bool, list[str]]:
     """SPEC-106: fetch and rebase the current branch onto `origin/{base_branch}`.
 
     Returns `(success, conflicting_paths)` — a conflict is an expected outcome
     here, not a bug, so this is the one git_ops function that deliberately does
     NOT raise on a git command's non-zero exit; it aborts the rebase and reports
     the conflicting paths instead."""
-    _run(["git", "fetch", "origin", base_branch], workspace_dir)
+    _run(["git", *_auth_args(auth_header), "fetch", "origin", base_branch], workspace_dir)
     result = subprocess.run(
         ["git", "rebase", f"origin/{base_branch}"],
         cwd=workspace_dir,

@@ -43,6 +43,7 @@ def create_ticket(
     budget_usd: float | None,
     created_by: str,
     state: TicketState = TicketState.READY,
+    repo_id: int | None = None,
 ) -> Ticket:
     ticket = Ticket(
         id=next_ticket_id(session, ticket_type),
@@ -58,6 +59,7 @@ def create_ticket(
         bounce_count=0,
         created_by=created_by,
         created_at=datetime.now(UTC),
+        repo_id=repo_id,
     )
     session.add(ticket)
     session.flush()
@@ -171,6 +173,25 @@ def count_in_progress_by_repo(session: Session, *, org_id: str, repo: str) -> in
             repo_expr == repo,
         )
     ).scalar_one()
+
+
+_NOT_IN_FLIGHT_STATES = (TicketState.DONE, TicketState.CANCELLED, TicketState.BLOCKED)
+
+
+def list_in_flight_by_repo(session: Session, *, org_id: str, repo_id: int) -> list[Ticket]:
+    """T-203 AC4: which tickets a disconnected repo needs force-transitioned to
+    BLOCKED. "In-flight" = anything not already terminal or already blocked."""
+    return list(
+        session.execute(
+            select(Ticket).where(
+                Ticket.org_id == org_id,
+                Ticket.repo_id == repo_id,
+                Ticket.state.not_in(_NOT_IN_FLIGHT_STATES),
+            )
+        )
+        .scalars()
+        .all()
+    )
 
 
 def has_approval(

@@ -8,6 +8,9 @@ import {
   approveTicket,
   createOrg,
   deleteProviderKey,
+  disconnectRepo,
+  exportRepo,
+  fetchConnectUrl,
   fetchCostRollup,
   fetchCostSummary,
   fetchDashboardMetrics,
@@ -16,6 +19,7 @@ import {
   fetchMyOrgs,
   fetchOrgMembers,
   fetchProviderKeys,
+  fetchRepos,
   fetchSpendByPromptVersion,
   fetchSpendByProfile,
   fetchTicket,
@@ -25,6 +29,7 @@ import {
   impersonateOrg,
   inviteMember,
   optInEvalFloor,
+  provisionRepo,
   reportEscapedDefect,
   reportPageViewAudit,
   returnToDev,
@@ -35,11 +40,13 @@ import {
   updateTask,
   type ApiError,
   type EvalFloor,
+  type ExportRepoResult,
   type Org,
   type OrgInvite,
   type OrgMember,
   type ProviderKey,
   type ProviderName,
+  type Repo,
   type Session,
 } from "./client";
 import type {
@@ -376,6 +383,58 @@ export function useOptInEvalFloor() {
       void queryClient.invalidateQueries({
         queryKey: ["eval-floor", variables.orgId, data.agent_role, data.provider],
       });
+    },
+  });
+}
+
+export const reposQueryKey = (orgId: string | null) => ["repos", orgId] as const;
+
+export function useRepos(orgId: string | null) {
+  const actorContext = useAuth();
+  return useQuery<{ items: Repo[] }>({
+    queryKey: reposQueryKey(orgId),
+    queryFn: () => fetchRepos(actorContext, orgId as string),
+    enabled: orgId !== null,
+    refetchInterval: 15000,
+  });
+}
+
+export function useConnectUrl() {
+  const actorContext = useAuth();
+  return useMutation<{ url: string }, ApiError, { orgId: string }>({
+    mutationFn: ({ orgId }) => fetchConnectUrl(actorContext, orgId),
+  });
+}
+
+export function useProvisionRepo() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<Repo, ApiError, { orgId: string; name: string }>({
+    mutationFn: ({ orgId, name }) => provisionRepo(actorContext, orgId, { name }),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: reposQueryKey(variables.orgId) });
+    },
+  });
+}
+
+export function useExportRepo() {
+  const actorContext = useAuth();
+  return useMutation<
+    ExportRepoResult,
+    ApiError,
+    { orgId: string; repoId: number; mode: "transfer" | "archive"; new_owner?: string }
+  >({
+    mutationFn: ({ orgId, repoId, ...body }) => exportRepo(actorContext, orgId, repoId, body),
+  });
+}
+
+export function useDisconnectRepo() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<Repo, ApiError, { orgId: string; repoId: number }>({
+    mutationFn: ({ orgId, repoId }) => disconnectRepo(actorContext, orgId, repoId),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: reposQueryKey(variables.orgId) });
     },
   });
 }

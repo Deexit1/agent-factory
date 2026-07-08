@@ -33,7 +33,12 @@ def create_ticket(
     actor_context: ActorContext = Depends(get_actor_context),
     db: Session = Depends(get_db),
 ) -> TicketOut:
-    ticket = ticket_service.create_ticket(db, request, org_id=actor_context.org_id)
+    try:
+        ticket = ticket_service.create_ticket(db, request, org_id=actor_context.org_id)
+    except ticket_service.RepoNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ticket_service.RepoNotActive as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return TicketOut.model_validate(ticket)
 
 

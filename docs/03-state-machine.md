@@ -29,7 +29,8 @@ in_progress → in_review → in_qa → done` plus `bounced`, `escalated`, `bloc
 | in_review / in_qa | escalated | block/fail | bounce_count == 3 |
 | in_progress | escalated | system | budget exhausted OR wall-clock timeout |
 | escalated | ready | HUMAN | requeues the task for Delivery Manager (re)assignment; distinct from `bounced → in_progress`'s same-agent retry |
-| any | blocked / cancelled | HUMAN | |
+| any | cancelled | HUMAN | |
+| any | blocked | HUMAN or `system:github` | T-203 (SPEC-203 AC4): the GitHub webhook handler force-blocks in-flight tickets when their repo's App installation is uninstalled — the one disclosed exception to "blocked is human-only", scoped to this exact actor string (not any `system:*` actor). Synchronous, same-request — no polling, satisfies the 60s bound by construction. |
 
 ## Bounce accounting
 Review blocks and QA failures share the same `bounce_count` (a ticket gets 3 total

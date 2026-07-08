@@ -228,5 +228,14 @@ class ApiClient:
         response.raise_for_status()
         return response.json()  # type: ignore[no-any-return]
 
+    def get_github_install_token(self, ticket_id: str) -> dict[str, Any] | None:
+        """T-203: the orchestrator's only way to get a usable GitHub token — 404 means
+        this ticket has no repo_id (the pre-T-203 dogfood path), not an error."""
+        response = self._client.get(f"/tickets/{ticket_id}/github-install-token")
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return response.json()  # type: ignore[no-any-return]
+
     def close(self) -> None:
         self._client.close()

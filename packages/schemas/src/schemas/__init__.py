@@ -1,3 +1,4 @@
+from schemas.branches import AGENT_BRANCH_PREFIX, agent_branch_name, ticket_id_from_branch
 from schemas.models import (
     DEFAULT_REPO,
     SCHEMA_VERSION,
@@ -15,6 +16,7 @@ from schemas.models import (
 )
 
 __all__ = [
+    "AGENT_BRANCH_PREFIX",
     "DEFAULT_REPO",
     "SCHEMA_VERSION",
     "AcceptanceCriterion",
@@ -28,4 +30,6 @@ __all__ = [
     "ReviewComment",
     "ReviewResult",
     "TaskSpec",
+    "agent_branch_name",
+    "ticket_id_from_branch",
 ]

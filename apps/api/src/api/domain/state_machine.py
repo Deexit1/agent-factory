@@ -19,7 +19,13 @@ _BASE_TRANSITIONS: dict[TicketState, set[TicketState]] = {
 }
 
 # Every state may transition here, but only a human actor may request it.
-_HUMAN_ONLY_TARGETS = {TicketState.BLOCKED, TicketState.CANCELLED}
+_HUMAN_ONLY_TARGETS = {TicketState.CANCELLED}
+
+# T-203 (SPEC-203 AC4): the ONE disclosed exception to "blocked is human-only" — the
+# GitHub webhook handler force-blocks in-flight tickets when their repo's App
+# installation is uninstalled. An exact-string allowlist (not a `startswith("system:")`
+# blanket rule) so this doesn't silently widen to any future system actor.
+_SYSTEM_BLOCK_ACTORS = frozenset({"system:github"})
 
 
 @dataclass(frozen=True)
@@ -62,11 +68,23 @@ def is_human_actor(actor: str) -> bool:
     return actor.startswith("human:")
 
 
+def can_request_blocked(actor: str) -> bool:
+    return is_human_actor(actor) or actor in _SYSTEM_BLOCK_ACTORS
+
+
 def validate_transition(request: TransitionRequest) -> None:
     """Raise TransitionRejected if the requested transition is illegal.
 
     Pure function: no I/O, no mutation.
     """
+    if request.to_state is TicketState.BLOCKED:
+        if not can_request_blocked(request.actor):
+            raise TransitionRejected(
+                f"{request.to_state} may only be requested by a human actor or "
+                f"{sorted(_SYSTEM_BLOCK_ACTORS)}"
+            )
+        return
+
     if request.to_state in _HUMAN_ONLY_TARGETS:
         if not is_human_actor(request.actor):
             raise TransitionRejected(f"{request.to_state} may only be requested by a human actor")

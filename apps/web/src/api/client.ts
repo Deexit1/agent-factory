@@ -89,6 +89,29 @@ export interface EvalFloor {
   opted_in: boolean;
 }
 
+export type RepoMode = "connected" | "provisioned";
+export type RepoCIMode = "platform_runners" | "customer_ci";
+export type RepoStatus = "active" | "disconnected" | "exported";
+
+export interface Repo {
+  id: number;
+  org_id: string;
+  mode: RepoMode;
+  github_full_name: string | null;
+  default_branch: string | null;
+  ci_mode: RepoCIMode;
+  protected_branch_rules_verified: boolean;
+  status: RepoStatus;
+  disconnected_reason: string | null;
+  created_at: string;
+  created_by: string;
+}
+
+export interface ExportRepoResult {
+  mode: "transfer" | "archive";
+  download_url: string | null;
+}
+
 async function request<T>(
   path: string,
   actorContext: ActorContext,
@@ -317,6 +340,48 @@ export function optInEvalFloor(
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+export function fetchRepos(actorContext: ActorContext, orgId: string): Promise<{ items: Repo[] }> {
+  return request(`/orgs/${orgId}/repos`, actorContext);
+}
+
+export function fetchConnectUrl(
+  actorContext: ActorContext,
+  orgId: string,
+): Promise<{ url: string }> {
+  return request(`/orgs/${orgId}/repos/connect-url`, actorContext);
+}
+
+export function provisionRepo(
+  actorContext: ActorContext,
+  orgId: string,
+  body: { name: string },
+): Promise<Repo> {
+  return request(`/orgs/${orgId}/repos/provisioned`, actorContext, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function exportRepo(
+  actorContext: ActorContext,
+  orgId: string,
+  repoId: number,
+  body: { mode: "transfer" | "archive"; new_owner?: string },
+): Promise<ExportRepoResult> {
+  return request(`/orgs/${orgId}/repos/${repoId}/export`, actorContext, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function disconnectRepo(
+  actorContext: ActorContext,
+  orgId: string,
+  repoId: number,
+): Promise<Repo> {
+  return request(`/orgs/${orgId}/repos/${repoId}`, actorContext, { method: "DELETE" });
 }
 
 export function fetchCostSummary(

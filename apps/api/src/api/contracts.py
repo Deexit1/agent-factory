@@ -11,6 +11,9 @@ from api.db.models import (
     MergeQueueStatus,
     OrgInviteStatus,
     ProviderKeyStatus,
+    RepoCIMode,
+    RepoMode,
+    RepoStatus,
     TicketState,
     TicketType,
     UserRole,
@@ -33,6 +36,9 @@ class CreateTicketRequest(BaseModel):
     assignee_agent: str | None = None
     budget_usd: float | None = None
     created_by: str
+    # T-203: which connected/provisioned repo this ticket delivers to. None = the
+    # pre-T-203 dogfood path (spec["repo"]/ambient GITHUB_TOKEN), unchanged.
+    repo_id: int | None = None
 
     @model_validator(mode="after")
     def _task_requires_acceptance_criteria(self) -> "CreateTicketRequest":
@@ -66,6 +72,7 @@ class TicketOut(BaseModel):
     bounce_count: int
     created_by: str
     created_at: datetime
+    repo_id: int | None = None
 
 
 class EventOut(BaseModel):
@@ -424,3 +431,51 @@ class EvalFloorOut(BaseModel):
 class OptInEvalFloorRequest(BaseModel):
     agent_role: str
     provider: str
+
+
+class RepoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    org_id: str
+    mode: RepoMode
+    github_full_name: str | None
+    default_branch: str | None
+    ci_mode: RepoCIMode
+    protected_branch_rules_verified: bool
+    status: RepoStatus
+    disconnected_reason: str | None
+    created_at: datetime
+    created_by: str
+
+
+class RepoListOut(BaseModel):
+    items: list[RepoOut]
+
+
+class ConnectUrlOut(BaseModel):
+    url: str
+
+
+class ProvisionRepoRequest(BaseModel):
+    name: str = Field(min_length=1)
+
+
+class ExportRepoRequest(BaseModel):
+    mode: Literal["transfer", "archive"]
+    new_owner: str | None = None
+
+
+class ExportRepoOut(BaseModel):
+    mode: Literal["transfer", "archive"]
+    download_url: str | None = None
+
+
+class GitHubInstallTokenOut(BaseModel):
+    """Service-token-only: a per-ticket, minted-on-demand installation token — never
+    persisted anywhere (docs/09-saas-model.md's BYOK "never persist" doctrine, extended
+    to GitHub App tokens)."""
+
+    token: str
+    expires_at: datetime
+    default_branch: str

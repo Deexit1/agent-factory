@@ -2,7 +2,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from schemas import FailureReport, TaskSpec
+from schemas import FailureReport, TaskSpec, agent_branch_name
 
 from orchestrator import git_ops
 from orchestrator.agents.prompt import build_prompt
@@ -46,6 +46,17 @@ def run_dev_agent(
 
     ticket = api.get_ticket(ticket_id)
     org_id = ticket["org_id"]
+    # T-203: a ticket with a connected/provisioned repo gets a fresh, per-ticket
+    # installation token here; None (every pre-T-203/dogfood ticket) preserves the
+    # ambient-GITHUB_TOKEN behavior exactly.
+    install_token = api.get_github_install_token(ticket_id)
+    if install_token is not None:
+        github = github.with_token(install_token["token"])
+        base_branch = install_token["default_branch"]
+    auth_header = (
+        git_ops.build_auth_header(install_token["token"]) if install_token is not None else None
+    )
+
     decision = resolve_dispatch(api, org_id=org_id, agent_role=_DEV_ROLE)
     anthropic_key = next(
         (c.api_key for c in decision.credentials if c.provider == "anthropic"), None
@@ -124,9 +135,9 @@ def run_dev_agent(
             run_id=run_id, status=status, pr_url=None, cost_usd=cumulative_cost, reason=reason
         )
 
-    branch = f"agent/{ticket_id}"
+    branch = agent_branch_name(ticket_id)
     git_ops.commit_all(workspace_dir, message=f"{ticket_id}: {task_spec.title}")
-    git_ops.push(workspace_dir, branch)
+    git_ops.push(workspace_dir, branch, auth_header=auth_header)
     pr = github.open_pr(
         branch=branch,
         base=base_branch,

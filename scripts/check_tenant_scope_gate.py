@@ -35,6 +35,9 @@ _ALLOWLIST = {
     # this user belongs to" has no single org_id to scope by
     "get_invite_by_token",  # org_repository.py: looked up by the invite's own unique
     # token (the acceptance credential) — org_id isn't known until after this returns
+    "list_by_installation",  # repo_repository.py: T-203 — a GitHub webhook delivery
+    # only ever gives us an installation_id, never an org_id; the caller resolves
+    # org_id per returned Repo row before doing anything tenant-scoped with it
 }
 
 

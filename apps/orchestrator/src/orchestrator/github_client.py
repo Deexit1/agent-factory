@@ -1,8 +1,9 @@
 import json
+import os
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Protocol
 
 
@@ -18,12 +19,31 @@ class GitHubClient(Protocol):
     def post_comment(self, pr: PullRequest, body: str) -> None: ...
     def get_pr_for_branch(self, branch: str) -> PullRequest: ...
     def merge_pr(self, pr: PullRequest) -> None: ...
+    def with_token(self, token: str | None) -> "GitHubClient":
+        """T-203: return a client scoped to a per-ticket minted installation token —
+        never mutates the caller's original instance."""
+        ...
 
 
+@dataclass
 class GhCliGitHubClient:
     """Real implementation: shells out to the `gh` CLI. Not exercised by tests per the
     project's decision to stub PR creation — no scratch GitHub repo is available here.
+
+    T-203: `token`, when set, scopes every `gh` invocation to a per-ticket minted
+    GitHub App installation token via a subprocess-local `GITHUB_TOKEN` env override —
+    the same `Popen(env=...)` pattern claude_runner.py established for BYOK keys
+    (T-202), never argv, never a log line. `None` (the default, every pre-T-203/
+    dogfood call site) preserves today's ambient-`GITHUB_TOKEN` behavior exactly.
     """
+
+    token: str | None = None
+
+    def with_token(self, token: str | None) -> "GhCliGitHubClient":
+        return replace(self, token=token)
+
+    def _env(self) -> dict[str, str] | None:
+        return {**os.environ, "GITHUB_TOKEN": self.token} if self.token else None
 
     def open_pr(self, *, branch: str, base: str, title: str, body: str) -> PullRequest:
         gh_bin = shutil.which("gh")
@@ -44,6 +64,7 @@ class GhCliGitHubClient:
                 "--body",
                 body,
             ],
+            env=self._env(),
             capture_output=True,
             text=True,
         )
@@ -59,7 +80,10 @@ class GhCliGitHubClient:
         if gh_bin is None:
             raise RuntimeError("gh CLI not found on PATH")
         result = subprocess.run(
-            [gh_bin, "pr", "diff", str(pr.number)], capture_output=True, text=True
+            [gh_bin, "pr", "diff", str(pr.number)],
+            env=self._env(),
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             raise RuntimeError(f"gh pr diff failed:\n{result.stderr}")
@@ -71,6 +95,7 @@ class GhCliGitHubClient:
             raise RuntimeError("gh CLI not found on PATH")
         result = subprocess.run(
             [gh_bin, "pr", "comment", str(pr.number), "--body", body],
+            env=self._env(),
             capture_output=True,
             text=True,
         )
@@ -83,6 +108,7 @@ class GhCliGitHubClient:
             raise RuntimeError("gh CLI not found on PATH")
         result = subprocess.run(
             [gh_bin, "pr", "view", branch, "--json", "url,number"],
+            env=self._env(),
             capture_output=True,
             text=True,
         )
@@ -97,6 +123,7 @@ class GhCliGitHubClient:
             raise RuntimeError("gh CLI not found on PATH")
         result = subprocess.run(
             [gh_bin, "pr", "merge", str(pr.number), "--squash"],
+            env=self._env(),
             capture_output=True,
             text=True,
         )
@@ -123,10 +150,20 @@ class FakeGitHubClient:
     next_pr_number: int = 1
     diff: str = ""
     repo_url: str | None = None
+    # T-203: records the token run_dev_agent threaded through, if any — tests can
+    # assert on this without this fake needing to do anything real with it.
+    last_token: str | None = None
 
     def __post_init__(self) -> None:
         self._prs_by_branch: dict[str, PullRequest] = {}
         self._branch_by_pr_number: dict[int, str] = {}
+
+    def with_token(self, token: str | None) -> "FakeGitHubClient":
+        # Deliberately returns self, not a copy — tests hold a reference to the
+        # original instance and assert on its .calls/.comments/.merged afterward; a
+        # replace()'d copy would silently break that tracking.
+        self.last_token = token
+        return self
 
     def open_pr(self, *, branch: str, base: str, title: str, body: str) -> PullRequest:
         self.calls.append({"branch": branch, "base": base, "title": title, "body": body})
