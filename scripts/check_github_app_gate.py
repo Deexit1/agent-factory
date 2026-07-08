@@ -23,6 +23,10 @@ _ALLOWLISTED_FILES = {
     # Shared T-203 respx-mock helper (_mock_installation_token), used by both
     # test_repo_router.py and test_github_webhook_router.py — same reason as above.
     "apps/api/tests/integration/conftest.py",
+    # Router-level integration tests exercising github_repo_service.py's real calls
+    # (connect/provision/export flows) end-to-end via respx — same reason as above.
+    "apps/api/tests/integration/test_repo_router.py",
+    "apps/api/tests/integration/test_github_webhook_router.py",
     # Pre-existing Squid egress-proxy domain allowlist (SPEC-003) — a literal domain
     # name in a list, not an API call; predates T-203.
     "apps/sandbox/src/sandbox/config.py",
