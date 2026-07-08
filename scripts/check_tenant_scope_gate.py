@@ -31,6 +31,10 @@ _ALLOWLIST = {
     "next_ticket_id",  # a global ticket_seq nextval() — no org-scoped row involved
     "get_user",  # user_repository.py: `users` is a global identity table (T-201) —
     # org-scoping lives on `org_members`, whose own queries DO reference org_id
+    "list_orgs_for_user",  # org_repository.py: deliberately cross-org — "every org
+    # this user belongs to" has no single org_id to scope by
+    "get_invite_by_token",  # org_repository.py: looked up by the invite's own unique
+    # token (the acceptance credential) — org_id isn't known until after this returns
 }
 
 
