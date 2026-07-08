@@ -43,6 +43,10 @@ class TransitionRequest:
     assignee_agent: str | None = None
     profile_at_capacity: bool = False
     repo_at_capacity: bool = False
+    # T-201 (SPEC-201 AC3): per-org parallel-ticket quota — checked on every
+    # ready->in_progress attempt, not just DM-mediated ones with an assignee_agent
+    # (unlike profile/repo capacity, which only apply to capability-registry profiles).
+    org_at_quota: bool = False
     # Merge queue gate (SPEC-106), computed by the service layer — state_machine.py
     # stays a pure function, no I/O.
     has_merged_queue_entry: bool = True
@@ -140,6 +144,8 @@ def _check_guard(request: TransitionRequest) -> None:
                 )
             if request.repo_at_capacity:
                 raise TransitionRejected("repo is at its concurrency limit")
+        if request.org_at_quota:
+            raise TransitionRejected("org has reached its max parallel-ticket quota")
 
     if request.from_state is TicketState.IN_QA and request.to_state is TicketState.DONE:
         if request.bounce_count >= MAX_BOUNCES:

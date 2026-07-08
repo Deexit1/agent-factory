@@ -40,7 +40,7 @@ export function TicketDrawer({
   }
 
   const gate = GATE_BY_STATE[ticket.state];
-  const canApprove = gate !== undefined && (role === "approver" || role === "admin");
+  const canApprove = gate !== undefined && (role === "approver" || role === "owner");
   // The budget bar reflects cost_ledger — the documented source of truth for $/ticket
   // (docs/02-data-model.md) — not a separately-tracked running total on the ticket itself.
   const spentUsd = costSummary?.cost_ledger_total_usd ?? 0;

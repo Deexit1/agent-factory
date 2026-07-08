@@ -50,8 +50,9 @@ export function LoginPage(): React.JSX.Element {
           className="rounded border border-gray-300 px-2 py-1 text-sm"
         >
           <option value="viewer">viewer</option>
+          <option value="member">member</option>
           <option value="approver">approver</option>
-          <option value="admin">admin</option>
+          <option value="owner">owner</option>
         </select>
         <button
           type="button"

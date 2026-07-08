@@ -2,22 +2,34 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAuth } from "../auth/AuthContext";
 import {
+  acceptInvite,
   answerPlanningQuestions,
   approveTicket,
+  createOrg,
   fetchCostRollup,
   fetchCostSummary,
   fetchDashboardMetrics,
   fetchDescendants,
+  fetchMyOrgs,
+  fetchOrgMembers,
   fetchSpendByPromptVersion,
   fetchSpendByProfile,
   fetchTicket,
   fetchTickets,
   fetchUtilisation,
+  impersonateOrg,
+  inviteMember,
   reportEscapedDefect,
+  reportPageViewAudit,
   returnToDev,
+  switchOrg,
   transitionTicket,
   updateTask,
   type ApiError,
+  type Org,
+  type OrgInvite,
+  type OrgMember,
+  type Session,
 } from "./client";
 import type {
   Approval,
@@ -193,4 +205,69 @@ export function useReportEscapedDefect() {
       void queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
     },
   });
+}
+
+export function useMyOrgs() {
+  const actorContext = useAuth();
+  return useQuery<{ items: Org[] }>({
+    queryKey: ["orgs-mine"],
+    queryFn: () => fetchMyOrgs(actorContext),
+  });
+}
+
+export function useSwitchOrg() {
+  const actorContext = useAuth();
+  return useMutation<Session, ApiError, { orgId: string }>({
+    mutationFn: ({ orgId }) => switchOrg(actorContext, orgId),
+  });
+}
+
+export function useCreateOrg() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<Org, ApiError, { name: string }>({
+    mutationFn: ({ name }) => createOrg(actorContext, name),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["orgs-mine"] });
+    },
+  });
+}
+
+export function useOrgMembers(orgId: string | null) {
+  const actorContext = useAuth();
+  return useQuery<{ items: OrgMember[] }>({
+    queryKey: ["org-members", orgId],
+    queryFn: () => fetchOrgMembers(actorContext, orgId as string),
+    enabled: orgId !== null,
+  });
+}
+
+export function useInviteMember() {
+  const actorContext = useAuth();
+  return useMutation<OrgInvite, ApiError, { orgId: string; email: string; role: string }>({
+    mutationFn: ({ orgId, email, role }) => inviteMember(actorContext, orgId, { email, role }),
+  });
+}
+
+export function useAcceptInvite() {
+  const actorContext = useAuth();
+  return useMutation<OrgMember, ApiError, { token: string }>({
+    mutationFn: ({ token }) => acceptInvite(actorContext, token),
+  });
+}
+
+export function useImpersonateOrg() {
+  const actorContext = useAuth();
+  return useMutation<Session, ApiError, { orgId: string }>({
+    mutationFn: ({ orgId }) => impersonateOrg(actorContext, orgId),
+  });
+}
+
+export function usePageViewAudit() {
+  const actorContext = useAuth();
+  return (path: string) => {
+    void reportPageViewAudit(actorContext, path).catch(() => {
+      // Best-effort — a failed audit POST shouldn't block navigation.
+    });
+  };
 }

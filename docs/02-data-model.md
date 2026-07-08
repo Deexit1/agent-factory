@@ -3,10 +3,33 @@
 All timestamps UTC. All agent payloads JSONB validated against `packages/schemas`.
 Every table below carries `org_id` (FK → `orgs.id`, NOT NULL) — SaaS-readiness rule 1
 (docs/00-vision.md). T-102 seeded a single default org and backfilled every existing
-row to it; real per-request org resolution (invites, per-org membership) is T-201.
+row to it; real per-request org resolution, invites, per-org RBAC, quotas, and staff
+impersonation auditing are T-201.
 
 ## orgs
-`id (PK), name, created_at` — the tenant. Single "default" org today.
+`id (PK), name, created_at, max_parallel_tickets` — the tenant.
+`max_parallel_tickets` (nullable = unlimited, T-201) is the one quota that's actually
+enforced today — sandbox-minutes/day and storage caps from SPEC-201's wording have no
+real usage metering to enforce against yet (`apps/sandbox` isn't wired to the dev-agent
+path, T-105's own disclosed gap), so no column exists for them.
+
+## org_members (T-201)
+`id, org_id (FK orgs), user_email (FK users.email), role (user_role enum), created_at`
+— unique on `(org_id, user_email)`. A user's role is per-org now, not global; replaces
+the old `users.role`/`users.org_id` pair. `user_role` is `owner | approver | member |
+viewer` (renamed from T-102-era `admin/approver/viewer` — `admin` → `owner`, `member`
+is new).
+
+## org_invites (T-201)
+`id, org_id, email, role, invited_by, token (unique), status (pending|accepted|
+revoked), created_at, accepted_at` — an owner-issued invite. No email-sending exists in
+this system yet, so the acceptance token is returned directly in the invite-creation
+API response (a real deployment would email a link instead).
+
+## staff_audit_log (T-201 AC5)
+`id, staff_email, org_id, action, path (nullable), ts` — one row per platform-staff
+impersonation action: `impersonate_start` when a "view as org" session begins, and one
+`page_view` row (with `path`) per page the frontend visits while impersonating.
 
 ## tickets
 | column | type | notes |
@@ -71,9 +94,13 @@ CI-green alone only creates a `queued` one. Written by `apps/orchestrator`'s
 `id, ticket_id, kind (diff|ci_log|trace|coverage), s3_key, ts`.
 
 ## users
-`email (PK), role (admin|approver|viewer), created_at` — OIDC-authenticated humans
-(SPEC-006). First login creates a `viewer` row unless the email is pre-seeded via
-`ADMIN_EMAILS`; promotion beyond that is a manual admin action in Phase 1.
+`email (PK), is_platform_staff, created_at` — OIDC-authenticated humans (SPEC-006). A
+global identity table only — role and org membership live on `org_members` (T-201),
+not here. First login auto-joins the seeded default org as `viewer` unless the email
+is pre-seeded via `ADMIN_EMAILS` (→ `owner`) or the user already has a membership from
+an accepted invite. `is_platform_staff` (bootstrapped via `PLATFORM_STAFF_EMAILS`,
+mirroring `ADMIN_EMAILS`'s pattern) is a separate, cross-org concept — staff
+impersonation, not an org role.
 
 ## escaped_defect_reports
 `id, ticket_id, note, reported_by, ts` — manual entry feeding the pilot dashboard's

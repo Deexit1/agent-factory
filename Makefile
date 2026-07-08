@@ -5,7 +5,7 @@ LLM_ROUTER_DIR := packages/llm_router
 SANDBOX_DIR := apps/sandbox
 ORCHESTRATOR_DIR := apps/orchestrator
 
-.PHONY: dev test test-unit test-integration check lint typecheck e2e a11y migrate coverage-gate eval llm-router-gate
+.PHONY: dev test test-unit test-integration check lint typecheck e2e a11y migrate coverage-gate eval llm-router-gate tenant-scope-gate
 
 $(API_DIR)/.venv/.stamp: $(API_DIR)/pyproject.toml $(SCHEMAS_DIR)/pyproject.toml
 	cd $(API_DIR) && python3 -m venv .venv
@@ -92,7 +92,10 @@ typecheck: $(API_DIR)/.venv/.stamp $(SCHEMAS_DIR)/.venv/.stamp $(LLM_ROUTER_DIR)
 llm-router-gate: ## Fail if anything outside packages/llm_router imports a provider SDK directly
 	python3 scripts/check_llm_router_gate.py
 
-check: lint typecheck test llm-router-gate ## Full QA gate: lint + typecheck + unit + integration + router gate
+tenant-scope-gate: ## Fail if any repository-layer function queries the DB without an org_id reference (T-201)
+	python3 scripts/check_tenant_scope_gate.py
+
+check: lint typecheck test llm-router-gate tenant-scope-gate ## Full QA gate: lint + typecheck + unit + integration + router gate + tenant-scope gate
 
 e2e: $(WEB_DIR)/node_modules/.stamp ## Playwright end-to-end suite
 	cd $(WEB_DIR) && npx playwright install --with-deps chromium

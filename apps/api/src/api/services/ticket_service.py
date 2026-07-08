@@ -10,6 +10,7 @@ from api.db.models import (
     EventKind,
     MergeQueueEntry,
     MergeQueueStatus,
+    Org,
     Ticket,
     TicketEvent,
     TicketState,
@@ -252,6 +253,17 @@ def _capacity_fields(
     return profile_at_capacity, repo_at_capacity
 
 
+def _org_at_quota(session: Session, *, org_id: str) -> bool:
+    """T-201 (SPEC-201 AC3): the one quota that's actually enforceable today —
+    `orgs.max_parallel_tickets` is nullable (unlimited) by default, so this is a
+    no-op for every org that hasn't set one."""
+    org = session.get(Org, org_id)
+    if org is None or org.max_parallel_tickets is None:
+        return False
+    in_progress = repo.count_in_progress_by_org(session, org_id=org_id)
+    return in_progress >= org.max_parallel_tickets
+
+
 def _has_merged_queue_entry(session: Session, ticket: Ticket, *, org_id: str) -> bool:
     """Only meaningful for an `in_qa -> done` attempt — CI-green alone no longer
     completes a ticket (SPEC-106); it must have a real `merged` merge-queue entry,
@@ -305,6 +317,7 @@ def request_transition(
         if is_assignment_attempt
         else (False, False)
     )
+    org_at_quota = _org_at_quota(session, org_id=org_id) if is_assignment_attempt else False
     is_completion_attempt = from_state is TicketState.IN_QA and to_state is TicketState.DONE
     has_merged_queue_entry = (
         _has_merged_queue_entry(session, ticket, org_id=org_id) if is_completion_attempt else True
@@ -326,6 +339,7 @@ def request_transition(
         assignee_agent=assignee_agent,
         profile_at_capacity=profile_at_capacity,
         repo_at_capacity=repo_at_capacity,
+        org_at_quota=org_at_quota,
         has_merged_queue_entry=has_merged_queue_entry,
     )
 
