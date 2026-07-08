@@ -572,10 +572,115 @@ CI's `eval-gate.yml` job uses its own repo-secret key and will run for real ther
 its result should be checked before merge, not assumed green from this local
 disclosure.
 
-## T-203 · GitHub connect & provisioned repos — `ready`
+## T-203 · GitHub connect & provisioned repos — `done`
 **Spec:** SPEC-203  **Est:** L
 GitHub App install flow, per-ticket scoped tokens, webhooks, provisioned/export mode.
-All five criteria apply. Requires T-201.
+**Acceptance criteria**
+- [x] Connect flow on a test org results in an agent PR on the customer repo from an
+  `agent/T-xxx` branch; push to their default branch is impossible (rejected test) —
+  `apps/orchestrator/tests/integration/test_github_app_connected_repo_flow.py` (2
+  tests: a full `run_dev_agent()` run against a real local bare git repo standing in
+  for "the customer repo" — `main`'s ref is byte-identical before/after while
+  `agent/T-xxx` was genuinely pushed, proven at the git-object level; plus a direct
+  `git_ops.push(..., "main")` proving the guard fires before any subprocess call) +
+  `apps/orchestrator/tests/test_git_ops.py` (6 unit tests, monkeypatched
+  `subprocess.run`, proving the guard is unconditional). Two independent,
+  honestly-separated layers: our own code (`git_ops.py`'s `agent/*`-only push guard,
+  real and live-testable today) and GitHub's own branch-protection enforcement
+  (configured/verified at connect time, disclosed as unexercised live — no customer
+  org exists here).
+- [x] Tokens expire ≤ 1h and are minted per ticket (token introspection test) —
+  `apps/api/tests/test_github_app_client_http.py::test_mint_installation_token_
+  rejects_an_expiry_beyond_one_hour` (a mocked 2h-expiry response is refused before
+  it's ever returned to a caller — the assertion IS the introspection test) +
+  `apps/orchestrator/src/orchestrator/merge_queue.py` mints its own fresh token at
+  merge time rather than reusing the dev agent's PR-creation-time one.
+- [x] Forged webhook signature is rejected and logged —
+  `apps/api/tests/integration/test_github_webhook_router.py` (5 tests: forged
+  signature → 401 + a captured warning log line; missing signature header rejected;
+  valid signature accepted; installation.deleted noop for an unknown installation).
+- [x] Disconnecting the App blocks in-flight tickets within 60s with events explaining
+  why — same test file's
+  `test_installation_deleted_blocks_in_flight_tickets_synchronously`: real
+  provisioned repo + an `in_progress` ticket, a real `installation.deleted` webhook
+  delivery force-transitions it to `blocked` with `actor="system:github"` and a real
+  `reason` field on the transition event — fully synchronous, same request/response,
+  so "within 60s" holds by construction, not by polling. The state-machine change
+  this required (`blocked` now also accepts `system:github`, not just human actors)
+  is the one disclosed schema/state-machine rule change this ticket makes — see
+  `docs/03-state-machine.md`.
+- [x] Provisioned repo export transfers ownership and revokes platform access —
+  `apps/api/tests/integration/test_repo_router.py`
+  (`test_export_transfer_marks_repo_exported_and_blocks_future_token_mint`): real
+  respx-mocked `POST /repos/{owner}/{repo}/transfer` call → `repos.status="exported"`
+  → a subsequent ticket-creation attempt against that repo is refused (422) and a
+  subsequent install-token mint would 404/422 too. `mode="archive"` (the recommended
+  default in the UI) returns GitHub's own tarball download URL — no new platform
+  artifact storage was built (none exists anywhere in this codebase yet).
+
+**Architecture decisions (disclosed)**: no live GitHub App is registered in this
+environment (requires a human with org-owner rights on github.com, a generated
+private key, and a configured webhook URL) and no live customer repo exists — every
+GitHub API interaction (`apps/api/src/api/github_app_client.py`, real RS256 JWT
+signing + real `httpx` calls, sole owner of `api.github.com` calls per the new
+`scripts/check_github_app_gate.py`) is proven via `respx` HTTP-boundary fault
+injection (T-202's `packages/llm_router` precedent), plus a real local bare git repo
+standing in for "the customer repo" in orchestrator tests. Two-tier App permissions:
+customer-connect installations request `contents:write`+`pull_requests:write` only
+(SPEC-203's "selected repos only" language, verbatim); the platform's own installation
+(provisioned repos only, never a customer's) additionally requests
+`administration:write`, needed for repo-transfer export — whether an installation
+token can actually call GitHub's transfer endpoint is a disclosed, not-live-verified
+assumption, built and tested against the documented request/response shape. Connect-
+time branch-protection policy resolved via AskUserQuestion: warn-and-allow (create the
+`repos` row with `protected_branch_rules_verified=false`, persistent UI banner)
+rather than hard-refuse — matches T-202's "banner non-ideal state, don't block the
+feature" precedent, and our own code-level push guard holds regardless. The existing
+single-repo dogfood path (`tickets.repo_id` nullable, ambient `GITHUB_TOKEN`) is
+preserved untouched — every orchestrator entry point falls back to today's exact
+behavior when a ticket has no `repo_id`. Repo-capacity accounting stays keyed off
+`spec.repo` (a string) — `repo_id` is a new, separate, authoritative FK for
+token-minting/git-target resolution/webhook routing only, so
+`capability_registry`/`state_machine`'s existing `repo_at_capacity` guard needed zero
+changes.
+
+**Non-goals (disclosed)**: a live GitHub App registration, a live customer org/repo, an
+internet-reachable webhook URL — all proven via respx + a local bare-git-repo
+stand-in, not a live github.com round-trip. GitHub's own server-side
+branch-protection enforcement is configured/verified but not exercised live.
+Repo-transfer's real permission requirements are not live-verified (see architecture
+decisions above). No new artifact/S3 storage — archive export returns GitHub's own
+tarball URL; `docker-compose.yml`/`.env.example` declare MinIO but nothing in this
+codebase touches it yet, and building real S3 plumbing was out of this ticket's
+registry/token/webhook scope. Incremental "repositories added/removed from an existing
+installation" (without a full uninstall) — the same `disconnect_repo`/reconnect
+mechanism would cover it, but it's not required by any of the 5 ACs; scoped out as a
+fast-follow, not silently half-built. Real production Vault topology for the App
+private key — dev-mode only, same standing as every other Vault-backed secret in this
+repo.
+
+**Verification**: `apps/api` 158/158 tests green (up from 128 before this ticket — 30
+new: 5 pure JWT/HMAC unit + 9 respx HTTP-boundary unit + 10 repo-router integration +
+5 webhook-router integration + 1 new state_machine unit test), ruff/mypy clean,
+all three static gates pass for real (`llm-router-gate`, `tenant-scope-gate`, the new
+`github-app-gate` — each verified to fail on a deliberately planted violation, then
+pass once reverted, matching the established T-201/T-202 self-verification
+precedent). `apps/orchestrator` 46/46 tests green (22 unit + 24 integration — 9 new
+this ticket: 6 `test_git_ops.py` + 3 `test_github_client.py` unit tests, plus 2 new
+`test_github_app_connected_repo_flow.py` integration tests; all 35 pre-existing tests
+re-passed unmodified, including `make test-unit` now actually running orchestrator's
+root-level suite for the first time — a pre-existing Makefile gap this ticket also
+fixed), ruff/mypy clean. `packages/schemas` 30/30 green (4 new `branches.py` tests).
+`apps/web` `tsc -b`/`eslint`/`vitest run`/`vite build` all clean; the new Repos page
+was smoke-tested against the real running stack (real Postgres + real dev-mode Vault +
+real `apps/api`/`apps/web` dev servers) via a real headless-Chromium (Playwright)
+session — screenshots confirmed correct empty-state rendering, correct nav wiring, and
+a real 503 ("GitHub App not configured", the honest state in this environment)
+surfacing as a proper user-facing error banner, not a silent failure or crash. Also
+fixed a pre-existing gap discovered along the way: `apps/orchestrator`'s own
+root-level unit tests (`test_claude_runner.py`, `test_config.py`, and this ticket's
+new ones) were never actually wired into any `Makefile` target — `make test-unit` now
+runs them.
 
 ## T-204 · VM-grade tenant isolation — `ready`
 **Spec:** SPEC-204  **Est:** L

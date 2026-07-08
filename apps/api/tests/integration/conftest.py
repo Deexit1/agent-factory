@@ -2,9 +2,14 @@ import os
 import subprocess
 import sys
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import httpx
 import pytest
+import respx
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
@@ -127,3 +132,69 @@ def client(db_session: Session, session_factory: sessionmaker[Session]) -> Itera
     with TestClient(app, headers=headers) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+# --- T-203 (SPEC-203) shared helpers/fixtures — used by both test_repo_router.py and
+# test_github_webhook_router.py; kept here (not duplicated per-file, not imported
+# cross-file as fixtures) since conftest.py fixtures are auto-discovered, avoiding the
+# ruff F401/F811 false positives that cross-file pytest-fixture imports trigger.
+
+
+def _auth(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _service_auth() -> dict[str, str]:
+    return {"Authorization": f"Bearer {os.environ['AGENT_FACTORY_SERVICE_TOKEN']}"}
+
+
+_TOKEN_EXPIRES_AT = (datetime.now(UTC) + timedelta(minutes=55)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _mock_installation_token(installation_id: int = 42) -> None:
+    respx.post(
+        f"https://api.github.com/app/installations/{installation_id}/access_tokens"
+    ).mock(
+        return_value=httpx.Response(
+            201,
+            json={
+                "token": "ghs_fake_token",
+                "expires_at": _TOKEN_EXPIRES_AT,
+                "permissions": {"contents": "write"},
+                "repositories": [{"id": 555}],
+            },
+        )
+    )
+
+
+@pytest.fixture
+def github_app_private_key_pem() -> str:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+
+
+@pytest.fixture
+def github_app_configured(
+    monkeypatch: pytest.MonkeyPatch,
+    vault_addr: str,
+    vault_client: VaultClient,
+    github_app_private_key_pem: str,
+) -> None:
+    monkeypatch.setenv("GITHUB_APP_ID", "123456")
+    monkeypatch.setenv("GITHUB_APP_SLUG", "agent-factory-test")
+    monkeypatch.setenv("GITHUB_APP_PLATFORM_INSTALLATION_ID", "999")
+    monkeypatch.setenv("GITHUB_APP_TEMPLATE_REPO", "acme/template")
+    vault_client.put_platform_secret(
+        name="github/app-private-key", value=github_app_private_key_pem
+    )
+
+
+@pytest.fixture
+def webhook_secret_configured(monkeypatch: pytest.MonkeyPatch) -> str:
+    secret = "test-github-webhook-secret"
+    monkeypatch.setenv("GITHUB_APP_WEBHOOK_SECRET", secret)
+    return secret

@@ -18,7 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from schemas import DEFAULT_REPO
+from schemas import DEFAULT_REPO, agent_branch_name
 
 from orchestrator import git_ops
 from orchestrator.api_client import ApiClient
@@ -60,17 +60,30 @@ def run_merge_queue(
 
     for entry in entries:
         ticket_id = entry["ticket_id"]
-        branch = f"agent/{ticket_id}"
+        branch = agent_branch_name(ticket_id)
         scratch = workspace_root / f"merge-{ticket_id}"
 
-        git_ops.clone_branch(repo_url, branch, scratch)
+        # T-203 (SPEC-203 AC2): "minted per ticket", not once per ticket's whole
+        # lifecycle — the dev agent's own token from PR-creation time may already have
+        # expired (<=1h TTL) by the time the queue processes this entry, so a FRESH
+        # one is minted here rather than reused.
+        install_token = api.get_github_install_token(ticket_id)
+        entry_github = github
+        auth_header = None
+        if install_token is not None:
+            entry_github = github.with_token(install_token["token"])
+            auth_header = git_ops.build_auth_header(install_token["token"])
+
+        git_ops.clone_branch(repo_url, branch, scratch, auth_header=auth_header)
         try:
-            success, conflicting_paths = git_ops.rebase_onto(scratch, base_branch)
+            success, conflicting_paths = git_ops.rebase_onto(
+                scratch, base_branch, auth_header=auth_header
+            )
 
             if success:
-                git_ops.force_push(scratch, branch)
-                pr = github.get_pr_for_branch(branch)
-                github.merge_pr(pr)
+                git_ops.force_push(scratch, branch, auth_header=auth_header)
+                pr = entry_github.get_pr_for_branch(branch)
+                entry_github.merge_pr(pr)
                 api.resolve_merge_success(entry["id"], actor=MERGE_QUEUE_ACTOR)
                 processed.append(MergeQueueEntryResult(ticket_id, "merged"))
             else:

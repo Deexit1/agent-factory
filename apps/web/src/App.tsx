@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { ImpersonatePage } from "./admin/ImpersonatePage";
 import { ProviderKeysPage } from "./admin/ProviderKeysPage";
+import { RepoConnectPage } from "./admin/RepoConnectPage";
 import { AssignmentQueuePage } from "./assignments/AssignmentQueuePage";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { LoginPage } from "./auth/LoginPage";
@@ -10,7 +11,14 @@ import { DashboardPage } from "./dashboard/DashboardPage";
 import { PlanningReviewPage } from "./planning/PlanningReviewPage";
 import { useMyOrgs, usePageViewAudit, useSwitchOrg } from "./api/queries";
 
-type View = "board" | "planning" | "assignments" | "dashboard" | "keys" | "impersonate";
+type View =
+  | "board"
+  | "planning"
+  | "assignments"
+  | "dashboard"
+  | "keys"
+  | "repos"
+  | "impersonate";
 
 function OrgSwitcher(): React.JSX.Element | null {
   const { orgId, setToken } = useAuth();
@@ -108,6 +116,13 @@ function AuthedApp(): React.JSX.Element {
           >
             Keys
           </button>
+          <button
+            type="button"
+            onClick={() => setView("repos")}
+            className={view === "repos" ? "font-semibold text-gray-900" : "text-gray-500"}
+          >
+            Repos
+          </button>
           {isPlatformStaff && !impersonating && (
             <button
               type="button"
@@ -132,6 +147,7 @@ function AuthedApp(): React.JSX.Element {
         {view === "assignments" && <AssignmentQueuePage />}
         {view === "dashboard" && <DashboardPage />}
         {view === "keys" && <ProviderKeysPage />}
+        {view === "repos" && <RepoConnectPage />}
         {view === "impersonate" && <ImpersonatePage />}
       </div>
     </div>

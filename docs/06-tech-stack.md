@@ -33,6 +33,25 @@
   Vault topology (raft storage, auto-unseal, AppRole auth, TLS) is a deploy-time
   concern, not built here — same standing as MinIO standing in for real S3 in this
   same table.
+- **Repo delivery row — real as of T-203** for connect/provision/token-mint/webhook-
+  disconnect: real RS256 JWT signing + real HTTP calls to `api.github.com`
+  (`apps/api/src/api/github_app_client.py`, sole owner of those calls per
+  `scripts/check_github_app_gate.py`), a real `repos` registry, per-ticket
+  installation-token minting (`GET /tickets/{id}/github-install-token`, ≤1h TTL,
+  service-principal-only), and a real native GitHub webhook route
+  (`POST /webhooks/github`) that force-blocks in-flight tickets on App uninstall.
+  **Not yet real:** no live GitHub App is registered in this environment (creating one
+  requires a human with org-owner rights on github.com, a generated private key, and a
+  configured webhook URL) and no live customer GitHub org/repo exists — every GitHub
+  API interaction is proven via `respx` HTTP-boundary fault injection (T-202's
+  `packages/llm_router` precedent) plus a real local bare git repo standing in for
+  "the customer repo" in orchestrator integration tests, not a live github.com
+  round-trip. GitHub's own server-side branch-protection enforcement is configured and
+  verified at connect time but not exercised live. The repo-transfer export mode's
+  real permission requirements (whether an App installation token can call
+  `POST /repos/{owner}/{repo}/transfer` at all) are built and tested against the
+  documented request/response shape but flagged as needing live verification before
+  first real use.
 
 ## Phase-2 activations (pre-approved escalation paths)
 - **Runner pool → Kubernetes** (EKS/GKE + autoscaling runners) WHEN sustained parallel

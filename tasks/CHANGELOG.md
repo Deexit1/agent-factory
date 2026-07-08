@@ -1523,3 +1523,162 @@ Format:
   storage, auto-unseal, AppRole auth, TLS — dev-mode only here, same
   standing as MinIO for S3) are all explicitly out of scope, not silent
   gaps — see `tasks/BACKLOG.md`'s T-202 entry for the full list.
+
+## T-203 · GitHub connect & provisioned repos — 2026-07-08
+- What changed: the whole system had exactly one repo target before this
+  task — this platform monorepo itself, reached via an ambient
+  `GITHUB_TOKEN` PAT and `gh` CLI auto-auth (the "single-app assumption"
+  SPEC-203 names). No GitHub App, installation-token, repo-registry, or
+  GitHub-native-webhook concept existed anywhere (confirmed by grep, not
+  assumed). This task makes the platform able to deliver code to a
+  CUSTOMER's own repo (App install) or a repo it provisions and later hands
+  over, while leaving the dogfood path untouched as a fallback. New
+  `apps/api/src/api/github_app_client.py` is the sole owner of
+  `api.github.com` calls (enforced by a new `scripts/check_github_app_gate.py`,
+  mirroring `check_llm_router_gate.py`'s discipline): real RS256 JWT signing
+  (`mint_app_jwt`), real installation-token minting
+  (`mint_installation_token`, asserting the ≤1h TTL ceiling before ever
+  returning a token — AC2's "introspection test" IS this assertion), real
+  branch-protection checks, repo-from-template creation, ownership transfer,
+  and archive-URL resolution, plus HMAC webhook-signature verification. New
+  `repos` table (org_id, mode connected|provisioned, github_installation_id,
+  github_repo_id, clone_url, default_branch, ci_mode,
+  protected_branch_rules_verified, status active|disconnected|exported) and
+  a nullable `tickets.repo_id` FK — null means the pre-T-203 dogfood path,
+  never backfilled, mirroring `agent_runs.provider`'s T-202 precedent.
+  `apps/api/src/api/services/github_repo_service.py` orchestrates
+  connect/provision/export/disconnect/token-mint; `build_connect_url` signs
+  a short-lived `state` token (itsdangerous) that doubles as CSRF protection
+  for the GitHub App's browser-redirect callback. Two-tier App permissions:
+  customer-connect installations request `contents:write`+
+  `pull_requests:write` only (SPEC-203's "selected repos only" verbatim);
+  the platform's own installation (provisioned repos only, never a
+  customer's) additionally requests `administration:write` for
+  repo-transfer export — a disclosed, not-live-verified assumption about
+  whether an installation token can call that endpoint at all. New
+  `github_webhook_service.py` handles GitHub's native `installation`/
+  `check_run` webhooks (`POST /webhooks/github`, deliberately separate from
+  the pre-existing custom `/webhooks/ci-result` route, which stays
+  untouched) — `installation.deleted` force-disconnects the affected
+  `repos` rows and force-transitions every in-flight ticket to `blocked`,
+  synchronously, in the same request (AC4's "within 60s" by construction,
+  not polling); `check_run.completed` resolves the ticket via a new
+  `schemas.branches.ticket_id_from_branch` helper and delegates to a
+  `webhook_service.apply_ci_result` helper extracted from the existing
+  `handle_ci_result` (same code path for both entry points now, one less
+  place to drift; `handle_ci_result`'s own public signature/behavior is
+  unchanged, its existing tests are the regression proof). The one
+  disclosed state-machine rule change this task makes:
+  `domain/state_machine.py`'s `blocked` target now also accepts the exact
+  actor `system:github` (not any `system:*` actor — a narrow allowlist), so
+  the webhook handler can force-block without becoming human-only-exempt in
+  general; `ticket_service.request_transition` gained an optional `reason`
+  kwarg so "events explaining why" (AC4) is a real queryable field, not
+  free text jammed into `actor`. AC1's "push to their default branch is
+  impossible" is proven at two independent, honestly-separated layers: (a)
+  our own code — `git_ops.py` gained `BranchNotAllowed`/
+  `_assert_agent_branch`, called at the top of `push`/`force_push` before
+  any subprocess or network call, real and live-testable today, plus every
+  git-touching function gained an `auth_header` kwarg
+  (`git -c http.extraheader=...`, built by the new `build_auth_header`,
+  never written to `.git/config`, never argv-visible, never logged — chosen
+  over URL-embedding the token specifically to avoid persisting it to
+  on-disk git config for the workspace's lifetime); (b) GitHub's own
+  branch-protection, configured/verified at connect time but disclosed as
+  unexercised live (no customer org exists here). `github_client.py`'s
+  `GhCliGitHubClient` became a dataclass with a `token` field and a new
+  `with_token`/`_env()` pair that scopes every `gh` subprocess call via a
+  `GITHUB_TOKEN` env override — the exact `Popen(env=...)` pattern
+  `claude_runner.py` already established for BYOK keys (T-202); `dev.py`
+  and `merge_queue.py` both call the new
+  `api.get_github_install_token(ticket_id)` (404 → `None` → today's
+  ambient-credential behavior, unchanged) and thread the minted token
+  through — `merge_queue.py` mints its OWN fresh token at merge time rather
+  than reusing the dev agent's PR-creation-time one, since tokens expire
+  ≤1h and the queue may run well after that (AC2's "minted per ticket", not
+  "per ticket's whole lifecycle"). New `packages/schemas/src/schemas/
+  branches.py` (`agent_branch_name`/`ticket_id_from_branch`) replaces the
+  ad hoc `f"agent/{ticket_id}"` string duplicated in `dev.py`/
+  `merge_queue.py`, since the webhook handler now needs the inverse too.
+  `vault_client.py` gained `put_platform_secret`/`get_platform_secret` for
+  platform-level (non-tenant) singletons at `platform/<name>`, distinct
+  from BYOK's per-org `tenants/<org_id>/...` paths — used once, for the
+  App's own private key. New `apps/web/src/admin/RepoConnectPage.tsx`
+  mirrors `ProviderKeysPage.tsx`'s shape (list/connect/provision/export/
+  disconnect, owner-gated forms, a persistent warning banner for an
+  unprotected default branch).
+- Files touched: `.env.example`/`Makefile` (GitHub App env vars;
+  `github-app-gate` wired into `make check`; `apps/orchestrator` added to
+  `make test-unit` — a pre-existing gap this fixes, its own root-level unit
+  tests were never wired into any Makefile target before), `apps/api/
+  migrations/versions/e6f7a8b9c0d1_*.py` (new — `repos` table,
+  `tickets.repo_id`), `apps/api/src/api/{db/models.py (Repo/RepoMode/
+  RepoCIMode/RepoStatus, Ticket.repo_id), github_app_client.py (new),
+  vault_client.py (platform secrets), repositories/{repo_repository.py
+  (new), ticket_repository.py (list_in_flight_by_repo)}, services/
+  {github_repo_service.py (new), github_webhook_service.py (new),
+  webhook_service.py (apply_ci_result extraction), ticket_service.py
+  (reason kwarg, repo_id validation on create_ticket)}, domain/
+  state_machine.py (system:github blocked exception), routers/{repos.py
+  (new), webhooks.py (POST /webhooks/github), tickets.py (repo_id
+  passthrough)}, contracts.py (Repo*/ConnectUrlOut/Export*/
+  GitHubInstallTokenOut, CreateTicketRequest.repo_id, TicketOut.repo_id),
+  main.py (router registration), pyproject.toml (pyjwt[crypto], +respx
+  dev)}`, `packages/schemas/src/schemas/{branches.py (new), __init__.py}`,
+  `apps/orchestrator/src/orchestrator/{git_ops.py (branch guard,
+  auth_header threading), github_client.py (token field, with_token/_env),
+  api_client.py (get_github_install_token), agents/dev.py (token wiring),
+  merge_queue.py (per-merge token mint)}`, `scripts/{check_github_app_gate.py
+  (new), check_tenant_scope_gate.py (list_by_installation allowlist)}`,
+  `apps/web/src/{api/{client.ts, queries.ts}, admin/RepoConnectPage.tsx
+  (new), App.tsx (Repos nav entry)}`, `docs/{02-data-model.md,
+  03-state-machine.md, 06-tech-stack.md, 09-saas-model.md}`, test files
+  listed below.
+- Test evidence: `apps/api` 158/158 (up from 128 — 30 new: 5 pure JWT/HMAC
+  unit (`test_github_app_client.py`), 9 respx HTTP-boundary unit
+  (`test_github_app_client_http.py`), 10 `test_repo_router.py` (real
+  ephemeral Vault + Postgres + a locally generated throwaway RSA keypair),
+  5 `test_github_webhook_router.py`, plus 1 new `test_state_machine.py`
+  case), ruff/mypy clean; all three static gates pass for real, each
+  verified to fail on a deliberately planted violation and pass once
+  reverted (llm-router-gate and tenant-scope-gate unchanged behaviorally;
+  the new github-app-gate caught its own docstring's prose on first run,
+  fixed by allowlisting itself alongside the pre-existing sandbox
+  egress-domain list false-positive). `apps/orchestrator` 46/46 (22 unit +
+  24 integration; 9 new this ticket — 6 `test_git_ops.py` + 3
+  `test_github_client.py` unit tests, plus 2 new
+  `test_github_app_connected_repo_flow.py` integration tests, the AC1 proof
+  against a real local bare git repo standing in for "the customer repo" —
+  all 35 pre-existing tests re-passed unmodified, including `make
+  test-unit` now actually running orchestrator's own root-level suite for
+  the first time, a pre-existing gap this ticket also fixed), ruff/mypy
+  clean; the entire pre-existing integration suite (dev agent, merge
+  queue, e2e management flow) re-passed unmodified, confirming the
+  dogfood fallback path is genuinely byte-for-byte unchanged. `packages/
+  schemas` 30/30 (4 new `branches.py` tests). `apps/web`: `tsc -b --noEmit`
+  clean, `eslint` clean (1 pre-existing unrelated warning), `vitest run`
+  1/1, `vite build` succeeds; additionally smoke-tested against the real
+  running stack (real Postgres, real dev-mode Vault, real `apps/api`/
+  `apps/web` dev servers, migrations applied clean end-to-end) via a real
+  headless-Chromium Playwright session — screenshots confirmed the Repos
+  page's empty state, nav wiring, and a real 503 ("GitHub App not
+  configured") surfacing as a proper user-facing error banner rather than
+  a silent failure.
+- Notes / follow-ups: no live GitHub App is registered in this environment
+  (requires a human with org-owner rights on github.com, a generated
+  private key, and a configured webhook URL) and no live customer repo
+  exists — every GitHub API interaction is respx-fault-injection-tested at
+  the HTTP boundary, not a live github.com round-trip; this is disclosed,
+  not silently assumed to work. GitHub's own server-side branch-protection
+  enforcement is configured/verified but not exercised live.
+  Repo-transfer's real permission requirements (can an App installation
+  token call it at all) are not live-verified — flagged in code/docs for
+  verification before first real use; the archive export mode has no such
+  gap and is the recommended default in the UI. No new artifact/S3 storage
+  was built — archive export returns GitHub's own tarball URL; MinIO is
+  declared in `docker-compose.yml`/`.env.example` but nothing in this
+  codebase touches it yet, unchanged by this task. A third provider
+  (Gemini), incremental "repos added/removed from an existing installation"
+  without a full uninstall, and real production Vault topology are all
+  explicitly out of scope, not silent gaps — see `tasks/BACKLOG.md`'s
+  T-203 entry for the full list.

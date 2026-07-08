@@ -36,12 +36,19 @@ def verify_signature(raw_body: bytes, signature_header: str | None) -> bool:
     return hmac.compare_digest(expected, provided)
 
 
-def handle_ci_result(
-    session: Session, ticket_id: str, *, conclusion: str, suite: str, raw_log: str
+def apply_ci_result(
+    session: Session,
+    ticket_id: str,
+    *,
+    org_id: str,
+    conclusion: str,
+    suite: str,
+    raw_log: str,
+    actor: str = CI_ACTOR,
 ) -> Ticket:
-    # CI webhooks aren't behind an authenticated actor context; scoped to the single
-    # seeded org until T-201 gives webhooks a per-org auth token.
-    org_id = DEFAULT_ORG_ID
+    """Shared by the custom /webhooks/ci-result route above AND T-203's native GitHub
+    check_run.completed handler (github_webhook_service.py) — one transition code path
+    for "a CI signal came in", not two independently-drifting copies."""
     ticket = ticket_service.get_ticket(session, ticket_id, org_id=org_id)  # 404s if missing
     if ticket.state is not TicketState.IN_QA:
         raise TicketNotInQA(ticket_id, ticket.state)
@@ -61,14 +68,14 @@ def handle_ci_result(
         session,
         ticket_id,
         org_id=org_id,
-        actor=CI_ACTOR,
+        actor=actor,
         kind=EventKind.TEST_RESULT,
         payload={"conclusion": "failure", "suite": suite, "failure_report": report.model_dump()},
     )
 
     try:
         return ticket_service.request_transition(
-            session, ticket_id, TicketState.BOUNCED, actor=CI_ACTOR, org_id=org_id
+            session, ticket_id, TicketState.BOUNCED, actor=actor, org_id=org_id
         )
     except ticket_service.TransitionRefused as exc:
         if exc.auto_escalated:
@@ -76,4 +83,19 @@ def handle_ci_result(
         raise
 
 
-__all__ = ["TicketNotInQA", "verify_signature", "handle_ci_result"]
+def handle_ci_result(
+    session: Session, ticket_id: str, *, conclusion: str, suite: str, raw_log: str
+) -> Ticket:
+    # CI webhooks aren't behind an authenticated actor context; scoped to the single
+    # seeded org until T-201 gives webhooks a per-org auth token.
+    return apply_ci_result(
+        session,
+        ticket_id,
+        org_id=DEFAULT_ORG_ID,
+        conclusion=conclusion,
+        suite=suite,
+        raw_log=raw_log,
+    )
+
+
+__all__ = ["TicketNotInQA", "verify_signature", "handle_ci_result", "apply_ci_result"]

@@ -11,13 +11,14 @@ from api.db.models import (
     MergeQueueEntry,
     MergeQueueStatus,
     Org,
+    RepoStatus,
     Ticket,
     TicketEvent,
     TicketState,
     TicketType,
 )
 from api.domain import state_machine
-from api.repositories import agent_run_repository
+from api.repositories import agent_run_repository, repo_repository
 from api.repositories import ticket_repository as repo
 from api.ws.broadcaster import broadcaster
 
@@ -60,19 +61,45 @@ def _initial_state(session: Session, request: CreateTicketRequest, *, org_id: st
     return TicketState.READY
 
 
+class RepoNotFound(Exception):
+    def __init__(self, repo_id: int) -> None:
+        self.repo_id = repo_id
+        super().__init__(f"repo {repo_id} not found")
+
+
+class RepoNotActive(Exception):
+    def __init__(self, repo_id: int) -> None:
+        self.repo_id = repo_id
+        super().__init__(f"repo {repo_id} is not active")
+
+
 def create_ticket(session: Session, request: CreateTicketRequest, *, org_id: str) -> Ticket:
+    spec = request.spec
+    if request.repo_id is not None:
+        # T-203 architecture decision 4: repo capacity accounting stays keyed off
+        # spec["repo"] (a string) — populate it from the resolved repo so the existing
+        # capability_registry capacity gate keeps working unmodified. repo_id is the
+        # separate, authoritative FK used for token-minting/git-target resolution.
+        connected_repo = repo_repository.get_repo(session, request.repo_id, org_id=org_id)
+        if connected_repo is None:
+            raise RepoNotFound(request.repo_id)
+        if connected_repo.status is not RepoStatus.ACTIVE:
+            raise RepoNotActive(request.repo_id)
+        spec = {**(spec or {}), "repo": connected_repo.clone_url}
+
     ticket = repo.create_ticket(
         session,
         org_id=org_id,
         ticket_type=request.type,
         title=request.title,
         parent_id=request.parent_id,
-        spec=request.spec,
+        spec=spec,
         acceptance_criteria=[ac.model_dump() for ac in request.acceptance_criteria],
         assignee_agent=request.assignee_agent,
         budget_usd=request.budget_usd,
         created_by=request.created_by,
         state=_initial_state(session, request, org_id=org_id),
+        repo_id=request.repo_id,
     )
     session.commit()
     return ticket
@@ -299,6 +326,7 @@ def request_transition(
     *,
     org_id: str,
     assignee_agent: str | None = None,
+    reason: str | None = None,
 ) -> Ticket:
     ticket = get_ticket(session, ticket_id, org_id=org_id)
     from_state = ticket.state
@@ -393,13 +421,19 @@ def request_transition(
     if is_assignment_attempt and assignee_agent is not None:
         ticket.assignee_agent = assignee_agent
     ticket.state = to_state
+    transition_payload: dict[str, object] = {"from": from_state.value, "to": to_state.value}
+    if reason is not None:
+        # T-203 AC4: makes "events explaining why" a real, queryable field (e.g. the
+        # GitHub webhook handler's "App uninstalled from <repo>") rather than free text
+        # jammed into `actor`. Every pre-existing caller omits this — no behavior change.
+        transition_payload["reason"] = reason
     event = repo.append_event(
         session,
         org_id=org_id,
         ticket_id=ticket.id,
         actor=actor,
         kind=EventKind.TRANSITION,
-        payload={"from": from_state.value, "to": to_state.value},
+        payload=transition_payload,
     )
 
     if from_state is TicketState.PLANNING and to_state is TicketState.READY:

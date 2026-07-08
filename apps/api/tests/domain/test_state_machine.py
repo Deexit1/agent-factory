@@ -290,6 +290,29 @@ def test_blocked_and_cancelled_require_human_actor_from_any_state() -> None:
             _request(TicketState.IN_PROGRESS, TicketState.BLOCKED, actor="agent:dev-1")
         )
 
+    with pytest.raises(TransitionRejected):
+        validate_transition(
+            _request(TicketState.DONE, TicketState.CANCELLED, actor="system:github")
+        )
+
+
+def test_blocked_also_allows_the_narrow_system_github_actor() -> None:
+    """T-203 (SPEC-203 AC4): the GitHub webhook handler force-blocks in-flight tickets
+    on App uninstall — the one disclosed exception to "blocked is human-only", scoped to
+    this exact actor string, not any system:* actor."""
+    validate_transition(
+        _request(TicketState.IN_PROGRESS, TicketState.BLOCKED, actor="system:github")
+    )
+
+    with pytest.raises(TransitionRejected):
+        validate_transition(
+            _request(TicketState.IN_PROGRESS, TicketState.BLOCKED, actor="system:ci")
+        )
+    with pytest.raises(TransitionRejected):
+        validate_transition(
+            _request(TicketState.IN_PROGRESS, TicketState.BLOCKED, actor="system:merge-queue")
+        )
+
 
 def test_in_review_to_in_qa_requires_review_agent_or_human_actor() -> None:
     validate_transition(

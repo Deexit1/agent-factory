@@ -69,12 +69,56 @@ production Vault topology (dev-mode only, see docs/06-tech-stack.md).
   (`POST .../eval-floors/opt-in`) before that combo is dispatchable — enforced as a
   hard gate at every agent entry point, not a UI-only suggestion.
 
-## Code delivery — two repo modes
-1. **Connect (default):** user installs our GitHub App on their org/repo; agents push
-   `agent/*` branches and open PRs there. Minimal permissions: contents + pull requests
-   on selected repos only.
-2. **Provisioned:** we create a repo under the platform org and transfer ownership on
-   request/export.
+## Code delivery — two repo modes (real, T-203)
+
+**T-203 status**: real GitHub App connect/provision/export/disconnect, a real `repos`
+registry, real per-ticket installation-token minting, and a real native GitHub webhook
+route. No live GitHub App is registered in this environment and no live customer
+repo exists — every GitHub API interaction is `respx`-fault-injection-tested at the
+HTTP boundary (same T-202 `packages/llm_router` precedent) plus a real local bare git
+repo standing in for "the customer repo" in orchestrator tests, not a live github.com
+round-trip (see docs/06-tech-stack.md's implementation-status note for the full list
+of disclosed gaps).
+
+1. **Connect (default):** the org owner calls `GET /orgs/{id}/repos/connect-url`
+   (state-token-protected, ≤10min TTL — doubles as CSRF protection for the browser
+   redirect) and installs our GitHub App on their repo(s). GitHub redirects to
+   `GET /repos/connect-callback`, which mints a real installation token, enumerates the
+   selected repos, checks each one's default-branch protection
+   (`GET .../branches/{branch}/protection`), and creates one `repos` row per repo.
+   Minimal permissions: `contents:write` + `pull_requests:write` on selected repos
+   only — the App never requests broader scope for a customer's own repos.
+   Unprotected-branch repos are still connected (warn-and-allow, `repos.
+   protected_branch_rules_verified=false`, persistent UI banner) rather than refused —
+   our own code (`git_ops.py`'s `agent/*`-only push guard) holds regardless of
+   GitHub-side protection.
+2. **Provisioned:** `POST /orgs/{id}/repos/provisioned` creates a repo under the
+   platform's own org from a template, using the platform's own App installation (the
+   only installation that ever requests the broader `administration:write` permission,
+   needed for `export(mode="transfer")` — never granted for a customer's connected
+   repo). Export (`POST /orgs/{id}/repos/{repo_id}/export`) supports `mode="archive"`
+   (returns GitHub's own tarball download URL — no new platform artifact storage was
+   built, since none exists anywhere in this codebase yet) or `mode="transfer"`
+   (ownership transfer; whether an App installation token can actually call GitHub's
+   transfer endpoint is a disclosed, not-live-verified assumption).
+3. **Per-ticket tokens (AC2):** the orchestrator's only way to a usable GitHub
+   credential is `GET /tickets/{id}/github-install-token` (service-principal-only,
+   mirrors T-202's `runtime-keys` endpoint) — mints a fresh installation token scoped
+   to exactly that ticket's repo, asserted ≤1h TTL before it's ever returned. Never
+   persisted anywhere (BYOK's "fetched at run start, held in memory" doctrine, extended
+   verbatim). The dev agent's `git push`/`gh pr create` calls receive it via a
+   subprocess-scoped `env=`/`git -c http.extraheader=` override — never argv, never a
+   transcript payload, never `.git/config`.
+4. **Uninstall handling (AC4):** GitHub's native `installation.deleted` webhook
+   (`POST /webhooks/github`, HMAC-verified against `GITHUB_APP_WEBHOOK_SECRET`) marks
+   the affected `repos` row disconnected and force-transitions every in-flight ticket
+   to `blocked` (actor `system:github`, the one disclosed exception to "blocked is
+   human-only" — see docs/03-state-machine.md) synchronously, in the same request —
+   satisfies "within 60s" by construction, not by polling.
+5. **Dogfood path preserved:** `tickets.repo_id` is nullable; every orchestrator entry
+   point falls back to today's ambient-`GITHUB_TOKEN` behavior when it's null — this
+   platform's own monorepo (what every ticket targeted before T-203) keeps working
+   unmodified.
 
 ## Billing & metering
 - BYOK means tokens are the customer's cost. We charge platform usage: subscription
