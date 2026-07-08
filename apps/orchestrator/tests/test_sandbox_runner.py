@@ -16,10 +16,15 @@ class _FakeApiClient:
     def __init__(self, domains: list[str]) -> None:
         self.domains = domains
         self.calls: list[str] = []
+        self.usage_events: list[tuple[str, float]] = []
 
     def get_org_egress_rules(self, org_id: str) -> list[str]:
         self.calls.append(org_id)
         return self.domains
+
+    def record_sandbox_usage_minutes(self, ticket_id: str, minutes: float) -> dict[str, object]:
+        self.usage_events.append((ticket_id, minutes))
+        return {"id": len(self.usage_events)}
 
 
 class _FakeRuntime:
@@ -115,6 +120,7 @@ def test_run_requires_org_id_and_ticket_id(tmp_path: Path) -> None:
     except ValueError:
         raised = True
     assert raised
+    assert api.usage_events == []
 
 
 def test_run_provisions_execs_and_tears_down(tmp_path: Path) -> None:
@@ -149,6 +155,13 @@ def test_run_provisions_execs_and_tears_down(tmp_path: Path) -> None:
     assert kinds == ["message", "cost"]
     assert events[-1].payload["total_cost_usd"] == 0.05
 
+    # T-205: one sandbox_minutes usage event per run, measured from the real
+    # HostPool.acquire()/release() bracket above.
+    assert len(api.usage_events) == 1
+    reported_ticket_id, reported_minutes = api.usage_events[0]
+    assert reported_ticket_id == "T-1"
+    assert reported_minutes >= 0.0
+
 
 def test_run_releases_sandbox_even_on_exception(tmp_path: Path) -> None:
     class _ExplodingRuntime(_FakeRuntime):
@@ -177,6 +190,11 @@ def test_run_releases_sandbox_even_on_exception(tmp_path: Path) -> None:
         raised = True
     assert raised
     assert len(runtime.run_sandboxes) == 1
+    # T-205: a failed run still held the sandbox for real wall-clock time and must
+    # still be billed for it — usage recording lives in the same finally block as the
+    # lease release above, not gated on success.
+    assert len(api.usage_events) == 1
+    assert api.usage_events[0][0] == "T-2"
 
 
 def test_host_pool_serializes_two_orgs_when_only_one_slot_exists(tmp_path: Path) -> None:

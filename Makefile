@@ -5,7 +5,7 @@ LLM_ROUTER_DIR := packages/llm_router
 SANDBOX_DIR := apps/sandbox
 ORCHESTRATOR_DIR := apps/orchestrator
 
-.PHONY: dev test test-unit test-integration check lint typecheck e2e a11y migrate coverage-gate eval llm-router-gate tenant-scope-gate github-app-gate escape-test
+.PHONY: dev test test-unit test-integration check lint typecheck e2e a11y migrate coverage-gate eval llm-router-gate tenant-scope-gate github-app-gate razorpay-gate escape-test billing-meter
 
 $(API_DIR)/.venv/.stamp: $(API_DIR)/pyproject.toml $(SCHEMAS_DIR)/pyproject.toml
 	cd $(API_DIR) && python3 -m venv .venv
@@ -106,6 +106,9 @@ tenant-scope-gate: ## Fail if any repository-layer function queries the DB witho
 github-app-gate: ## Fail if api.github.com is referenced outside github_app_client.py (T-203)
 	python3 scripts/check_github_app_gate.py
 
+razorpay-gate: ## Fail if api.razorpay.com is referenced outside razorpay_client.py (T-205)
+	python3 scripts/check_razorpay_gate.py
+
 # T-204 (SPEC-204 AC1): named explicitly per the spec's "escape-test suite" language.
 # Already runs as part of `test-integration` (it lives under apps/sandbox/tests/
 # integration/) — this target exists for discoverability/direct invocation, not as a
@@ -113,7 +116,7 @@ github-app-gate: ## Fail if api.github.com is referenced outside github_app_clie
 escape-test: $(SANDBOX_DIR)/.venv/.stamp ## Docker-backed sandbox escape probes (host fs, docker socket, cross-org network)
 	cd $(SANDBOX_DIR) && .venv/bin/pytest tests/integration/test_escape_probes.py -v
 
-check: lint typecheck test llm-router-gate tenant-scope-gate github-app-gate ## Full QA gate: lint + typecheck + unit + integration + router gate + tenant-scope gate + github-app gate
+check: lint typecheck test llm-router-gate tenant-scope-gate github-app-gate razorpay-gate ## Full QA gate: lint + typecheck + unit + integration + router gate + tenant-scope gate + github-app gate + razorpay gate
 
 e2e: $(WEB_DIR)/node_modules/.stamp ## Playwright end-to-end suite
 	cd $(WEB_DIR) && npx playwright install --with-deps chromium
@@ -124,6 +127,9 @@ a11y: $(WEB_DIR)/node_modules/.stamp ## Lighthouse accessibility audit of the bo
 
 migrate: $(API_DIR)/.venv/.stamp ## Apply alembic migrations
 	cd $(API_DIR) && .venv/bin/alembic upgrade head
+
+billing-meter: $(API_DIR)/.venv/.stamp ## T-205: nightly billing-metering job. DATE=YYYY-MM-DD (defaults to yesterday UTC)
+	cd $(API_DIR) && .venv/bin/python scripts/run_billing_metering.py $(if $(DATE),--date $(DATE),)
 
 eval: $(ORCHESTRATOR_DIR)/.venv/.stamp ## Golden-set eval harness (SPEC-101); pass ARGS="--only-changed" etc.
 	cd $(ORCHESTRATOR_DIR) && .venv/bin/python -m orchestrator.evals.runner run --set all $(ARGS)

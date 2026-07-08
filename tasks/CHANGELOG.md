@@ -1807,3 +1807,123 @@ Format:
   stays dev-mode only, same standing as every other MinIO/Vault note in
   these docs. See `tasks/BACKLOG.md`'s T-204 entry for the full
   per-AC evidence and architecture-decision list.
+
+## T-205 · Billing & metering — 2026-07-09
+- What changed: Implemented SPEC-205 — subscription tiers, an idempotent
+  nightly usage-metering job, deferred-downgrade plan enforcement mapped
+  onto T-201's `max_parallel_tickets`, a Razorpay-webhook-driven dunning
+  path reusing T-203's `disconnect_repo` force-block precedent verbatim,
+  and a reconciled usage dashboard endpoint. Vendor swapped from the
+  locked table's `Stripe` to Razorpay (human decision this session, no
+  live account for either — resolved via AskUserQuestion) and pricing
+  tiers are explicit placeholders (also resolved via AskUserQuestion, no
+  real figures exist anywhere in this repo's docs). New
+  `apps/api/src/api/razorpay_client.py`: a hand-rolled `httpx` REST
+  wrapper (this repo's T-202/T-203 convention, not the vendor SDK), sole
+  owner of `api.razorpay.com` per new `scripts/check_razorpay_gate.py`
+  (`make razorpay-gate`, added to `check`) — real HMAC-SHA256 webhook
+  signature verification, respx-tested at the HTTP boundary only (no live
+  Razorpay account reachable here). New `apps/api/src/api/
+  billing_plans.py`: `free`/`starter`/`team` tier definitions + a pure
+  `compute_invoice` function (base fee + max(0, used-included)*rate per
+  metered item) — the exact function the golden-total test asserts
+  against. New tables `usage_events` (a sibling to `cost_ledger`, not an
+  overload of `ticket_events`'s Postgres-enum `kind` column — only
+  `sandbox_minutes` is written here, posted by `apps/orchestrator`'s
+  `SandboxClaudeCodeRunner` after each real sandbox lease via a new
+  `POST /tickets/{id}/usage-events` route) and `billing_usage_reports`
+  (unique on `(org_id, report_date, kind)` — this constraint IS the
+  idempotency mechanism the nightly job relies on). `orgs` gained 8 plain
+  string/timestamp columns (`plan`, `pending_plan`,
+  `pending_plan_effective_at`, `current_period_end`, `billing_status`,
+  `dunning_grace_until`, `razorpay_customer_id`,
+  `razorpay_subscription_id`) — no new Postgres enum, avoiding the
+  documented two-migration ADD-VALUE-then-USE split. New
+  `apps/api/src/api/services/billing_service.py`: `set_plan` (upgrade
+  immediate, downgrade deferred to `current_period_end`),
+  `apply_pending_plan_sweep` (applies deferred downgrades + bills the
+  elapsed period's overage as real Razorpay addons + rolls the period
+  forward — all three only once per elapsed period, not prorated daily, so
+  they agree exactly with `compute_invoice_for_period`'s math),
+  `run_metering_for_day` (idempotent raw-usage recording),
+  `pause_org_for_nonpayment`/`handle_payment_failed`/
+  `handle_payment_succeeded`/`expire_grace_periods` (the dunning path),
+  `compute_invoice_for_period` (ledger-based, from `billing_usage_reports`)
+  and `compute_live_invoice_for_period` (computed directly from
+  `usage_events`/`agent_runs`/`ticket_events`, independent of the ledger —
+  what the dashboard endpoint shows, so AC5's reconciliation test compares
+  two genuinely independent code paths, not the same number twice). New
+  `apps/api/scripts/run_billing_metering.py` (`make billing-meter
+  DATE=...`) — a standalone, externally-triggered script, not a daemon; no
+  scheduler infra exists anywhere in this repo
+  (`provider_health_service.py`'s own disclosed standing). New
+  `apps/api/src/api/routers/billing.py` (`GET/POST .../billing`,
+  `.../billing/plan`, `.../billing/subscribe`, `.../billing/usage`,
+  `.../billing/portal-link`) and a new `POST /webhooks/razorpay` route in
+  `routers/webhooks.py`. `state_machine.py`'s `_SYSTEM_BLOCK_ACTORS` gained
+  one new exact-string entry, `"system:billing"`, next to T-203's
+  `"system:github"`; a new `org_over_usage_cap` guard
+  (`state_machine.py`/`ticket_service.py`) extends T-201's exact
+  `org_at_quota` pattern for free-tier orgs over their included
+  agent-run-minutes/sandbox-minutes, hard-capping instead of billing
+  overage (only paid tiers bill overage).
+- Files touched: `apps/api/src/api/billing_plans.py` (new),
+  `razorpay_client.py` (new), `repositories/billing_repository.py` (new),
+  `services/billing_service.py` (new), `routers/billing.py` (new),
+  `routers/webhooks.py`, `routers/tickets.py`, `db/models.py`,
+  `contracts.py`, `main.py`, `domain/state_machine.py`,
+  `services/ticket_service.py`, `repositories/ticket_repository.py`,
+  `repositories/org_repository.py`,
+  `migrations/versions/a2b3c4d5e6f7_billing_metering.py` (new),
+  `apps/api/scripts/run_billing_metering.py` (new),
+  `apps/orchestrator/src/orchestrator/api_client.py`,
+  `sandbox_runner.py`, `tests/test_sandbox_runner.py`,
+  `scripts/check_razorpay_gate.py` (new),
+  `scripts/check_tenant_scope_gate.py` (2 new allowlist entries),
+  `Makefile`, `.env.example`, `docs/06-tech-stack.md`,
+  `docs/09-saas-model.md`, `docs/02-data-model.md`,
+  `docs/03-state-machine.md`, `docs/05-security.md`, plus 8 new test files
+  under `apps/api/tests/`.
+- Test evidence: `apps/api` 199/199 green (up from 165 — 34 new: 3 pure
+  `compute_invoice` unit tests, 9 real `razorpay_client.py` respx tests, 2
+  metering-job (AC1/AC2), 3 plan-change (AC3), 5 dunning (AC4), 1
+  reconciliation (AC5), 9 billing-router, 2 free-tier-usage-cap), ruff/
+  mypy clean, all four static gates pass (`llm-router-gate`,
+  `tenant-scope-gate`, `github-app-gate`, new `razorpay-gate`).
+  `apps/orchestrator` 50/50 green (count unchanged — the 4 pre-existing
+  `test_sandbox_runner.py` tests gained new `record_sandbox_usage_minutes`
+  assertions rather than new test functions), ruff/mypy clean. Migration
+  verified reversible for real against a throwaway Postgres container
+  (`upgrade head` → `downgrade -1` → `upgrade head`, not just inferred
+  from the file's `downgrade()` body). The nightly metering script itself
+  was smoke-tested against a freshly migrated database, not just its
+  underlying service functions: a first run reports usage for the seeded
+  "default" org, an immediate second run for the same date is a real
+  no-op. Two real bugs were caught by my own first test runs and fixed
+  before proceeding, not just by design review: (1) a test wrongly
+  assumed a freshly created org's `max_parallel_tickets` would reflect its
+  `plan="free"` default — it doesn't, by design (T-201's own
+  `test_org_with_no_quota_configured_is_unaffected` already established
+  that new orgs are unlimited until a plan is actually applied via
+  `set_plan`; auto-applying it at creation time would have silently
+  broken that pre-existing, still-passing T-201 test), so the test's
+  expectation was corrected, not the production code; (2) an early
+  `apply_pending_plan_sweep` test simulated "period end" by directly
+  mutating `orgs.current_period_end` in the test, which desynced it from
+  `pending_plan_effective_at` (a snapshot taken at downgrade-request time)
+  in a way that could never happen in real operation — fixed by passing
+  an explicit future `now` to the sweep function instead, which exercises
+  the real trigger condition correctly.
+- Notes / follow-ups: no live Razorpay account reachable in this
+  environment — `razorpay_client.py` is real and respx-tested at the HTTP
+  boundary only, same standing as T-202/T-203/T-204's equivalent
+  live-infra gaps. Pricing figures in `billing_plans.py` are explicit
+  placeholders pending a real business decision. No new `apps/web` UI —
+  matches T-201–204's own precedent exactly (none of those tickets touched
+  `apps/web` either); AC5's reconciliation is proven at the API layer.
+  Seats (`PlanDefinition.seats_included`) are stored but not enforced — no
+  AC requires seat-capacity enforcement. No real cron/scheduler daemon
+  runs the metering job — external trigger only. Already-`BLOCKED`
+  tickets have no unblock path (billing- or otherwise) — a pre-existing
+  gap since T-203, not created or closed here. See `tasks/BACKLOG.md`'s
+  T-205 entry for the full per-AC evidence and architecture-decision list.

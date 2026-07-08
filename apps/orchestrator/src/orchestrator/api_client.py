@@ -244,5 +244,16 @@ class ApiClient:
         response.raise_for_status()
         return response.json()["domains"]  # type: ignore[no-any-return]
 
+    def record_sandbox_usage_minutes(self, ticket_id: str, minutes: float) -> dict[str, Any]:
+        """T-205 (SPEC-205): the real wall-clock duration a sandbox lease was held for
+        (sandbox_runner.py measures HostPool.acquire -> release), fed into the nightly
+        billing-metering job's sandbox_minutes total."""
+        response = self._client.post(
+            f"/tickets/{ticket_id}/usage-events",
+            json={"kind": "sandbox_minutes", "quantity": minutes},
+        )
+        response.raise_for_status()
+        return response.json()  # type: ignore[no-any-return]
+
     def close(self) -> None:
         self._client.close()

@@ -12,11 +12,13 @@ from api.contracts import (
     EventOut,
     PaginatedEvents,
     PaginatedTickets,
+    RecordUsageEventRequest,
     ReturnToDevRequest,
     TicketOut,
     TicketWithEventsOut,
     TransitionRequest,
     UpdateTaskRequest,
+    UsageEventOut,
 )
 from api.db.models import TicketState, TicketType
 from api.db.session import get_db
@@ -255,6 +257,29 @@ def create_ticket_event(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return EventOut.model_validate(event)
+
+
+@router.post("/{ticket_id}/usage-events", response_model=UsageEventOut, status_code=201)
+def create_usage_event(
+    ticket_id: str,
+    request: RecordUsageEventRequest,
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
+) -> UsageEventOut:
+    """T-205: posted by apps/orchestrator's SandboxClaudeCodeRunner after each real
+    sandbox lease — service-token authenticated, same shape as POST .../events above."""
+    try:
+        event = ticket_service.record_usage_event(
+            db,
+            ticket_id,
+            org_id=actor_context.org_id,
+            kind=request.kind,
+            quantity=request.quantity,
+        )
+    except ticket_service.TicketNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return UsageEventOut.model_validate(event)
 
 
 @router.get("/{ticket_id}/events", response_model=PaginatedEvents)
