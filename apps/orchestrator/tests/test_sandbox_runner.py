@@ -71,6 +71,12 @@ class _FakeRuntime:
     def teardown(self, ticket_id: str) -> None:
         pass
 
+    def remove_container_named(self, name: str) -> None:
+        self.removed_containers.append(name)
+
+    def remove_network_named(self, name: str) -> None:
+        self.removed_networks.append(name)
+
 
 REAL_ASSISTANT_TEXT = (
     '{"type":"assistant","message":{"model":"claude-sonnet-5",'

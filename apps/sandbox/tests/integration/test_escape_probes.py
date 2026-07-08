@@ -48,6 +48,7 @@ def two_org_sandboxes(tmp_path: Path):
     finally:
         pool.release("escT-a")
         pool.release("escT-b")
+        pool.shutdown()
 
 
 def test_host_fs_escape_is_blocked(two_org_sandboxes: tuple[str, str]) -> None:

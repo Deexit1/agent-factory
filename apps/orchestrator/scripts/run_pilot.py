@@ -257,14 +257,20 @@ def main() -> None:
         else SubprocessClaudeCodeRunner()
     )
 
-    with tempfile.TemporaryDirectory(prefix="pilot-") as tmp:
-        tmp_root = Path(tmp)
-        outcomes: list[PilotOutcome] = []
-        for spec in specs:
-            outcome = run_one_ticket(spec, tmp_root, claude_runner)
-            outcomes.append(outcome)
-            if outcome.pr_url is not None:
-                poll_ci(outcome)
+    try:
+        with tempfile.TemporaryDirectory(prefix="pilot-") as tmp:
+            tmp_root = Path(tmp)
+            outcomes: list[PilotOutcome] = []
+            for spec in specs:
+                outcome = run_one_ticket(spec, tmp_root, claude_runner)
+                outcomes.append(outcome)
+                if outcome.pr_url is not None:
+                    poll_ci(outcome)
+    finally:
+        # T-204: without this, every pre-warmed sandbox slot SandboxClaudeCodeRunner
+        # ever created would leak as a real, still-running Docker network+proxy pair.
+        if isinstance(claude_runner, SandboxClaudeCodeRunner):
+            claude_runner.close()
 
     print("\n=== summary ===")
     for o in outcomes:

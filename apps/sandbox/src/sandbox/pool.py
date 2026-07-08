@@ -50,6 +50,7 @@ class SandboxPool:
         self._lock = threading.Lock()
         self._idle: list[PoolSlot] = []
         self._leased: dict[str, PoolSlot] = {}
+        self._replenish_threads: list[threading.Thread] = []
 
     def _prewarm_one(self, allowed_domains: list[str] | None = None) -> PoolSlot:
         pool_id = f"pool-{uuid.uuid4().hex[:10]}"
@@ -81,7 +82,10 @@ class SandboxPool:
             self._idle.append(slot)
 
     def _replenish_async(self) -> None:
-        threading.Thread(target=self._warm_one, daemon=True).start()
+        thread = threading.Thread(target=self._warm_one, daemon=True)
+        with self._lock:
+            self._replenish_threads.append(thread)
+        thread.start()
 
     def acquire_for(
         self,
@@ -133,6 +137,33 @@ class SandboxPool:
         if slot is None:
             return
 
-        docker_runtime.remove_container(docker_runtime.sandbox_name(ticket_id))
-        docker_runtime.remove_container(slot.proxy)
-        docker_runtime.remove_network(slot.network)
+        self._runtime.remove_container_named(docker_runtime.sandbox_name(ticket_id))
+        self._teardown_slot(slot)
+
+    def shutdown(self) -> None:
+        """Tear down every remaining IDLE slot's network+proxy.
+
+        Without this, every pre-warmed or replenished slot that's never actually
+        leased out (e.g. `warm()`'s initial fill, or a `_replenish_async()` that lands
+        after the last real request) sits forever as a real, running Docker
+        network+proxy pair — nothing else in this class ever tears down an unleased
+        slot. Callers that construct a `SandboxPool` (tests, `SandboxClaudeCodeRunner`
+        at process shutdown) must call this when they're done with the pool.
+
+        Joins any in-flight `_replenish_async()` threads first — otherwise a
+        replenishment that lands just after this method reads `self._idle` would
+        create yet another orphaned slot that never gets torn down.
+        """
+        with self._lock:
+            threads, self._replenish_threads = self._replenish_threads, []
+        for thread in threads:
+            thread.join(timeout=30.0)
+
+        with self._lock:
+            idle, self._idle = self._idle, []
+        for slot in idle:
+            self._teardown_slot(slot)
+
+    def _teardown_slot(self, slot: PoolSlot) -> None:
+        self._runtime.remove_container_named(slot.proxy)
+        self._runtime.remove_network_named(slot.network)

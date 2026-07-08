@@ -1749,8 +1749,25 @@ Format:
   unwired from `SandboxClaudeCodeRunner`'s real `run()` path until a new
   concurrency test (`test_host_pool_serializes_two_orgs_when_only_one_
   slot_exists`) forced the integration — the scheduler would otherwise have
-  been decorative, not protective.
-- Verification: `apps/sandbox` 38 tests (35 passed, 3 `skipif`'d for the
+  been decorative, not protective. A second real bug was caught the same
+  way, after opening the PR: repeated local Docker runs left `sandbox-
+  pool-*` proxy/network containers running indefinitely — `SandboxPool`
+  tore down leased slots on `release()` but had no way to tear down IDLE
+  ones (`warm()`'s initial fill, or a background `_replenish_async()`
+  landing after the last request), so every unleased slot was silently
+  abandoned as a real, running container pair. Fixed with a new
+  `SandboxPool.shutdown()` (joins in-flight replenishment threads first,
+  so a replenishment landing mid-shutdown can't create yet another orphan)
+  and `SandboxClaudeCodeRunner.close()`, wired into `run_pilot.py`'s
+  `finally` block. Also discovered and fixed along the way:
+  `SandboxPool`'s teardown had been bypassing the injected `runtime`
+  entirely and hardcoding real `docker_runtime` module calls — new
+  `remove_container_named`/`remove_network_named` methods on the
+  `SandboxRuntime` Protocol make teardown properly pluggable, and newly
+  testable with a fake runtime. Verified with a real Docker run: zero
+  leaked containers/networks after the full suite, down from dozens
+  accumulated across the session before this fix.
+- Verification: `apps/sandbox` 41 tests (38 passed, 3 `skipif`'d for the
   disclosed microVM gap) — up from 19 pre-existing, all re-passed
   unmodified; ruff/mypy clean. `apps/api` 165/165 green (up from 158 — 7
   new: 5 egress-router + 2 real-MinIO artifact-storage integration tests),

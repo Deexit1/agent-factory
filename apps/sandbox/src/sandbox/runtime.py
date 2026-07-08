@@ -46,6 +46,10 @@ class SandboxRuntime(Protocol):
 
     def teardown(self, ticket_id: str) -> None: ...
 
+    def remove_container_named(self, name: str) -> None: ...
+
+    def remove_network_named(self, name: str) -> None: ...
+
 
 class DockerRuntime:
     """The real, live-tested default — a thin, behavior-preserving wrapper over
@@ -91,6 +95,12 @@ class DockerRuntime:
         docker_runtime.remove_container(docker_runtime.sandbox_name(ticket_id))
         docker_runtime.remove_container(docker_runtime.proxy_name(ticket_id))
         docker_runtime.remove_network(docker_runtime.network_name(ticket_id))
+
+    def remove_container_named(self, name: str) -> None:
+        docker_runtime.remove_container(name)
+
+    def remove_network_named(self, name: str) -> None:
+        docker_runtime.remove_network(name)
 
 
 class MicroVMRuntime:
@@ -185,5 +195,13 @@ class MicroVMRuntime:
 
     def teardown(self, ticket_id: str) -> None:
         for name in (docker_runtime.sandbox_name(ticket_id), docker_runtime.proxy_name(ticket_id)):
-            subprocess.run([self._ctr_bin, "task", "kill", name], capture_output=True, text=True)
-            subprocess.run([self._ctr_bin, "container", "rm", name], capture_output=True, text=True)
+            self.remove_container_named(name)
+
+    def remove_container_named(self, name: str) -> None:
+        subprocess.run([self._ctr_bin, "task", "kill", name], capture_output=True, text=True)
+        subprocess.run([self._ctr_bin, "container", "rm", name], capture_output=True, text=True)
+
+    def remove_network_named(self, name: str) -> None:
+        # firecracker-containerd has no first-class network object of its own to
+        # remove (see create_network's docstring) — nothing to do here.
+        pass

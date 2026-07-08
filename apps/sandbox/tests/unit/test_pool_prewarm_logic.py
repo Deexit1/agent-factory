@@ -17,6 +17,8 @@ class FakeRuntime:
         self.proxies_run: list[str] = []
         self.sandboxes_run: list[str] = []
         self.reconfigured: list[str] = []
+        self.containers_removed: list[str] = []
+        self.networks_removed: list[str] = []
 
     def create_network(self, ticket_id: str) -> str:
         with self.lock:
@@ -58,6 +60,14 @@ class FakeRuntime:
 
     def teardown(self, ticket_id: str) -> None:
         pass
+
+    def remove_container_named(self, name: str) -> None:
+        with self.lock:
+            self.containers_removed.append(name)
+
+    def remove_network_named(self, name: str) -> None:
+        with self.lock:
+            self.networks_removed.append(name)
 
 
 def _pool(tmp_path, pool_size: int = 2) -> tuple[SandboxPool, FakeRuntime]:
@@ -124,3 +134,51 @@ def test_acquire_replenishes_pool_asynchronously(tmp_path) -> None:
         threading.Event().wait(0.01)
     assert len(pool._idle) == 1
     assert len(runtime.networks_created) == 2  # 1 initial warm + 1 replenishment
+
+
+def test_release_tears_down_the_leased_ticket_and_its_slot(tmp_path) -> None:
+    pool, runtime = _pool(tmp_path, pool_size=0)
+    pool.acquire_for(
+        org_id="org-a", ticket_id="T-1", worktree_host_path="/tmp/wt", allowed_domains=[]
+    )
+
+    pool.release("T-1")
+
+    assert "sandbox-T-1" in runtime.containers_removed
+    assert len(runtime.containers_removed) == 2  # sandbox + proxy
+    assert len(runtime.networks_removed) == 1
+    assert pool._leased == {}
+
+
+def test_shutdown_tears_down_unleased_idle_slots(tmp_path) -> None:
+    """The real bug this guards against: a pre-warmed slot that's never leased out
+    (warm()'s initial fill, or a replenishment that lands after the last real
+    request) used to sit forever as a real, running Docker network+proxy pair —
+    nothing tore it down. shutdown() must."""
+    pool, runtime = _pool(tmp_path, pool_size=3)
+    pool.warm()
+    assert len(pool._idle) == 3
+
+    pool.shutdown()
+
+    assert pool._idle == []
+    assert len(runtime.containers_removed) == 3  # the 3 idle proxies
+    assert len(runtime.networks_removed) == 3
+
+
+def test_shutdown_waits_for_in_flight_replenishment_before_tearing_down(tmp_path) -> None:
+    pool, runtime = _pool(tmp_path, pool_size=1)
+    pool.warm()
+    pool.acquire_for(
+        org_id="org-a", ticket_id="T-1", worktree_host_path="/tmp/wt", allowed_domains=[]
+    )
+    # A replenishment is now in flight (or already landed) — shutdown() must join it
+    # rather than race it, or the replenished slot leaks.
+    pool.shutdown()
+
+    assert pool._idle == []
+    assert pool._replenish_threads == []
+    # The 1 initial warm slot was leased (torn down separately by release(), not
+    # shutdown()); the replenishment slot is what shutdown() must have caught.
+    assert len(runtime.containers_removed) == 1
+    assert len(runtime.networks_removed) == 1

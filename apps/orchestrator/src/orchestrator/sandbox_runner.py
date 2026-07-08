@@ -67,6 +67,12 @@ class SandboxClaudeCodeRunner:
         self._host_pool = HostPool(host_slots=host_slots)
         self._warmed = False
 
+    def close(self) -> None:
+        """Tear down every remaining pre-warmed idle slot. Without this, a process
+        using this runner across many tickets and then exiting would leak every idle
+        network+proxy pair the pool ever pre-warmed — see SandboxPool.shutdown()."""
+        self._pool.shutdown()
+
     def run(
         self,
         *,

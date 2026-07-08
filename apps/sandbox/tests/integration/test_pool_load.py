@@ -64,3 +64,6 @@ def test_prewarmed_pool_p95_ready_time_under_30s(tmp_path: Path) -> None:
     finally:
         for ticket_id in ticket_ids:
             pool.release(ticket_id)
+        # Every leased ticket is released above, but replenishment during the run can
+        # leave idle slots that were never leased — shutdown() tears those down too.
+        pool.shutdown()

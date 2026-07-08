@@ -786,7 +786,25 @@ test in this ticket ran for real against it locally, not merely asserted to work
 CI; the one thing that still cannot be verified anywhere in this environment is an
 actual Firecracker/Kata microVM boot.
 
-**Verification**: `apps/sandbox` 38 tests (35 passed, 3 skipped for the disclosed
+**Real bug caught by dogfooding this ticket's own code, not just its tests**: after
+opening the PR, running the real Docker-backed suite repeatedly left proxy+network
+containers running indefinitely (`docker ps` showed `sandbox-pool-*` containers hours
+old). Root cause: `SandboxPool` had no way to tear down IDLE slots — only leased ones
+got cleaned up via `release()`; every slot from `warm()`'s initial fill or a
+background `_replenish_async()` that landed after the last request was silently
+abandoned as a real, running Docker network+proxy pair. Fixed with a new
+`SandboxPool.shutdown()` (joins in-flight replenishment threads first, so a
+replenishment landing mid-shutdown can't create yet another orphan, then tears down
+every remaining idle slot) and `SandboxClaudeCodeRunner.close()`, wired into
+`run_pilot.py`'s `finally` block. Along the way, discovered `SandboxPool.release()`/
+teardown had been bypassing the injected `runtime` entirely and hardcoding real
+`docker_runtime` module calls — meaning fake-runtime unit tests could never actually
+exercise teardown; added `remove_container_named`/`remove_network_named` to the
+`SandboxRuntime` Protocol so teardown is properly pluggable like everything else in
+the class. Verified with a real Docker run before/after: zero leaked containers or
+networks post-suite (previously dozens accumulated across repeated runs).
+
+**Verification**: `apps/sandbox` 41 tests (38 passed, 3 skipped for the disclosed
 microVM-escape-probe gap) — up from 19 pre-existing, all pre-existing tests re-passed
 unmodified; ruff/mypy clean. `apps/api` 165/165 green (up from 158 — 7 new: 5 egress-
 router + 2 real-MinIO artifact-storage integration tests), ruff/mypy clean, all three
