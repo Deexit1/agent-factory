@@ -421,10 +421,19 @@ merge queue → done, nightly in CI.
   `SCENARIO_COST_CAP_USD`, default $1.00) checked against T-108's `cost-rollup`
   endpoint summed over the whole idea tree (planner + DM + 2×dev + 2×review)
 
-## T-110 · Phase-2 pilot & report — `ready`
+## T-110 · Phase-2 pilot & report — `ready` (blocked: no Anthropic credit)
 **Spec:** docs/00-vision.md §metrics  **Est:** M
 3–5 real ideas end-to-end; capture planning acceptance rate, first-pass QA rate,
 $/ticket, cycle time → `tasks/PILOT2-REPORT.md` with a Phase-2.5 go/no-go.
+**Blocker (2026-07-08):** attempted to start this task; a direct `llm_router.route()`
+smoke-test call against the configured `ANTHROPIC_API_KEY` returned
+`anthropic.BadRequestError: ... credit balance is too low to access the Anthropic API`
+— the account has zero balance, not a transient/CI-only issue (same recurring problem
+as T-105/T-106's eval-gate failures, see memory `feedback_eval_gate_ci_billing.md`).
+This task genuinely needs real planner/dev/review LLM calls across 3–5 real ideas; a
+fabricated report was not an option. Human decision: defer, move to other Phase-2.5
+work. To unblock: top up the Anthropic account (or supply a funded key), then re-run
+the pilot for real.
 
 ---
 
