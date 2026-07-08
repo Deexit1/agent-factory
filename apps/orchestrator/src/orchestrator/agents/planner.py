@@ -11,10 +11,11 @@ from typing import TypedDict, cast
 
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from llm_router import route
+from llm_router import ProviderCredential, route
 from schemas import PlannerPlan, PlannerQuestions
 
 from orchestrator.api_client import ApiClient
+from orchestrator.dispatch_gate import resolve_dispatch
 from orchestrator.json_utils import extract_json_object
 from orchestrator.prompt_version import parse_prompt_version
 
@@ -27,8 +28,10 @@ _PLANNER_ROLE = "planner"
 class _PlannerState(TypedDict):
     system_prompt: str
     user_message: str
+    credentials: list[ProviderCredential]
     text: str
     model: str
+    provider: str
     tokens_in: int
     tokens_out: int
     cost_usd: float
@@ -37,6 +40,7 @@ class _PlannerState(TypedDict):
 def _call_planner(state: _PlannerState) -> _PlannerState:
     result = route(
         _PLANNER_ROLE,
+        credentials=state["credentials"],
         system=state["system_prompt"],
         messages=[{"role": "user", "content": state["user_message"]}],
         max_tokens=_MAX_TOKENS,
@@ -45,6 +49,7 @@ def _call_planner(state: _PlannerState) -> _PlannerState:
         **state,
         "text": result.text,
         "model": result.model,
+        "provider": result.provider,
         "tokens_in": result.tokens_in,
         "tokens_out": result.tokens_out,
         "cost_usd": result.cost_usd,
@@ -64,11 +69,12 @@ _GRAPH = _build_graph()
 
 @dataclass(frozen=True)
 class PlannerAgentResult:
-    run_id: int
-    status: str  # "planned" | "questions"
+    run_id: int | None
+    status: str  # "planned" | "questions" | "blocked"
     plan: PlannerPlan | None = None
     questions: list[str] | None = None
     cost_usd: float = 0.0
+    reason: str | None = None
 
 
 def build_planner_prompt(idea_title: str, idea_description: str, idea_budget_usd: float) -> str:
@@ -121,6 +127,20 @@ def run_planner_agent(
     prompt_path: Path = DEFAULT_PLANNER_PROMPT_PATH,
 ) -> PlannerAgentResult:
     actor = f"agent:planner-{ticket_id}"
+
+    ticket = api.get_ticket(ticket_id)
+    org_id = ticket["org_id"]
+    decision = resolve_dispatch(api, org_id=org_id, agent_role=_PLANNER_ROLE)
+    if not decision.allowed:
+        api.append_event(
+            ticket_id,
+            actor=actor,
+            kind="message",
+            payload={"conclusion": "dispatch_blocked", "reason": decision.reason},
+        )
+        api.transition(ticket_id, to_state="escalated", actor=actor)
+        return PlannerAgentResult(run_id=None, status="blocked", reason=decision.reason)
+
     system_prompt = prompt_path.read_text(encoding="utf-8")
     user_message = build_planner_prompt(idea_title, idea_description, idea_budget_usd)
 
@@ -136,8 +156,10 @@ def run_planner_agent(
         {
             "system_prompt": system_prompt,
             "user_message": user_message,
+            "credentials": decision.credentials,
             "text": "",
             "model": "",
+            "provider": "",
             "tokens_in": 0,
             "tokens_out": 0,
             "cost_usd": 0.0,
@@ -153,6 +175,7 @@ def run_planner_agent(
         tokens_in=final_state["tokens_in"],
         tokens_out=final_state["tokens_out"],
         cost_usd=final_state["cost_usd"],
+        provider=final_state["provider"],
     )
 
     if "questions" in parsed:

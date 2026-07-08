@@ -5,12 +5,22 @@ Temperature 0 for reproducibility (AC4: two runs on identical input must differ 
 agents, the judge has no production counterpart to reuse, so this is eval-only code.
 """
 
+import os
 from dataclasses import dataclass
 from typing import Protocol
 
-from llm_router import route
+from llm_router import ProviderCredential, route
 
 from orchestrator.json_utils import extract_json_object
+
+
+# T-202: eval-gate stays platform-billed, never per-org — the judge scores golden
+# sets in CI, not a customer's own agent run (docs/06-tech-stack.md's eval-gate job
+# already uses the platform's own ANTHROPIC_API_KEY secret, not any org's BYOK key).
+# Read lazily (per-call, not at import time) so tests can set the env var after import.
+def platform_credentials() -> list[ProviderCredential]:
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    return [ProviderCredential(provider="anthropic", api_key=api_key)]
 
 _MAX_TOKENS = 300
 
@@ -76,6 +86,7 @@ def haiku_judge(
 ) -> JudgeVerdict:
     result = route(
         "eval-judge",
+        credentials=platform_credentials(),
         system=_RUBRIC_PROMPTS[set_name],
         messages=[
             {
@@ -95,4 +106,4 @@ def haiku_judge(
     return JudgeVerdict(score=float(parsed["score"]), rationale=str(parsed["rationale"]))
 
 
-__all__ = ["JudgeVerdict", "JudgeFn", "haiku_judge", "extract_json_object"]
+__all__ = ["JudgeVerdict", "JudgeFn", "haiku_judge", "extract_json_object", "platform_credentials"]

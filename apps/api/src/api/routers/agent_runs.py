@@ -59,6 +59,7 @@ def complete_agent_run(
             tokens_out=request.tokens_out,
             cost_usd=request.cost_usd,
             org_id=actor_context.org_id,
+            provider=request.provider,
         )
     except ticket_service.TicketNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

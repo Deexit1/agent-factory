@@ -22,12 +22,21 @@ class FixtureClaudeCodeRunner:
         self.fixture_dir = fixture_dir
         self.last_prompt: str | None = None
         self.last_model: str | None = None
+        self.last_anthropic_api_key: str | None = None
 
     def run(
-        self, *, prompt: str, cwd: Path, model: str, budget_usd: float, timeout_s: float
+        self,
+        *,
+        prompt: str,
+        cwd: Path,
+        model: str,
+        budget_usd: float,
+        timeout_s: float,
+        anthropic_api_key: str | None = None,
     ) -> Iterator[TranscriptEvent]:
         self.last_prompt = prompt
         self.last_model = model
+        self.last_anthropic_api_key = anthropic_api_key
 
         transcript_path = self.fixture_dir / "transcript.jsonl"
         for line in transcript_path.read_text().splitlines():

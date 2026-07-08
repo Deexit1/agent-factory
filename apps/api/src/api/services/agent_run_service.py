@@ -47,6 +47,7 @@ def complete_agent_run(
     tokens_out: int,
     cost_usd: float,
     org_id: str,
+    provider: str = "anthropic",
 ) -> AgentRun:
     get_ticket(session, ticket_id, org_id=org_id)  # 404s if the ticket doesn't exist
     run = repo.get_agent_run(session, run_id, org_id=org_id)
@@ -54,7 +55,13 @@ def complete_agent_run(
         raise AgentRunNotFound(run_id)
 
     run = repo.complete_agent_run(
-        session, run, status=status, tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost_usd
+        session,
+        run,
+        status=status,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        cost_usd=cost_usd,
+        provider=provider,
     )
     session.commit()
     return run

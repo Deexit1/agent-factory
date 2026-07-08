@@ -27,10 +27,11 @@ from typing import Any, TypedDict, cast
 import httpx
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from llm_router import route
+from llm_router import ProviderCredential, route
 
 from orchestrator.api_client import ApiClient
 from orchestrator.capability_registry import CapabilityRegistry, load_registry
+from orchestrator.dispatch_gate import resolve_dispatch
 from orchestrator.json_utils import extract_json_object
 from orchestrator.prompt_version import parse_prompt_version
 
@@ -44,8 +45,10 @@ DM_ACTOR = "agent:delivery-manager"
 class _DMState(TypedDict):
     system_prompt: str
     user_message: str
+    credentials: list[ProviderCredential]
     text: str
     model: str
+    provider: str
     tokens_in: int
     tokens_out: int
     cost_usd: float
@@ -54,6 +57,7 @@ class _DMState(TypedDict):
 def _call_delivery_manager(state: _DMState) -> _DMState:
     result = route(
         _DM_ROLE,
+        credentials=state["credentials"],
         system=state["system_prompt"],
         messages=[{"role": "user", "content": state["user_message"]}],
         max_tokens=_MAX_TOKENS,
@@ -62,6 +66,7 @@ def _call_delivery_manager(state: _DMState) -> _DMState:
         **state,
         "text": result.text,
         "model": result.model,
+        "provider": result.provider,
         "tokens_in": result.tokens_in,
         "tokens_out": result.tokens_out,
         "cost_usd": result.cost_usd,
@@ -212,6 +217,20 @@ def run_delivery_manager_agent(
     if not llm_tasks:
         return DeliveryManagerResult(outcomes=outcomes)
 
+    # T-202: the batch call's key/org attribution follows the same disclosed
+    # simplification as its cost attribution below — the first considered task's
+    # org_id decides which org's BYOK key covers the whole batch call.
+    org_id = llm_tasks[0]["org_id"]
+    dispatch_decision = resolve_dispatch(api, org_id=org_id, agent_role=_DM_ROLE)
+    if not dispatch_decision.allowed:
+        blocked_reason = dispatch_decision.reason or ""
+        for task in llm_tasks:
+            outcomes.append(AssignmentOutcome(task["id"], "human_only", None, blocked_reason))
+            _record_decision(
+                api, task["id"], decision="human_only", reason=blocked_reason, considered=[]
+            )
+        return DeliveryManagerResult(outcomes=outcomes)
+
     system_prompt = prompt_path.read_text(encoding="utf-8")
     user_message = _build_user_message(llm_tasks, eligible_by_task, registry)
 
@@ -219,8 +238,10 @@ def run_delivery_manager_agent(
         {
             "system_prompt": system_prompt,
             "user_message": user_message,
+            "credentials": dispatch_decision.credentials,
             "text": "",
             "model": "",
+            "provider": "",
             "tokens_in": 0,
             "tokens_out": 0,
             "cost_usd": 0.0,
@@ -246,6 +267,7 @@ def run_delivery_manager_agent(
         tokens_in=final_state["tokens_in"],
         tokens_out=final_state["tokens_out"],
         cost_usd=final_state["cost_usd"],
+        provider=final_state["provider"],
     )
 
     assignments = {a["task_id"]: a for a in parsed.get("assignments", [])}

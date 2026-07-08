@@ -25,10 +25,11 @@ from typing import TypedDict, cast
 import httpx
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from llm_router import route
+from llm_router import ProviderCredential, route
 from schemas import ReviewResult, TaskSpec
 
 from orchestrator.api_client import ApiClient
+from orchestrator.dispatch_gate import resolve_dispatch
 from orchestrator.github_client import GitHubClient, PullRequest
 from orchestrator.json_utils import extract_json_object
 from orchestrator.prompt_version import parse_prompt_version
@@ -44,8 +45,10 @@ REVIEW_ACTOR = "agent:review"
 class _ReviewState(TypedDict):
     system_prompt: str
     user_message: str
+    credentials: list[ProviderCredential]
     text: str
     model: str
+    provider: str
     tokens_in: int
     tokens_out: int
     cost_usd: float
@@ -54,6 +57,7 @@ class _ReviewState(TypedDict):
 def _call_review_agent(state: _ReviewState) -> _ReviewState:
     result = route(
         _REVIEW_ROLE,
+        credentials=state["credentials"],
         system=state["system_prompt"],
         messages=[{"role": "user", "content": state["user_message"]}],
         max_tokens=_MAX_TOKENS,
@@ -62,6 +66,7 @@ def _call_review_agent(state: _ReviewState) -> _ReviewState:
         **state,
         "text": result.text,
         "model": result.model,
+        "provider": result.provider,
         "tokens_in": result.tokens_in,
         "tokens_out": result.tokens_out,
         "cost_usd": result.cost_usd,
@@ -81,10 +86,11 @@ _GRAPH = _build_graph()
 
 @dataclass(frozen=True)
 class ReviewAgentResult:
-    verdict: str  # "approve" | "block"
-    result: ReviewResult
+    verdict: str  # "approve" | "block" | "blocked" (dispatch blocked, T-202)
+    result: ReviewResult | None
     cost_usd: float
     transitioned: bool  # False when the API refused the transition (e.g. auto-escalated)
+    reason: str | None = None
 
 
 def _build_user_message(
@@ -121,6 +127,20 @@ def run_review_agent(
     semgrep_findings: str = "",
     prompt_path: Path = DEFAULT_REVIEW_PROMPT_PATH,
 ) -> ReviewAgentResult:
+    ticket = api.get_ticket(ticket_id)
+    org_id = ticket["org_id"]
+    decision = resolve_dispatch(api, org_id=org_id, agent_role=_REVIEW_ROLE)
+    if not decision.allowed:
+        api.append_event(
+            ticket_id,
+            actor=REVIEW_ACTOR,
+            kind="message",
+            payload={"conclusion": "dispatch_blocked", "reason": decision.reason},
+        )
+        return ReviewAgentResult(
+            verdict="blocked", result=None, cost_usd=0.0, transitioned=False, reason=decision.reason
+        )
+
     system_prompt = prompt_path.read_text(encoding="utf-8")
     diff = github.get_pr_diff(pr)
     style_guide = _STYLE_GUIDE_PATH.read_text(encoding="utf-8")
@@ -132,8 +152,10 @@ def run_review_agent(
         {
             "system_prompt": system_prompt,
             "user_message": user_message,
+            "credentials": decision.credentials,
             "text": "",
             "model": "",
+            "provider": "",
             "tokens_in": 0,
             "tokens_out": 0,
             "cost_usd": 0.0,
@@ -156,6 +178,7 @@ def run_review_agent(
         tokens_in=final_state["tokens_in"],
         tokens_out=final_state["tokens_out"],
         cost_usd=final_state["cost_usd"],
+        provider=final_state["provider"],
     )
 
     if result.verdict == "approve":

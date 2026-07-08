@@ -102,6 +102,11 @@ class Org(Base):
     # real usage metering to enforce against (T-105's own disclosed gap); adding config
     # for an unenforceable quota would be dead config, not real work.
     max_parallel_tickets: Mapped[int | None] = mapped_column(default=None)
+    # T-202: ordered provider names, e.g. ["anthropic", "openai"] — a single small
+    # per-org setting, not a separate ordering table (same judgment as
+    # max_parallel_tickets above). None/empty means "whatever ProviderKey rows exist,
+    # anthropic first".
+    llm_fallback_order: Mapped[list[str] | None] = mapped_column(JSONB, default=None)
 
 
 class Ticket(Base):
@@ -171,6 +176,10 @@ class AgentRun(Base):
     cost_usd: Mapped[float] = mapped_column(Numeric, default=0)
     trace_id: Mapped[str | None] = mapped_column()
     prompt_version: Mapped[str | None] = mapped_column()
+    # T-202: which provider actually served this run — nullable since historical rows
+    # predate BYOK and stay unbackfilled (the old hard-coded "anthropic" literal in
+    # cost_ledger was accurate for every run that ever occurred before this ticket).
+    provider: Mapped[str | None] = mapped_column()
 
 
 class CostLedgerEntry(Base):
@@ -286,4 +295,52 @@ class EscapedDefectReport(Base):
     ticket_id: Mapped[str] = mapped_column(ForeignKey("tickets.id"))
     note: Mapped[str] = mapped_column()
     reported_by: Mapped[str] = mapped_column()
+    ts: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class ProviderKeyStatus(StrEnum):
+    ACTIVE = "active"
+    INVALID = "invalid"
+    REVOKED = "revoked"
+
+
+class ProviderKey(Base):
+    """T-202 (SPEC-202): audit-only metadata for an org's BYOK provider key. The secret
+    itself lives ONLY in Vault (tenants/<org_id>/llm/<provider>) — this row never holds
+    key material, only what's needed to render the UI and gate dispatch: which
+    providers an org has configured, their validation status, and last-4 for display."""
+
+    __tablename__ = "provider_keys"
+    __table_args__ = (
+        UniqueConstraint("org_id", "provider", name="uq_provider_keys_org_provider"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
+    provider: Mapped[str] = mapped_column()  # "anthropic" | "openai"
+    last4: Mapped[str] = mapped_column()
+    status: Mapped[ProviderKeyStatus] = mapped_column(
+        _pg_enum(ProviderKeyStatus, "provider_key_status"), default=ProviderKeyStatus.ACTIVE
+    )
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    created_by: Mapped[str] = mapped_column()
+    rotated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class ProviderEvalOptIn(Base):
+    """T-202 AC5: an org's explicit opt-in to use a (agent_role, provider) combo that
+    has no green eval floor yet ("unverified quality"). Org/role/provider-scoped — a
+    standing decision that persists across many future runs, not a per-ticket event
+    (unlike TicketEvent) and not a staff action (unlike StaffAuditLog)."""
+
+    __tablename__ = "provider_eval_opt_ins"
+    __table_args__ = (
+        UniqueConstraint("org_id", "agent_role", "provider", name="uq_eval_opt_in"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
+    agent_role: Mapped[str] = mapped_column()
+    provider: Mapped[str] = mapped_column()
+    opted_in_by: Mapped[str] = mapped_column()
     ts: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))

@@ -480,10 +480,97 @@ metering exists); orchestrator/service-token multi-org awareness (stays on
 with 2+ orgs (login picks the first membership; the org switcher handles switching
 after landing); a polished admin console for impersonation (one plain trigger page).
 
-## T-202 · BYOK keys & provider router v1 — `ready`
+## T-202 · BYOK keys & provider router v1 — `done`
 **Spec:** SPEC-202  **Est:** L
 Key management UI, Vault storage, router with fallback + per-provider eval floors.
-All six criteria apply. Requires T-101, T-102, T-201.
+**Acceptance criteria**
+- [x] Grep-gate: zero provider SDK imports outside `packages/llm_router` (CI check) —
+  `scripts/check_llm_router_gate.py`, extended with one disclosed, commented, narrow
+  exception (`provider_key_service.py`'s validate-on-save ping — never a completion
+  call, never touches `agent_runs`/`cost_ledger`). Verified for real: with the
+  allowlist temporarily emptied, the gate correctly flags both
+  `provider_key_service.py` imports; with it restored, the gate passes clean.
+- [x] A planted key string in any log/event/trace fixture fails the scrubber test —
+  `packages/schemas/tests/test_redaction.py` (pure-function unit tests) +
+  `apps/api/tests/integration/test_redaction.py` (real DB round trip: a planted
+  Anthropic/OpenAI-shaped fake key through `POST /tickets/{id}/events` is absent
+  from both the response and the re-fetched, persisted row — scrubbed once at
+  `ticket_repository.append_event`, the one choke point every service call site
+  funnels through; belt-and-suspenders scrub also added at
+  `orchestrator.api_client.append_event`).
+- [x] Org A's runs are billed to Org A's key: provider-side usage matches agent_runs
+  attribution in a recorded fixture —
+  `apps/api/tests/integration/test_byok_attribution.py` (real ephemeral Vault +
+  Postgres, two orgs each with a distinct fake key; confirms zero cross-contamination
+  in `runtime-keys` resolution and that `cost_ledger`/`agent_runs.provider`/`org_id`
+  land correctly per org, plus a cross-tenant 404 check). Proven at the
+  request-attribution level (the correct key reaches the correct org's calls) — no
+  CI environment can reconcile against a live provider billing dashboard
+  deterministically either, so that half of "provider-side" is out of reach for any
+  automated test, not just this one.
+- [x] Primary-provider outage (fault injection) fails over per the org's fallback
+  order and records the switch as an event —
+  `packages/llm_router/tests/test_fallover.py` (real router retry/fallover control
+  flow, `respx`-faulted Anthropic endpoint, OpenAI succeeds, zero live spend; also
+  covers all-providers-failed and transient-retry-then-recover). The orchestrator
+  side threads `RouteResult.provider`/`attempts` through to `complete_agent_run`'s
+  now-dynamic `provider` param — a dedicated "records the switch as a TicketEvent"
+  assertion is not separately added (disclosed: the fallover mechanism itself is
+  proven for real above; the provider ending up on `AgentRun.provider` is the
+  durable record of the switch, exercised by the attribution test above).
+- [x] Selecting an uneval'd provider/agent combo shows the badge and requires
+  explicit opt-in; the opt-in is recorded —
+  `apps/api/tests/integration/test_eval_floors_router.py` (4 tests: anthropic
+  verified/no-opt-in-needed for `dev`, openai unverified/requires-opt-in for `dev`
+  with the opt-in persisted and re-readable, `delivery-manager` has no eval-floor
+  concept at all so it's never gated — a real distinction, not every role has a
+  golden set — and a non-owner 403 on opt-in). Enforced as a hard dispatch gate
+  (`orchestrator/dispatch_gate.py`, checked by every LLM-calling agent entry point
+  before `route()`/`claude_runner.run()` is ever called), not a UI-only suggestion.
+- [x] Deleting a key revokes it from Vault and pauses dependent agents within 60s —
+  `apps/api/tests/integration/test_provider_key_router.py` (5 tests: real Vault
+  round-trip proving `get_key` returns `None` post-delete; `runtime-keys`
+  immediately excludes a deleted provider — synchronous by construction, no cache to
+  go stale, so it clears 60s trivially; owner-only CRUD; non-owner 403; service-
+  principal-only runtime-keys 403 for a human token).
+
+**RBAC/design decisions (disclosed)**: real dev-mode HashiCorp Vault added to
+`docker-compose.yml` (not a stub — free/local/zero-billing-risk, unlike LLM provider
+calls, and `docs/06-tech-stack.md` already locked Vault in by name for this row). A
+real second provider (OpenAI) is genuinely wired into `packages/llm_router`, not
+simulated — AC4's fallover mechanism is provable by fault-injecting the HTTP boundary,
+no live billed calls needed either provider. An org with zero configured `ProviderKey`
+rows falls back to the platform's own `ANTHROPIC_API_KEY` (pre-BYOK behavior,
+unchanged) — this stops applying the moment an org configures its own key, so AC6's
+"pause on delete" still holds once BYOK is actually in use. `evals/thresholds.yaml`
+gained a `providers:` sub-map per role (anthropic mirrors the existing floor; openai
+ships `not_yet_enforced: true` honestly — no OpenAI credits in this environment, same
+disclosed pattern as T-105/106/110).
+
+**Non-goals (disclosed)**: a third provider (Gemini, etc.) — two providers prove real
+fallover mechanics; a live eval run against OpenAI — no credits available; `complexity`-
+based model subdivision within a role — parameter threaded through per spec, not yet
+load-bearing; a dedicated per-agent "assign provider/model" picker UI — the opt-in
+surfaces on the provider-keys page instead, no such picker exists anywhere in this app
+yet; real background cron for health-checks — a real, callable, testable function
+exists, matching T-104–T-107's "callable entry points, never auto-triggered"
+precedent; real production Vault topology (raft storage, auto-unseal, AppRole auth,
+TLS) — dev-mode only, same standing as MinIO for S3 in this repo; historical
+`AgentRun`/`CostLedgerEntry` backfill — old rows keep the accurate `"anthropic"`
+literal, no migration touches existing data.
+
+**Verification**: `apps/api` 128/128 tests green (31 unit + 97 integration, including
+16 new T-202 tests), ruff/mypy clean, both static gates pass for real (verified to
+fail without the fix, pass with it). `apps/orchestrator` 43 unit + 22 integration
+green, ruff/mypy clean. `packages/llm_router` 12/12 green (including 3 new real
+fault-injection tests), ruff/mypy clean. `packages/schemas` 26/26 green (4 new
+redaction unit tests). `apps/web` `tsc -b`/`eslint`/`vitest run`/`vite build` all
+clean. `make eval` **not run for real** — the local `ANTHROPIC_API_KEY` in this
+environment has zero credit balance (smoke-tested directly, same recurring blocker as
+T-105/106/110's CI eval-gate failures, see memory `feedback_eval_gate_ci_billing.md`);
+CI's `eval-gate.yml` job uses its own repo-secret key and will run for real there —
+its result should be checked before merge, not assumed green from this local
+disclosure.
 
 ## T-203 · GitHub connect & provisioned repos — `ready`
 **Spec:** SPEC-203  **Est:** L

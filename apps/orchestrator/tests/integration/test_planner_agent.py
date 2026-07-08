@@ -15,6 +15,7 @@ class _FakeRouteResult:
     def __init__(self, text: str) -> None:
         self.text = text
         self.model = "claude-opus-4-8"
+        self.provider = "anthropic"
         self.tokens_in = 500
         self.tokens_out = 300
         self.cost_usd = 0.03

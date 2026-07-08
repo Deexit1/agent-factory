@@ -66,13 +66,21 @@ class _FakeRouteResult:
     def __init__(self, text: str) -> None:
         self.text = text
         self.model = "claude-sonnet-5"
+        self.provider = "anthropic"
         self.tokens_in = 300
         self.tokens_out = 150
         self.cost_usd = 0.002
 
 
 def _fake_route_returning(result_json: str):
-    def _route(role: str, *, system: str, messages: list[dict[str, str]], max_tokens: int):
+    def _route(
+        role: str,
+        *,
+        credentials: object,
+        system: str,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+    ):
         return _FakeRouteResult(result_json)
 
     return _route

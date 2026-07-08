@@ -10,8 +10,11 @@ from orchestrator.api_client import ApiClient
 from orchestrator.capability_registry import Profile
 from orchestrator.claude_runner import DEFAULT_DEV_AGENT_PROMPT_PATH, ClaudeCodeRunner
 from orchestrator.config import DevAgentConfig
+from orchestrator.dispatch_gate import resolve_dispatch
 from orchestrator.github_client import GitHubClient
 from orchestrator.prompt_version import parse_prompt_version
+
+_DEV_ROLE = "dev"
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,25 @@ def run_dev_agent(
     prompt = build_prompt(task_spec, failure_report, attempt_no)
     actor = f"agent:dev-{ticket_id}"
 
+    ticket = api.get_ticket(ticket_id)
+    org_id = ticket["org_id"]
+    decision = resolve_dispatch(api, org_id=org_id, agent_role=_DEV_ROLE)
+    anthropic_key = next(
+        (c.api_key for c in decision.credentials if c.provider == "anthropic"), None
+    )
+    if not decision.allowed or anthropic_key is None:
+        blocked_reason: str = decision.reason or "no active anthropic key configured for this org"
+        api.append_event(
+            ticket_id,
+            actor=actor,
+            kind="message",
+            payload={"conclusion": "dispatch_blocked", "reason": blocked_reason},
+        )
+        api.transition(ticket_id, to_state="escalated")
+        return DevAgentResult(
+            run_id=0, status="failed", pr_url=None, cost_usd=0.0, reason=blocked_reason
+        )
+
     agent_role = profile.id if profile is not None else "dev"
     prompt_version = parse_prompt_version(
         DEFAULT_DEV_AGENT_PROMPT_PATH.read_text(encoding="utf-8")
@@ -64,6 +86,7 @@ def run_dev_agent(
         model=model,
         budget_usd=budget_usd,
         timeout_s=config.timeout_s,
+        anthropic_api_key=anthropic_key,
     ):
         api.append_event(ticket_id, actor=actor, kind=event.kind, payload=event.payload)
 

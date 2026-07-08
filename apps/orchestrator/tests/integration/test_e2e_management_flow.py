@@ -83,6 +83,7 @@ class _FakeRouteResult:
     def __init__(self, text: str, *, cost_usd: float, model: str = "claude-sonnet-5") -> None:
         self.text = text
         self.model = model
+        self.provider = "anthropic"
         self.tokens_in = 400
         self.tokens_out = 200
         self.cost_usd = cost_usd
@@ -132,7 +133,14 @@ def _planner_plan_json() -> str:
 
 
 def _assign_matching_profiles(profile_by_task_id: dict[str, str]):
-    def _route(role: str, *, system: str, messages: list[dict[str, str]], max_tokens: int):
+    def _route(
+        role: str,
+        *,
+        credentials: object,
+        system: str,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+    ):
         user_message = messages[0]["content"]
         task_ids = re.findall(r"- id: (\S+)", user_message)
         assignments = [

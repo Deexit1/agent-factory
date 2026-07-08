@@ -13,9 +13,11 @@ from api.routers import (
     auth,
     capability_registry,
     dashboard,
+    eval_floors,
     health,
     merge_queue,
     orgs,
+    provider_keys,
     tickets,
     webhooks,
     ws_tickets,
@@ -58,3 +60,6 @@ app.include_router(capability_registry.router)
 app.include_router(merge_queue.router)
 app.include_router(orgs.router)
 app.include_router(admin.router)
+app.include_router(provider_keys.router)
+app.include_router(provider_keys.runtime_router)
+app.include_router(eval_floors.router)

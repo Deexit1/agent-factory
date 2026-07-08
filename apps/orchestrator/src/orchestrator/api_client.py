@@ -2,6 +2,7 @@ import os
 from typing import Any
 
 import httpx
+from schemas.redaction import scrub_payload
 
 
 class ApiClient:
@@ -80,9 +81,11 @@ class ApiClient:
     def append_event(
         self, ticket_id: str, *, actor: str, kind: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
+        # T-202 AC2: scrub before it ever leaves this process — belt-and-suspenders
+        # alongside apps/api's own scrub at ticket_repository.append_event.
         response = self._client.post(
             f"/tickets/{ticket_id}/events",
-            json={"actor": actor, "kind": kind, "payload": payload},
+            json={"actor": actor, "kind": kind, "payload": scrub_payload(payload)},
         )
         response.raise_for_status()
         return response.json()  # type: ignore[no-any-return]
@@ -117,6 +120,7 @@ class ApiClient:
         tokens_in: int,
         tokens_out: int,
         cost_usd: float,
+        provider: str = "anthropic",
     ) -> dict[str, Any]:
         response = self._client.post(
             f"/tickets/{ticket_id}/agent-runs/{run_id}/complete",
@@ -125,6 +129,7 @@ class ApiClient:
                 "tokens_in": tokens_in,
                 "tokens_out": tokens_out,
                 "cost_usd": cost_usd,
+                "provider": provider,
             },
         )
         response.raise_for_status()
@@ -197,6 +202,28 @@ class ApiClient:
         response = self._client.post(
             f"/merge-queue/{entry_id}/conflict",
             json={"actor": actor, "conflicting_paths": conflicting_paths},
+        )
+        response.raise_for_status()
+        return response.json()  # type: ignore[no-any-return]
+
+    def get_runtime_keys(self, org_id: str) -> list[dict[str, str]]:
+        """T-202: real key material for org_id, in fallback order, ACTIVE only —
+        service-token only on the apps/api side. Held in memory for one agent run,
+        never persisted, never logged (docs/09-saas-model.md)."""
+        response = self._client.get(f"/orgs/{org_id}/llm/runtime-keys")
+        response.raise_for_status()
+        return response.json()["items"]  # type: ignore[no-any-return]
+
+    def get_runtime_llm_key(self, org_id: str, *, provider: str) -> str | None:
+        for credential in self.get_runtime_keys(org_id):
+            if credential["provider"] == provider:
+                return credential["api_key"]
+        return None
+
+    def get_eval_floor(self, org_id: str, *, agent_role: str, provider: str) -> dict[str, Any]:
+        response = self._client.get(
+            f"/orgs/{org_id}/eval-floors",
+            params={"agent_role": agent_role, "provider": provider},
         )
         response.raise_for_status()
         return response.json()  # type: ignore[no-any-return]

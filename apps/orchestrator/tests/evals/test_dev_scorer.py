@@ -58,7 +58,14 @@ class _FakeClaudeCodeRunner:
         self._edit = edit
 
     def run(
-        self, *, prompt: str, cwd: Path, model: str, budget_usd: float, timeout_s: float
+        self,
+        *,
+        prompt: str,
+        cwd: Path,
+        model: str,
+        budget_usd: float,
+        timeout_s: float,
+        anthropic_api_key: str | None = None,
     ) -> Iterator[TranscriptEvent]:
         self._edit(cwd)
         yield TranscriptEvent(

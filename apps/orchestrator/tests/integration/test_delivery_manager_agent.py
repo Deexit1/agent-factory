@@ -27,6 +27,7 @@ class _FakeRouteResult:
     def __init__(self, text: str) -> None:
         self.text = text
         self.model = "claude-sonnet-5"
+        self.provider = "anthropic"
         self.tokens_in = 200
         self.tokens_out = 100
         self.cost_usd = 0.0015
@@ -37,7 +38,14 @@ def _assign_all_to(profile: str):
     message and proposes assigning every one of them to `profile` — so the test
     doesn't need to guess server-generated ticket ids up front."""
 
-    def _route(role: str, *, system: str, messages: list[dict[str, str]], max_tokens: int):
+    def _route(
+        role: str,
+        *,
+        credentials: object,
+        system: str,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+    ):
         user_message = messages[0]["content"]
         task_ids = re.findall(r"- id: (\S+)", user_message)
         assignments = [

@@ -5,6 +5,8 @@ description = "Sole owner of provider SDKs (docs/00-vision.md SaaS-readiness rul
 requires-python = ">=3.12"
 dependencies = [
   "anthropic>=0.40,<1.0",
+  # T-202 (SPEC-202): second real BYOK provider, wired for real fallover.
+  "openai>=1.40,<2.0",
 ]
 
 [project.optional-dependencies]
@@ -13,6 +15,8 @@ dev = [
   "pytest-cov>=5.0",
   "ruff>=0.6",
   "mypy>=1.10",
+  # T-202: HTTP-boundary fault injection for real router fallover tests, zero live spend.
+  "respx>=0.21,<1.0",
 ]
 
 [build-system]

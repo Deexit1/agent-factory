@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from schemas import DEFAULT_REPO
+from schemas.redaction import scrub_payload
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -225,13 +226,15 @@ def append_event(
     kind: EventKind,
     payload: dict[str, object],
 ) -> TicketEvent:
+    # T-202 AC2: scrub any provider key material before it ever reaches the DB — the
+    # one choke point every service-layer append_event call funnels through.
     event = TicketEvent(
         org_id=org_id,
         ticket_id=ticket_id,
         ts=datetime.now(UTC),
         actor=actor,
         kind=kind,
-        payload=payload,
+        payload=scrub_payload(payload),
     )
     session.add(event)
     session.flush()

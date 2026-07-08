@@ -68,6 +68,27 @@ export interface OrgInvite {
   token: string;
 }
 
+export type ProviderName = "anthropic" | "openai";
+
+export interface ProviderKey {
+  id: number;
+  org_id: string;
+  provider: string;
+  last4: string;
+  status: "active" | "invalid" | "revoked";
+  created_at: string;
+  created_by: string;
+  rotated_at: string | null;
+}
+
+export interface EvalFloor {
+  agent_role: string;
+  provider: string;
+  verified: boolean;
+  floor: number | null;
+  opted_in: boolean;
+}
+
 async function request<T>(
   path: string,
   actorContext: ActorContext,
@@ -217,6 +238,84 @@ export function reportPageViewAudit(actorContext: ActorContext, path: string): P
   return request("/admin/audit/page-view", actorContext, {
     method: "POST",
     body: JSON.stringify({ path }),
+  });
+}
+
+export function fetchProviderKeys(
+  actorContext: ActorContext,
+  orgId: string,
+): Promise<{ items: ProviderKey[] }> {
+  return request(`/orgs/${orgId}/provider-keys`, actorContext);
+}
+
+export function addProviderKey(
+  actorContext: ActorContext,
+  orgId: string,
+  body: { provider: ProviderName; api_key: string },
+): Promise<ProviderKey> {
+  return request(`/orgs/${orgId}/provider-keys`, actorContext, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function rotateProviderKey(
+  actorContext: ActorContext,
+  orgId: string,
+  body: { provider: ProviderName; api_key: string },
+): Promise<ProviderKey> {
+  return request(`/orgs/${orgId}/provider-keys/${body.provider}/rotate`, actorContext, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteProviderKey(
+  actorContext: ActorContext,
+  orgId: string,
+  provider: ProviderName,
+): Promise<void> {
+  return request(`/orgs/${orgId}/provider-keys/${provider}`, actorContext, {
+    method: "DELETE",
+  });
+}
+
+export function setFallbackOrder(
+  actorContext: ActorContext,
+  orgId: string,
+  order: string[],
+): Promise<{ items: ProviderKey[] }> {
+  return request(`/orgs/${orgId}/provider-keys/fallback-order`, actorContext, {
+    method: "PUT",
+    body: JSON.stringify({ order }),
+  });
+}
+
+export function healthCheckProviderKeys(
+  actorContext: ActorContext,
+  orgId: string,
+): Promise<{ items: ProviderKey[] }> {
+  return request(`/orgs/${orgId}/provider-keys/health-check`, actorContext, { method: "POST" });
+}
+
+export function fetchEvalFloor(
+  actorContext: ActorContext,
+  orgId: string,
+  agentRole: string,
+  provider: string,
+): Promise<EvalFloor> {
+  const query = new URLSearchParams({ agent_role: agentRole, provider });
+  return request(`/orgs/${orgId}/eval-floors?${query.toString()}`, actorContext);
+}
+
+export function optInEvalFloor(
+  actorContext: ActorContext,
+  orgId: string,
+  body: { agent_role: string; provider: string },
+): Promise<EvalFloor> {
+  return request(`/orgs/${orgId}/eval-floors/opt-in`, actorContext, {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }
 

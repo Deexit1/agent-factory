@@ -3,32 +3,43 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import {
   acceptInvite,
+  addProviderKey,
   answerPlanningQuestions,
   approveTicket,
   createOrg,
+  deleteProviderKey,
   fetchCostRollup,
   fetchCostSummary,
   fetchDashboardMetrics,
   fetchDescendants,
+  fetchEvalFloor,
   fetchMyOrgs,
   fetchOrgMembers,
+  fetchProviderKeys,
   fetchSpendByPromptVersion,
   fetchSpendByProfile,
   fetchTicket,
   fetchTickets,
   fetchUtilisation,
+  healthCheckProviderKeys,
   impersonateOrg,
   inviteMember,
+  optInEvalFloor,
   reportEscapedDefect,
   reportPageViewAudit,
   returnToDev,
+  rotateProviderKey,
+  setFallbackOrder,
   switchOrg,
   transitionTicket,
   updateTask,
   type ApiError,
+  type EvalFloor,
   type Org,
   type OrgInvite,
   type OrgMember,
+  type ProviderKey,
+  type ProviderName,
   type Session,
 } from "./client";
 import type {
@@ -270,4 +281,101 @@ export function usePageViewAudit() {
       // Best-effort — a failed audit POST shouldn't block navigation.
     });
   };
+}
+
+export const providerKeysQueryKey = (orgId: string | null) => ["provider-keys", orgId] as const;
+
+export function useProviderKeys(orgId: string | null) {
+  const actorContext = useAuth();
+  return useQuery<{ items: ProviderKey[] }>({
+    queryKey: providerKeysQueryKey(orgId),
+    queryFn: () => fetchProviderKeys(actorContext, orgId as string),
+    enabled: orgId !== null,
+    refetchInterval: 15000,
+  });
+}
+
+export function useAddProviderKey() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<
+    ProviderKey,
+    ApiError,
+    { orgId: string; provider: ProviderName; api_key: string }
+  >({
+    mutationFn: ({ orgId, ...body }) => addProviderKey(actorContext, orgId, body),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: providerKeysQueryKey(variables.orgId) });
+    },
+  });
+}
+
+export function useRotateProviderKey() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<
+    ProviderKey,
+    ApiError,
+    { orgId: string; provider: ProviderName; api_key: string }
+  >({
+    mutationFn: ({ orgId, ...body }) => rotateProviderKey(actorContext, orgId, body),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: providerKeysQueryKey(variables.orgId) });
+    },
+  });
+}
+
+export function useDeleteProviderKey() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<unknown, ApiError, { orgId: string; provider: ProviderName }>({
+    mutationFn: ({ orgId, provider }) => deleteProviderKey(actorContext, orgId, provider),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: providerKeysQueryKey(variables.orgId) });
+    },
+  });
+}
+
+export function useSetFallbackOrder() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<{ items: ProviderKey[] }, ApiError, { orgId: string; order: string[] }>({
+    mutationFn: ({ orgId, order }) => setFallbackOrder(actorContext, orgId, order),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: providerKeysQueryKey(variables.orgId) });
+    },
+  });
+}
+
+export function useHealthCheckProviderKeys() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<{ items: ProviderKey[] }, ApiError, { orgId: string }>({
+    mutationFn: ({ orgId }) => healthCheckProviderKeys(actorContext, orgId),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: providerKeysQueryKey(variables.orgId) });
+    },
+  });
+}
+
+export function useEvalFloor(orgId: string | null, agentRole: string, provider: string) {
+  const actorContext = useAuth();
+  return useQuery<EvalFloor>({
+    queryKey: ["eval-floor", orgId, agentRole, provider],
+    queryFn: () => fetchEvalFloor(actorContext, orgId as string, agentRole, provider),
+    enabled: orgId !== null,
+  });
+}
+
+export function useOptInEvalFloor() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<EvalFloor, ApiError, { orgId: string; agent_role: string; provider: string }>({
+    mutationFn: ({ orgId, ...body }) => optInEvalFloor(actorContext, orgId, body),
+    onSuccess: (data, variables) => {
+      void queryClient.invalidateQueries({
+        queryKey: ["eval-floor", variables.orgId, data.agent_role, data.provider],
+      });
+    },
+  });
 }
