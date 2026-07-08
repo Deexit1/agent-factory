@@ -1279,3 +1279,97 @@ Format:
   opposite properties (cheap, deterministic, fully-chained) and reuses none
   of its machinery beyond the general "drive a ticket through the API"
   pattern every other agent test already follows.
+
+## T-201 · Multi-tenancy core — 2026-07-08
+- What changed: T-102 added `org_id` to every table and threaded it through
+  every query via a single hardcoded `DEFAULT_ORG_ID` — real, but not
+  multi-tenant. This task built the real thing: `org_members` (a user's role
+  is per-org now, not global — replaces `users.role`/`users.org_id`),
+  `org_invites` (owner-issued, token returned directly in the response since
+  no email-sending exists in this system yet), `orgs.max_parallel_tickets`
+  (the one quota that's actually enforceable — reuses
+  `ticket_service._capacity_fields`'s exact existing pattern, a new
+  `org_at_quota` field alongside `profile_at_capacity`/`repo_at_capacity`
+  gating the same `ready -> in_progress` transition), and `staff_audit_log`
+  (one row per impersonation start + one per page view while impersonating).
+  `UserRole` was renamed `admin/approver/viewer` -> `owner/approver/member/
+  viewer` — a real breaking change, not a parallel role system alongside the
+  old one; every real call site fixed in this PR (~15 sites, grepped:
+  `apps/api` src+tests, `apps/web`). The session JWT now carries a real
+  `org_id` claim (`mint_session_token` gained an `org_id` param); a new
+  `POST /auth/switch-org` re-authenticates an already-proven identity scoped
+  to a different org they belong to (the org switcher). `/auth/callback`
+  picks a login's org via the user's first membership (auto-joining the
+  default org if they have none), not a full interactive "choose an org"
+  flow — a real, disclosed scope trim (the org switcher covers switching
+  *after* landing; only the very-first-OIDC-login-with-2+-orgs edge case is
+  simplified). AC2's static gate
+  (`scripts/check_tenant_scope_gate.py`) is a REAL AST walk — `ast.parse` +
+  `ast.walk` over every top-level repository function, flagging any that
+  call `session.execute/get/query` without ever referencing `org_id` — not a
+  regex line-scan like `check_llm_router_gate.py` turned out to actually be
+  on closer inspection (its own docs call it "AST-based"; it's `re.match`
+  over `git ls-files`). Verified for real: found one genuine, correct
+  allowlist candidate (`user_repository.get_user` — `users` is a global
+  identity table now, not org-scoped) and, separately, confirmed it fails on
+  a deliberately-broken repository function before being fixed. AC5's
+  impersonation always mints `actor=f"staff:{email}"` (never `human:`), so
+  `state_machine.is_human_actor()` correctly excludes impersonation sessions
+  from every human-only gate (approve/reject etc.) by construction — "view
+  as org" is read-mostly visibility, not a way to act as an org's owner.
+- Two migrations, not one (a real, documented exception to "one migration
+  per PR max" in docs/07-conventions.md): Postgres won't let a transaction
+  USE an enum value it just `ADD VALUE`d, and each migration file is its own
+  transaction — `b8c9d0e1f2a3` adds `owner`/`member` to the `user_role`
+  enum; `c9d0e1f2a3b4` does everything else, including the backfill
+  (`admin -> owner`, `approver`/`viewer` unchanged) that needs those new
+  values to already be committed. Both round-trip tested for real against a
+  throwaway Postgres container: fresh `upgrade head`, `downgrade -1`, then
+  re-`upgrade head` with real pre-existing `admin`/`viewer` users inserted
+  first — confirmed the backfill lands exactly right (`alice: admin ->
+  owner`, `bob: viewer -> viewer`).
+- Files touched: `apps/api/migrations/versions/{b8c9d0e1f2a3,
+  c9d0e1f2a3b4}_*.py` (new), `apps/api/src/api/db/models.py` (`UserRole`
+  rename, `Org.max_parallel_tickets`, `User` drops role/org_id gains
+  `is_platform_staff`, new `OrgMember`/`OrgInvite`/`StaffAuditLog`),
+  `apps/api/src/api/repositories/{user_repository.py (rewritten),
+  org_repository.py (new), ticket_repository.py
+  (count_in_progress_by_org)}`, `apps/api/src/api/services/{user_service.py
+  (rewritten), org_service.py (new), ticket_service.py (_org_at_quota)}`,
+  `apps/api/src/api/{auth.py (org_id/is_platform_staff/impersonating on
+  ActorContext + mint_session_token), contracts.py (Org*/Invite* contracts,
+  SessionOut gains org_id/is_platform_staff/impersonating), domain/
+  state_machine.py (org_at_quota guard), routers/{auth.py (switch-org),
+  tickets.py (admin->owner rename), orgs.py (new), admin.py (new)}, main.py
+  (router registration)}`, `apps/api/tests/integration/
+  {test_tenant_isolation.py, test_org_quota.py, test_staff_impersonation.py}
+  (new, 7 tests total), test_user_service.py (rewritten), test_auth_api.py
+  (admin->owner)`, `scripts/check_tenant_scope_gate.py` (new), `Makefile`
+  (new `tenant-scope-gate` target, wired into `check`),
+  `apps/web/src/{api/{client.ts, queries.ts}, auth/{AuthContext.tsx,
+  LoginPage.tsx}, admin/ImpersonatePage.tsx (new), App.tsx (watermark + org
+  switcher + staff entry point), board/TicketDrawer.tsx,
+  planning/PlanningReviewPage.tsx}` (admin->owner renames + new org/
+  impersonation UI), `apps/web/e2e/api.ts`, `docs/{02-data-model.md,
+  07-conventions.md, 09-saas-model.md}`.
+- Test evidence: `apps/api` 116/116, up from 109 (7 new: 3
+  `test_tenant_isolation.py` covering AC1+AC4, 2 `test_org_quota.py`
+  covering AC3, 2 `test_staff_impersonation.py` covering AC5; every
+  existing test using the string `"admin"` for a role updated to `"owner"`)
+  against a real Postgres testcontainer; ruff/mypy clean.
+  `scripts/check_tenant_scope_gate.py` verified for real (found a genuine
+  allowlist case, caught a deliberately-broken function, passes clean on
+  the real repo) and wired into `make check`. `apps/orchestrator` 65/65,
+  fully unaffected (no code changes there — it stays single-org, disclosed
+  above). `apps/web`: `tsc -b --noEmit` clean, `eslint` clean (1
+  pre-existing unrelated warning), `vitest run` 1/1.
+- Notes / follow-ups: sandbox-minutes/day and storage quotas from SPEC-201's
+  wording are NOT implemented — `apps/sandbox` has no real usage metering to
+  enforce against (T-105's own disclosed gap); adding config fields for an
+  unenforceable quota would be dead config, not real work. The orchestrator/
+  service-token path stays on `DEFAULT_ORG_ID` — real per-org agent dispatch
+  is separate, larger work (arguably T-202/BYOK's territory, since keys are
+  per-org). The Phase-2.5 "starts after T-110 go" gate was deliberately
+  overridden by explicit human decision (T-110 is blocked on Anthropic
+  credit, not completed) — noted in `tasks/BACKLOG.md`'s Phase-2.5 header,
+  not silently skipped.

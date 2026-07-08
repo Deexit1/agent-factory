@@ -430,10 +430,46 @@ $/ticket, cycle time → `tasks/PILOT2-REPORT.md` with a Phase-2.5 go/no-go.
 
 # Phase 2.5 — SaaS foundation (QUEUED — starts after T-110 go)
 
-## T-201 · Multi-tenancy core — `ready`
+**Gate override (2026-07-08):** T-110 is blocked (no Anthropic credit, see its entry
+above), not completed with a go/no-go. Human decision: proceed into Phase 2.5 anyway —
+these are pure-engineering tickets, not dependent on pilot results. Noted here since
+it's a deliberate deviation from this section's own stated gate, not an oversight.
+
+## T-201 · Multi-tenancy core — `done`
 **Spec:** SPEC-201  **Est:** L
 Orgs, invites, RBAC, quotas, tenant-scope enforcement + staff impersonation auditing.
-All five criteria apply. Requires T-102 (org_id groundwork).
+**Acceptance criteria**
+- [x] Cross-tenant read/write attempts in a dedicated test suite all fail (API 404,
+  repo layer raises); suite runs in CI —
+  `apps/api/tests/integration/test_tenant_isolation.py` (3 tests), real second org
+  created via `POST /orgs`, not a synthetic org_id
+- [x] Static check fails the build on any repository query missing tenant scope —
+  `scripts/check_tenant_scope_gate.py` (real AST walk, wired into `make check` as
+  `tenant-scope-gate`), verified for real to fail on a deliberately-broken repository
+  function before being fixed
+- [x] Exceeding parallel-ticket quota leaves the extra task `ready` with a quota
+  event — `apps/api/tests/integration/test_org_quota.py` (2 tests); only
+  `max_parallel_tickets` is enforced (sandbox-minutes/storage have no real usage
+  metering to enforce against — disclosed gap, see docs/09-saas-model.md)
+- [x] Invited member gets role-appropriate access; viewer cannot approve (403) —
+  `test_tenant_isolation.py`'s invite/accept tests, real end-to-end (owner invites →
+  invitee accepts → role-scoped session → read works, approve 403s)
+- [x] Staff impersonation is watermarked in the UI and writes audit events for every
+  page — `apps/api/tests/integration/test_staff_impersonation.py` (2 tests, backend);
+  frontend watermark banner + one audit POST per view change while impersonating
+  (`App.tsx`); impersonation sessions are never treated as human actors (mint
+  `staff:{email}`, not `human:{email}`) — can view but not approve, by construction
+
+**RBAC rename**: `UserRole.ADMIN` → `OWNER` (+ new `MEMBER`) — a real breaking rename,
+not a compat shim; every real call site fixed in this PR (grepped, ~15 sites across
+apps/api src+tests and apps/web). Role moved from a global `users.role`/`users.org_id`
+pair to one `org_members` row per (org, user).
+
+**Non-goals (disclosed)**: sandbox-minutes/day and storage quotas (no real usage
+metering exists); orchestrator/service-token multi-org awareness (stays on
+`DEFAULT_ORG_ID`); a full interactive "choose an org at login" flow for OIDC users
+with 2+ orgs (login picks the first membership; the org switcher handles switching
+after landing); a polished admin console for impersonation (one plain trigger page).
 
 ## T-202 · BYOK keys & provider router v1 — `ready`
 **Spec:** SPEC-202  **Est:** L

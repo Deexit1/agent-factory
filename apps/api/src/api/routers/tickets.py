@@ -24,7 +24,7 @@ from api.services import ticket_service
 
 router = APIRouter(prefix="/tickets", tags=["tickets"], dependencies=[Depends(get_actor_context)])
 
-APPROVER_ROLES = {"approver", "admin"}
+APPROVER_ROLES = {"approver", "owner"}
 
 
 @router.post("", response_model=TicketOut, status_code=201)
@@ -115,7 +115,7 @@ def approve_ticket(
     db: Session = Depends(get_db),
 ) -> ApprovalOut:
     if actor_context.role not in APPROVER_ROLES:
-        raise HTTPException(status_code=403, detail="only an approver or admin may decide a gate")
+        raise HTTPException(status_code=403, detail="only an approver or owner may decide a gate")
 
     try:
         approval = ticket_service.record_approval(
@@ -142,7 +142,7 @@ def return_to_dev(
 ) -> TicketOut:
     if actor_context.role not in APPROVER_ROLES:
         raise HTTPException(
-            status_code=403, detail="only an approver or admin may return a ticket to dev"
+            status_code=403, detail="only an approver or owner may return a ticket to dev"
         )
 
     try:
@@ -180,7 +180,7 @@ def answer_planning_questions(
 ) -> TicketOut:
     if actor_context.role not in APPROVER_ROLES:
         raise HTTPException(
-            status_code=403, detail="only an approver or admin may answer planning questions"
+            status_code=403, detail="only an approver or owner may answer planning questions"
         )
 
     try:
@@ -207,7 +207,7 @@ def update_task(
     db: Session = Depends(get_db),
 ) -> TicketOut:
     if actor_context.role not in APPROVER_ROLES:
-        raise HTTPException(status_code=403, detail="only an approver or admin may edit a task")
+        raise HTTPException(status_code=403, detail="only an approver or owner may edit a task")
 
     try:
         ticket = ticket_service.update_task(

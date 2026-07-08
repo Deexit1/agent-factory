@@ -21,7 +21,20 @@ Monorepo: `apps/api`, `apps/web`, `apps/orchestrator`, `apps/sandbox`, `packages
 - PR description must list the task ID and paste the acceptance-criteria checklist.
 
 ## Migrations
-- Alembic, one migration per PR max, always reversible.
+- Alembic, one migration per PR max, always reversible. Exception: adding a new
+  Postgres enum value and then using that value (e.g. in a backfill `INSERT`/`UPDATE`)
+  must be two separate migrations — Postgres won't let a transaction use an enum value
+  it just `ADD VALUE`d, and each migration file runs in its own transaction (T-201).
+
+## Tenant scoping (T-201)
+- Every `apps/api/src/api/repositories/*.py` function that touches the database must
+  reference `org_id` — checked in CI by `scripts/check_tenant_scope_gate.py` (`make
+  tenant-scope-gate`, part of `make check`), a real AST walk (not a text/regex scan)
+  over every repository function. A genuinely global function (no tenant-scoped row
+  involved, e.g. `next_ticket_id`, `user_repository.get_user`) needs an explicit,
+  commented entry in that script's small allowlist — not a silent exemption.
+- `users` is the one global, non-org-scoped table (a user's identity, not their
+  membership) — role and org membership live on `org_members` instead.
 
 ## Errors & logging
 - Structured JSON logs; every log line carries `ticket_id` where applicable.

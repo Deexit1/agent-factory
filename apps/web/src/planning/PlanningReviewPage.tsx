@@ -72,7 +72,7 @@ function TaskRow({
 
 export function PlanningReviewPage(): React.JSX.Element {
   const { role } = useAuth();
-  const canApprove = role === "approver" || role === "admin";
+  const canApprove = role === "approver" || role === "owner";
 
   const { data: ticketsData } = useTickets();
   const [selectedIdeaId, setSelectedIdeaId] = useState<string | null>(null);

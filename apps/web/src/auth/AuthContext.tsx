@@ -4,13 +4,16 @@ import { fetchMe } from "../api/client";
 
 const STORAGE_KEY = "agent-factory:session-token";
 
-export type Role = "viewer" | "approver" | "admin";
+export type Role = "viewer" | "approver" | "member" | "owner";
 export type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
 interface AuthContextValue {
   token: string | null;
   actor: string | null;
   role: Role | null;
+  orgId: string | null;
+  isPlatformStaff: boolean;
+  impersonating: boolean;
   status: AuthStatus;
   setToken: (token: string) => void;
   logout: () => void;
@@ -36,6 +39,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
   );
   const [actor, setActor] = useState<string | null>(null);
   const [role, setRole] = useState<Role | null>(null);
+  const [orgId, setOrgId] = useState<string | null>(null);
+  const [isPlatformStaff, setIsPlatformStaff] = useState(false);
+  const [impersonating, setImpersonating] = useState(false);
   const [status, setStatus] = useState<AuthStatus>("loading");
 
   useEffect(() => {
@@ -51,6 +57,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
         if (cancelled) return;
         setActor(session.actor);
         setRole(session.role);
+        setOrgId(session.org_id);
+        setIsPlatformStaff(session.is_platform_staff);
+        setImpersonating(session.impersonating);
         setStatus("authenticated");
       })
       .catch(() => {
@@ -70,6 +79,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
       token,
       actor,
       role,
+      orgId,
+      isPlatformStaff,
+      impersonating,
       status,
       setToken: (next: string) => setTokenState(next),
       logout: () => {
@@ -77,10 +89,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
         setTokenState(null);
         setActor(null);
         setRole(null);
+        setOrgId(null);
+        setIsPlatformStaff(false);
+        setImpersonating(false);
         setStatus("unauthenticated");
       },
     }),
-    [token, actor, role, status],
+    [token, actor, role, orgId, isPlatformStaff, impersonating, status],
   );
 
   return <AuthReactContext.Provider value={value}>{children}</AuthReactContext.Provider>;

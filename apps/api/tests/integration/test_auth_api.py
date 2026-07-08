@@ -31,14 +31,14 @@ def test_dev_login_mints_a_working_session_token(client: TestClient) -> None:
 
 
 def test_auth_me_reflects_the_bearer_token(client: TestClient) -> None:
-    token = _dev_login(client, "erin@example.com", "admin")
+    token = _dev_login(client, "erin@example.com", "owner")
 
     response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
 
     assert response.status_code == 200
     body = response.json()
     assert body["actor"] == "human:erin@example.com"
-    assert body["role"] == "admin"
+    assert body["role"] == "owner"
 
 
 def test_dev_login_404_when_auth_dev_mode_disabled(

@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import Enum as PgEnum
-from sqlalchemy import ForeignKey, Numeric
+from sqlalchemy import ForeignKey, Numeric, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -77,20 +77,31 @@ class AgentRunStatus(StrEnum):
 
 
 class UserRole(StrEnum):
-    ADMIN = "admin"
+    """T-201: per-org membership role (owner/approver/member/viewer) — renamed from the
+    T-102-era admin/approver/viewer (owner replaces admin; member is new). Lives on
+    `OrgMember.role`, not `User` — a user's role is per-org now, not global."""
+
+    OWNER = "owner"
     APPROVER = "approver"
+    MEMBER = "member"
     VIEWER = "viewer"
 
 
 class Org(Base):
-    """Tenant. Single "default" org today (T-102 groundwork); invites, membership and
-    per-org RBAC roles beyond admin/approver/viewer are T-201."""
+    """Tenant. Real multi-org membership/invites/RBAC land in T-201 (`OrgMember`,
+    `OrgInvite`); T-102 only seeded the single "default" org and org_id groundwork."""
 
     __tablename__ = "orgs"
 
     id: Mapped[str] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    # T-201: only the one quota that's actually enforceable today (mirrors
+    # capability_registry.yaml's repo_concurrency_limit, scoped per-org instead of
+    # global). Sandbox-minutes/day and storage caps are NOT here — apps/sandbox has no
+    # real usage metering to enforce against (T-105's own disclosed gap); adding config
+    # for an unenforceable quota would be dead config, not real work.
+    max_parallel_tickets: Mapped[int | None] = mapped_column(default=None)
 
 
 class Ticket(Base):
@@ -176,15 +187,72 @@ class CostLedgerEntry(Base):
 
 
 class User(Base):
-    """OIDC-authenticated humans. Role defaults to viewer at first login (T-008/SPEC-006);
-    promotion to approver/admin is a manual DB/admin action in Phase 1."""
+    """OIDC-authenticated humans. T-201: role and org membership moved to
+    `OrgMember` — a user's role is per-org now, not a single global value. Role still
+    defaults to viewer at an org's first-login auto-join (T-008/SPEC-006 behavior,
+    preserved via `user_service.get_or_create_user`'s ADMIN_EMAILS-seeded bootstrap).
+    `is_platform_staff` is a separate, cross-org concept (impersonation, T-201) — not
+    an org role."""
 
     __tablename__ = "users"
 
     email: Mapped[str] = mapped_column(primary_key=True)
+    is_platform_staff: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class OrgMember(Base):
+    """T-201: a user's role within one org — replaces the old global `User.role`/
+    `User.org_id` columns. A user can belong to multiple orgs, one row each."""
+
+    __tablename__ = "org_members"
+    __table_args__ = (UniqueConstraint("org_id", "user_email", name="uq_org_members_org_user"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
+    user_email: Mapped[str] = mapped_column(ForeignKey("users.email"))
     role: Mapped[UserRole] = mapped_column(_pg_enum(UserRole, "user_role"), default=UserRole.VIEWER)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class OrgInviteStatus(StrEnum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REVOKED = "revoked"
+
+
+class OrgInvite(Base):
+    """T-201: an owner-issued invite (email + role) into one org. `token` is a random,
+    unguessable acceptance credential — not the ticket-facing service token."""
+
+    __tablename__ = "org_invites"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
+    email: Mapped[str] = mapped_column()
+    role: Mapped[UserRole] = mapped_column(_pg_enum(UserRole, "user_role"), default=UserRole.VIEWER)
+    invited_by: Mapped[str] = mapped_column()
+    token: Mapped[str] = mapped_column(unique=True)
+    status: Mapped[OrgInviteStatus] = mapped_column(
+        _pg_enum(OrgInviteStatus, "org_invite_status"), default=OrgInviteStatus.PENDING
+    )
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class StaffAuditLog(Base):
+    """T-201 AC5: every platform-staff impersonation action, including one row per
+    page view while impersonating an org — the frontend posts one on every route
+    change while `ActorContext.impersonating` is true."""
+
+    __tablename__ = "staff_audit_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    staff_email: Mapped[str] = mapped_column()
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
+    action: Mapped[str] = mapped_column()
+    path: Mapped[str | None] = mapped_column()
+    ts: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
 
 
 class MergeQueueEntry(Base):

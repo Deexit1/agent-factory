@@ -9,10 +9,12 @@ from api.db.models import (
     ApprovalGate,
     EventKind,
     MergeQueueStatus,
+    OrgInviteStatus,
     TicketState,
     TicketType,
     UserRole,
 )
+from api.tenancy import DEFAULT_ORG_ID
 
 
 class AcceptanceCriterionIn(BaseModel):
@@ -199,12 +201,75 @@ class DevLoginRequest(BaseModel):
 
     email: str
     role: UserRole | None = None
+    org_id: str = DEFAULT_ORG_ID
 
 
 class SessionOut(BaseModel):
     token: str
     actor: str
     role: UserRole
+    org_id: str = DEFAULT_ORG_ID
+    is_platform_staff: bool = False
+    impersonating: bool = False
+
+
+class CreateOrgRequest(BaseModel):
+    name: str
+
+
+class OrgOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    created_at: datetime
+    max_parallel_tickets: int | None
+
+
+class OrgListOut(BaseModel):
+    items: list[OrgOut]
+
+
+class OrgMemberOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    org_id: str
+    user_email: str
+    role: UserRole
+    created_at: datetime
+
+
+class OrgMemberListOut(BaseModel):
+    items: list[OrgMemberOut]
+
+
+class InviteMemberRequest(BaseModel):
+    email: str
+    role: UserRole
+
+
+class OrgInviteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    org_id: str
+    email: str
+    role: UserRole
+    status: OrgInviteStatus
+    created_at: datetime
+    # No email-sending exists in this system yet — the invite creation response is
+    # the only place the acceptance token is ever surfaced (a real deployment would
+    # email a link instead of returning this to the inviter).
+    token: str
+
+
+class SwitchOrgRequest(BaseModel):
+    org_id: str
+
+
+class PageViewAuditRequest(BaseModel):
+    path: str
 
 
 class ReturnToDevRequest(BaseModel):

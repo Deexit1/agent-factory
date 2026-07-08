@@ -8,12 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from api.routers import (
+    admin,
     agent_runs,
     auth,
     capability_registry,
     dashboard,
     health,
     merge_queue,
+    orgs,
     tickets,
     webhooks,
     ws_tickets,
@@ -54,3 +56,5 @@ app.include_router(dashboard.router)
 app.include_router(ws_tickets.router)
 app.include_router(capability_registry.router)
 app.include_router(merge_queue.router)
+app.include_router(orgs.router)
+app.include_router(admin.router)

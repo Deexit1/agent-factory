@@ -37,7 +37,35 @@ export interface ActorContext {
 export interface Session {
   token: string;
   actor: string;
-  role: "viewer" | "approver" | "admin";
+  role: "viewer" | "approver" | "member" | "owner";
+  org_id: string;
+  is_platform_staff: boolean;
+  impersonating: boolean;
+}
+
+export interface Org {
+  id: string;
+  name: string;
+  created_at: string;
+  max_parallel_tickets: number | null;
+}
+
+export interface OrgMember {
+  id: number;
+  org_id: string;
+  user_email: string;
+  role: "viewer" | "approver" | "member" | "owner";
+  created_at: string;
+}
+
+export interface OrgInvite {
+  id: number;
+  org_id: string;
+  email: string;
+  role: "viewer" | "approver" | "member" | "owner";
+  status: "pending" | "accepted" | "revoked";
+  created_at: string;
+  token: string;
 }
 
 async function request<T>(
@@ -126,19 +154,70 @@ export function fetchMe(token: string): Promise<Session> {
   return request("/auth/me", { token });
 }
 
-export function devLogin(email: string, role: string): Promise<Session> {
+export function devLogin(email: string, role: string, orgId?: string): Promise<Session> {
   return request(
     "/auth/dev-login",
     { token: null },
     {
       method: "POST",
-      body: JSON.stringify({ email, role }),
+      body: JSON.stringify({ email, role, ...(orgId ? { org_id: orgId } : {}) }),
     },
   );
 }
 
+export function switchOrg(actorContext: ActorContext, orgId: string): Promise<Session> {
+  return request("/auth/switch-org", actorContext, {
+    method: "POST",
+    body: JSON.stringify({ org_id: orgId }),
+  });
+}
+
 export function googleLoginUrl(): string {
   return `${API_URL}/auth/login`;
+}
+
+export function fetchMyOrgs(actorContext: ActorContext): Promise<{ items: Org[] }> {
+  return request("/orgs/mine", actorContext);
+}
+
+export function createOrg(actorContext: ActorContext, name: string): Promise<Org> {
+  return request("/orgs", actorContext, {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function inviteMember(
+  actorContext: ActorContext,
+  orgId: string,
+  body: { email: string; role: string },
+): Promise<OrgInvite> {
+  return request(`/orgs/${orgId}/invites`, actorContext, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function acceptInvite(actorContext: ActorContext, token: string): Promise<OrgMember> {
+  return request(`/orgs/invites/${token}/accept`, actorContext, { method: "POST" });
+}
+
+export function fetchOrgMembers(
+  actorContext: ActorContext,
+  orgId: string,
+): Promise<{ items: OrgMember[] }> {
+  return request(`/orgs/${orgId}/members`, actorContext);
+}
+
+export function impersonateOrg(actorContext: ActorContext, orgId: string): Promise<Session> {
+  return request(`/admin/orgs/${orgId}/impersonate`, actorContext, { method: "POST" });
+}
+
+export function reportPageViewAudit(actorContext: ActorContext, path: string): Promise<unknown> {
+  return request("/admin/audit/page-view", actorContext, {
+    method: "POST",
+    body: JSON.stringify({ path }),
+  });
 }
 
 export function fetchCostSummary(

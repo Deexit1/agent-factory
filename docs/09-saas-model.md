@@ -1,6 +1,15 @@
 # 09 — SaaS Model (tenancy, keys, repos, billing, abuse)
 
 ## Tenancy
+
+**T-201 status**: real for orgs/org_members/invites/RBAC (owner/approver/member/
+viewer)/the parallel-ticket quota/staff impersonation+audit — see docs/02-data-model.md
+and docs/07-conventions.md's "Tenant scoping" section. Not yet real: sandbox-minutes/
+day and storage quotas (no usage metering exists to enforce against), and the
+orchestrator's service-token path staying single-org (`DEFAULT_ORG_ID`) — real per-org
+agent dispatch is separate, larger work, likely T-202's territory since BYOK keys are
+per-org.
+
 - `orgs` table; every domain table carries `org_id` (FK, NOT NULL). All repository-layer
   queries are tenant-scoped by construction (scoped session), verified by tests that
   attempt cross-tenant reads.

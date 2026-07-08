@@ -48,7 +48,7 @@ export async function transition(
 export async function loginAs(
   page: Page,
   email: string,
-  role: "viewer" | "approver" | "admin",
+  role: "viewer" | "approver" | "member" | "owner",
 ): Promise<void> {
   const response = await fetch(`${API_URL}/auth/dev-login`, {
     method: "POST",

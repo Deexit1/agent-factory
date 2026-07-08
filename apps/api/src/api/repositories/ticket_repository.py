@@ -144,6 +144,16 @@ def count_in_progress_by_assignee(session: Session, *, org_id: str, assignee_age
     ).scalar_one()
 
 
+def count_in_progress_by_org(session: Session, *, org_id: str) -> int:
+    """T-201: the one org quota that's actually enforceable today (mirrors
+    count_in_progress_by_repo, minus the repo filter)."""
+    return session.execute(
+        select(func.count())
+        .select_from(Ticket)
+        .where(Ticket.org_id == org_id, Ticket.state == TicketState.IN_PROGRESS)
+    ).scalar_one()
+
+
 def count_in_progress_by_repo(session: Session, *, org_id: str, repo: str) -> int:
     # A ticket with no `spec` (or no `spec.repo`) at all is NOT invisible to this
     # count — it defaults to DEFAULT_REPO (matching ticket_service._capacity_fields'
