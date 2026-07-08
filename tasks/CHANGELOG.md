@@ -1394,3 +1394,132 @@ Format:
 - Notes / follow-ups: T-110 stays open, unblock by topping up the Anthropic
   account (or supplying a funded key) and re-running the pilot for real —
   no code changes needed to start it once credit exists.
+## T-202 · BYOK keys & provider router v1 — 2026-07-08
+- What changed: `packages/llm_router` was a 105-line skeleton — a role→model
+  map, one hard-coded Anthropic client using the ambient `ANTHROPIC_API_KEY`,
+  no `org_id`, no fallback, no retries (its own docstring said so). This task
+  built the real thing: `route(role, *, credentials, complexity, ...)` takes
+  an ordered `list[ProviderCredential]` (the org's fallback order, already
+  fetched by the caller — matches docs/09-saas-model.md's "fetched at run
+  start, held in memory in the runner, passed to the router" line verbatim,
+  a design already approved before this task), tries each in order with
+  per-provider retries on transient failures, and returns a `RouteResult`
+  carrying the real `provider` + a full `attempts` trail. A real second
+  provider (OpenAI) was genuinely wired in, not simulated — `_call_anthropic`/
+  `_call_openai` adapters, `_PROVIDER_ROLE_MODELS`/`_PRICING_PER_MILLION_
+  TOKENS` both keyed by `(provider, model)` now. Real HashiCorp Vault
+  (dev-mode) was added to `docker-compose.yml` — not a stub like T-105/106/
+  107's infra deferrals, since Vault dev-mode is free/local/zero-billing-risk
+  and `docs/06-tech-stack.md` already locked Vault in by name for this exact
+  row. `apps/api/src/api/vault_client.py` wraps `hvac`'s KV v2 API at
+  `tenants/<org_id>/llm/<provider>`. New `provider_keys` (audit-only
+  metadata — last4/status/timestamps, NEVER the secret) and
+  `provider_eval_opt_ins` tables; `orgs.llm_fallback_order` (a JSON column,
+  not a new ordering table — same judgment as `max_parallel_tickets`);
+  `agent_runs.provider`/`cost_ledger.provider` are dynamic now instead of
+  `agent_run_repository.complete_agent_run`'s old hard-coded `"anthropic"`
+  literal. New `apps/api/src/api/routers/provider_keys.py` (owner-gated CRUD
+  + fallback-order + health-check, plus a service-principal-only
+  `GET /orgs/{id}/llm/runtime-keys` returning real key material — the one
+  route deliberately excluded from any future request/response logging) and
+  `routers/eval_floors.py` (AC5's badge + opt-in). `evals/thresholds.yaml`
+  gained a `providers:` sub-map per role — anthropic mirrors the existing
+  floor, openai ships `floor: null, not_yet_enforced: true` with an honest
+  rationale (no OpenAI credits in this environment, same disclosed pattern
+  as the `review` set's own precedent). `apps/api/src/api/eval_floors.py`
+  reads that YAML directly (not via `orchestrator.evals.loader` — wrong
+  dependency direction between two separate deployables) and treats a role
+  with NO eval-floor entry at all (e.g. `delivery-manager`, which has no
+  golden set) as never-gated, distinct from a role that has a floor but this
+  provider isn't verified for it — a real bug caught by the orchestrator
+  integration suite (the DM's dispatch gate was refusing every batch call
+  until this distinction was added). New `orchestrator/dispatch_gate.py` is
+  the shared "fetch credentials, check the eval floor, refuse if neither
+  verified nor opted-in" gate every LLM-calling agent entry point
+  (planner/delivery-manager/review/dev) now calls before `route()`/
+  `claude_runner.run()` — never a background pause, a same-request check, so
+  AC6's "paused within 60s" is satisfied by construction (every dispatch
+  re-fetches fresh; there's no cache to go stale). `claude_runner.py`'s
+  `SubprocessClaudeCodeRunner.run()` gained `anthropic_api_key: str | None`,
+  building `env={**os.environ, "ANTHROPIC_API_KEY": key}` for the CLI
+  subprocess when set — the key never reaches argv or a `TranscriptEvent`
+  payload, only `Popen`'s `env=`; `None` preserves the exact pre-BYOK
+  ambient-inheritance behavior for every existing test/pilot-script caller.
+  An org with zero configured `ProviderKey` rows at all falls back to the
+  platform's own `ANTHROPIC_API_KEY` (`provider_key_service.
+  resolve_runtime_credentials`) — the pre-BYOK behavior, unchanged, so every
+  existing test/pilot script needed zero BYOK setup; this fallback stops the
+  instant an org configures its own key (`ACTIVE` or `REVOKED` both count),
+  so AC6's "delete pauses, it doesn't silently fall back" still holds once
+  BYOK is actually in use. Key hygiene: `packages/schemas/redaction.py`'s
+  `scrub`/`scrub_payload` (regex-based, Anthropic/OpenAI key shapes) is
+  applied once at `ticket_repository.append_event` — the single choke point
+  every one of the 7 service-layer event-write call sites already funnels
+  through — plus a belt-and-suspenders scrub at `orchestrator.api_client.
+  append_event` before an event body ever leaves that process. The
+  validate-on-save ping (`provider_key_service.validate_key`, a cheap
+  `models.list()`-shaped call, never a completion call) is a disclosed,
+  narrow, allowlisted exception to "provider SDKs live only in
+  `packages/llm_router`" — `scripts/check_llm_router_gate.py` gained a small
+  `_ALLOWLISTED_FILES` set for exactly this one file, with the reasoning
+  inline in both files' docstrings; verified for real (allowlist emptied ->
+  the gate correctly flags both `import anthropic`/`import openai` lines;
+  restored -> passes clean).
+- Files touched: `docker-compose.yml`/`.env.example` (vault service + env
+  vars), `apps/api/migrations/versions/d1e2f3a4b5c6_*.py` (new, one
+  migration — `provider_keys`, `provider_eval_opt_ins`,
+  `orgs.llm_fallback_order`, `agent_runs.provider`), `apps/api/src/api/
+  {db/models.py (ProviderKey/ProviderKeyStatus/ProviderEvalOptIn), vault_
+  client.py (new), eval_floors.py (new), repositories/{provider_key_
+  repository.py, provider_eval_opt_in_repository.py} (new), agent_run_
+  repository.py (dynamic provider param), ticket_repository.py (scrub at
+  append_event), services/{provider_key_service.py, provider_health_
+  service.py, eval_floors_service.py} (new), agent_run_service.py (provider
+  param), routers/{provider_keys.py, eval_floors.py} (new), agent_runs.py
+  (provider param), contracts.py (new Provider*/EvalFloor* contracts,
+  TicketOut.org_id, AgentRunOut.provider), main.py (router registration)}`,
+  `packages/llm_router/src/llm_router/__init__.py` (full redesign) +
+  `pyproject.toml` (+openai, +respx dev), `packages/schemas/src/schemas/
+  redaction.py` (new), `apps/orchestrator/src/orchestrator/{api_client.py
+  (runtime-keys/eval-floor methods, provider param, scrub on append_event),
+  dispatch_gate.py (new), claude_runner.py (anthropic_api_key param),
+  fixture_runner.py (matching param), agents/{planner.py, review.py,
+  delivery_manager.py, dev.py} (dispatch-gate wiring, credentials threaded
+  into route()), evals/{judge.py (platform_credentials), distiller_scorer.py,
+  planner_scorer.py, review_scorer.py (credentials param), loader.py
+  (ProviderThreshold/providers field)}`, `scripts/check_llm_router_gate.py`
+  (allowlist), `evals/thresholds.yaml` (providers: sub-maps),
+  `apps/web/src/{api/{client.ts, queries.ts}, admin/ProviderKeysPage.tsx
+  (new), App.tsx (Keys nav entry)}`, `docs/{02-data-model.md,
+  06-tech-stack.md, 09-saas-model.md}`, test files listed below.
+- Test evidence: `apps/api` 128/128 (up from 116 — 12 new: 5
+  `test_provider_key_router.py`, 4 `test_eval_floors_router.py`, 2
+  `test_byok_attribution.py`, 1 `test_redaction.py`, all against real
+  Postgres + a real ephemeral Vault container), ruff/mypy clean; both static
+  gates pass for real (llm-router-gate's allowlist exception verified to be
+  load-bearing, not decorative — see above). `packages/llm_router` 12/12 (3
+  new: real HTTP-boundary fault-injected fallover/all-fail/transient-retry
+  tests via `respx`, zero live provider spend), ruff/mypy clean.
+  `packages/schemas` 26/26 (4 new pure-function redaction tests), ruff/mypy
+  clean. `apps/orchestrator` 43 unit + 22 integration, all green after
+  updating every existing fake-`route()` test double across
+  `test_planner_agent.py`/`test_review_agent.py`/
+  `test_delivery_manager_agent.py`/`test_e2e_management_flow.py` to accept
+  the new `credentials` kwarg and carry a `.provider` attribute — a real,
+  necessary fallout fix, not papered over; ruff/mypy clean. `apps/web`:
+  `tsc -b --noEmit` clean, `eslint` clean (1 pre-existing unrelated
+  warning), `vitest run` 1/1, `vite build` succeeds.
+- Notes / follow-ups: `make eval` was **not run for real** — the local
+  `ANTHROPIC_API_KEY` in this environment was smoke-tested directly and
+  confirmed still at zero credit balance (same recurring blocker as
+  T-105/106/110; see memory `feedback_eval_gate_ci_billing.md`). CI's
+  `eval-gate.yml` job uses its own repo-secret key and may have real credit
+  — its actual result must be checked before merge, not assumed green from
+  this disclosure. A third provider (Gemini), a live OpenAI eval run,
+  `complexity`-based model subdivision within a role, a dedicated per-agent
+  provider/model picker UI (vs. the opt-in surfacing on the provider-keys
+  page instead), real cron for health-checks (vs. the real, callable,
+  testable function that exists), and real production Vault topology (raft
+  storage, auto-unseal, AppRole auth, TLS — dev-mode only here, same
+  standing as MinIO for S3) are all explicitly out of scope, not silent
+  gaps — see `tasks/BACKLOG.md`'s T-202 entry for the full list.

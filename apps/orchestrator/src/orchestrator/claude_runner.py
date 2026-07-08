@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import time
@@ -24,7 +25,14 @@ class TranscriptEvent:
 
 class ClaudeCodeRunner(Protocol):
     def run(
-        self, *, prompt: str, cwd: Path, model: str, budget_usd: float, timeout_s: float
+        self,
+        *,
+        prompt: str,
+        cwd: Path,
+        model: str,
+        budget_usd: float,
+        timeout_s: float,
+        anthropic_api_key: str | None = None,
     ) -> Iterator[TranscriptEvent]: ...
 
 
@@ -51,7 +59,14 @@ class SubprocessClaudeCodeRunner:
         self._system_prompt_path = system_prompt_path
 
     def run(
-        self, *, prompt: str, cwd: Path, model: str, budget_usd: float, timeout_s: float
+        self,
+        *,
+        prompt: str,
+        cwd: Path,
+        model: str,
+        budget_usd: float,
+        timeout_s: float,
+        anthropic_api_key: str | None = None,
     ) -> Iterator[TranscriptEvent]:
         claude_bin = shutil.which("claude")
         if claude_bin is None:
@@ -65,6 +80,18 @@ class SubprocessClaudeCodeRunner:
         # never detect a dev-agent.md regression, since degrading it would change nothing
         # about a real run.
         system_prompt = self._system_prompt_path.read_text(encoding="utf-8")
+
+        # T-202 (SPEC-202): the org's own key, scoped to this subprocess's env only —
+        # never written to a TranscriptEvent payload, never part of argv (unlike
+        # --append-system-prompt's content, a separate pre-existing exposure this
+        # ticket doesn't touch). None preserves the pre-BYOK behavior exactly: the
+        # subprocess inherits whatever ANTHROPIC_API_KEY is already in this process's
+        # environment (local dev / tests that pass no key explicitly).
+        subprocess_env = (
+            {**os.environ, "ANTHROPIC_API_KEY": anthropic_api_key}
+            if anthropic_api_key
+            else None
+        )
 
         deadline = time.monotonic() + timeout_s
         for attempt in range(self._MAX_TRANSIENT_RETRIES + 1):
@@ -84,6 +111,7 @@ class SubprocessClaudeCodeRunner:
                     "acceptEdits",
                 ],
                 cwd=cwd,
+                env=subprocess_env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,

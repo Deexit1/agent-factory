@@ -24,6 +24,16 @@
 | Billing | Stripe (subscriptions + metered usage records) |
 | Multi-tenant sandbox | Firecracker/Kata microVMs — REQUIRED at multi-tenant GA (gVisor allowed for single-tenant/dev and closed beta only) |
 
+## Implementation status notes (do not change the locked rows above without a doc PR)
+- **LLM routing / Tenant secrets (BYOK) rows — real as of T-202.** `packages/llm_router`
+  now takes `(agent_role, complexity, org-fetched credentials)` and does real
+  provider fallover/retries across Anthropic + OpenAI. Vault is wired for real in
+  local/CI (`docker-compose.yml`'s `vault` service, `hashicorp/vault:1.17`,
+  **dev-mode only** — in-memory, root-token auth, no persistence). Real production
+  Vault topology (raft storage, auto-unseal, AppRole auth, TLS) is a deploy-time
+  concern, not built here — same standing as MinIO standing in for real S3 in this
+  same table.
+
 ## Phase-2 activations (pre-approved escalation paths)
 - **Runner pool → Kubernetes** (EKS/GKE + autoscaling runners) WHEN sustained parallel
   tickets > 5. Until then: second runner VM.

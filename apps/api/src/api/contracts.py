@@ -10,6 +10,7 @@ from api.db.models import (
     EventKind,
     MergeQueueStatus,
     OrgInviteStatus,
+    ProviderKeyStatus,
     TicketState,
     TicketType,
     UserRole,
@@ -53,6 +54,7 @@ class TicketOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    org_id: str
     type: TicketType
     parent_id: str | None
     state: TicketState
@@ -145,6 +147,7 @@ class CompleteAgentRunRequest(BaseModel):
     tokens_in: int = 0
     tokens_out: int = 0
     cost_usd: float = Field(ge=0, default=0)
+    provider: str = "anthropic"
 
     @model_validator(mode="after")
     def _status_not_running(self) -> "CompleteAgentRunRequest":
@@ -168,6 +171,7 @@ class AgentRunOut(BaseModel):
     cost_usd: float
     trace_id: str | None
     prompt_version: str | None
+    provider: str | None
 
 
 class CostLedgerEntryOut(BaseModel):
@@ -224,6 +228,7 @@ class OrgOut(BaseModel):
     name: str
     created_at: datetime
     max_parallel_tickets: int | None
+    llm_fallback_order: list[str] | None = None
 
 
 class OrgListOut(BaseModel):
@@ -365,3 +370,57 @@ class CIResultWebhook(BaseModel):
     conclusion: Literal["success", "failure"]
     suite: str = "ci"
     raw_log: str = ""
+
+
+class AddProviderKeyRequest(BaseModel):
+    """T-202 (SPEC-202): the raw key never persists past this request — it's written
+    straight to Vault; only last4/status/timestamps land in the DB."""
+
+    provider: Literal["anthropic", "openai"]
+    api_key: str = Field(min_length=8)
+
+
+class ProviderKeyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    org_id: str
+    provider: str
+    last4: str
+    status: ProviderKeyStatus
+    created_at: datetime
+    created_by: str
+    rotated_at: datetime | None
+
+
+class ProviderKeyListOut(BaseModel):
+    items: list[ProviderKeyOut]
+
+
+class SetFallbackOrderRequest(BaseModel):
+    order: list[str]
+
+
+class ProviderCredentialOut(BaseModel):
+    """Service-token-only: actual key material for an org's runtime dispatch. Never
+    logged, never cached — apps/orchestrator fetches this fresh at agent-run start."""
+
+    provider: str
+    api_key: str
+
+
+class RuntimeKeysOut(BaseModel):
+    items: list[ProviderCredentialOut]
+
+
+class EvalFloorOut(BaseModel):
+    agent_role: str
+    provider: str
+    verified: bool
+    floor: float | None
+    opted_in: bool
+
+
+class OptInEvalFloorRequest(BaseModel):
+    agent_role: str
+    provider: str

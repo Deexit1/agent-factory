@@ -49,12 +49,14 @@ def complete_agent_run(
     tokens_in: int,
     tokens_out: int,
     cost_usd: float,
+    provider: str = "anthropic",
 ) -> AgentRun:
     run.ended_at = datetime.now(UTC)
     run.status = status
     run.tokens_in = tokens_in
     run.tokens_out = tokens_out
     run.cost_usd = cost_usd
+    run.provider = provider
     session.flush()
 
     if cost_usd > 0:
@@ -63,7 +65,7 @@ def complete_agent_run(
             org_id=run.org_id,
             ticket_id=run.ticket_id,
             agent_run_id=run.id,
-            provider="anthropic",
+            provider=provider,
             model=run.model,
             usd=cost_usd,
         )

@@ -19,7 +19,7 @@ from pathlib import Path
 from llm_router import route
 from schemas import ReviewResult, TaskSpec
 
-from orchestrator.evals.judge import JudgeFn, haiku_judge
+from orchestrator.evals.judge import JudgeFn, haiku_judge, platform_credentials
 from orchestrator.evals.loader import ReviewCase, ReviewExpected
 from orchestrator.json_utils import extract_json_object
 
@@ -67,6 +67,7 @@ def invoke_review(*, diff: str, task_spec: TaskSpec, system_prompt: str) -> Revi
     style_guide = _STYLE_GUIDE_PATH.read_text(encoding="utf-8")
     result = route(
         "review",
+        credentials=platform_credentials(),
         system=system_prompt,
         messages=[
             {

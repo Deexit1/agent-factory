@@ -1,6 +1,6 @@
 """Loads evals/thresholds.yaml and the per-set case YAML files (SPEC-101)."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -15,12 +15,36 @@ SET_NAMES = ("dev", "distiller", "planner", "review")
 
 
 @dataclass(frozen=True)
+class ProviderThreshold:
+    """T-202 (SPEC-202 AC5): per-provider floor nested under a role's SetThreshold."""
+
+    provider: str
+    floor: float | None
+    not_yet_enforced: bool
+    rationale: str = ""
+
+
+@dataclass(frozen=True)
 class SetThreshold:
     set_name: str
     floor: float | None
     not_yet_enforced: bool
     updated_by: str
     rationale: str
+    providers: dict[str, ProviderThreshold] = field(default_factory=dict)
+
+
+def _load_provider_thresholds(entry: dict[str, Any]) -> dict[str, ProviderThreshold]:
+    providers_raw = entry.get("providers", {})
+    return {
+        provider: ProviderThreshold(
+            provider=provider,
+            floor=provider_entry.get("floor"),
+            not_yet_enforced=bool(provider_entry.get("not_yet_enforced", False)),
+            rationale=str(provider_entry.get("rationale", "")),
+        )
+        for provider, provider_entry in providers_raw.items()
+    }
 
 
 def load_thresholds(evals_root: Path = EVALS_ROOT) -> dict[str, SetThreshold]:
@@ -32,6 +56,7 @@ def load_thresholds(evals_root: Path = EVALS_ROOT) -> dict[str, SetThreshold]:
             not_yet_enforced=bool(entry.get("not_yet_enforced", False)),
             updated_by=str(entry.get("updated_by", "")),
             rationale=str(entry.get("rationale", "")),
+            providers=_load_provider_thresholds(entry),
         )
         for name, entry in raw.items()
         if name in SET_NAMES

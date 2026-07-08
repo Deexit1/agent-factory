@@ -13,7 +13,7 @@ from pathlib import Path
 from llm_router import route
 from schemas import FailureReport
 
-from orchestrator.evals.judge import JudgeFn, extract_json_object, haiku_judge
+from orchestrator.evals.judge import JudgeFn, extract_json_object, haiku_judge, platform_credentials
 from orchestrator.evals.loader import DistillerCase, DistillerReference
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -43,6 +43,7 @@ def invoke_distiller(
 ) -> FailureReport:
     result = route(
         "eval-distiller",
+        credentials=platform_credentials(),
         system=system_prompt,
         messages=[
             {

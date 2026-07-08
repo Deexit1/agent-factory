@@ -4,10 +4,17 @@
 lists offenders if any tracked *.py file outside packages/llm_router imports
 anthropic/openai directly.
 
-Does NOT and cannot catch apps/orchestrator/src/orchestrator/claude_runner.py's
-CLI-subprocess invocation of the `claude` binary — that path has no SDK import to grep
-for. See tasks/CHANGELOG.md (T-102) for why that's a disclosed, known gap left for
-T-202 (BYOK) to close.
+T-202 (BYOK) closed the claude_runner.py gap this docstring used to describe (real
+key injection into the CLI subprocess, see apps/orchestrator/src/orchestrator/
+claude_runner.py) — that path never imports a provider SDK, so it was never something
+this regex-based gate could or needed to catch.
+
+T-202 also adds ONE narrow, disclosed exception: apps/api/src/api/services/
+provider_key_service.py makes a cheap, validate-only provider ping (client.models.
+list()-shaped, never a completion call, never touches agent_runs/cost_ledger) to
+confirm a newly-added BYOK key is live before it's written to Vault. That's a real,
+justified reason for a provider SDK import outside packages/llm_router — see that
+file's own docstring and tasks/CHANGELOG.md (T-202) for the full rationale.
 """
 
 import re
@@ -17,6 +24,11 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ALLOWED_PREFIX = "packages/llm_router/"
+_ALLOWLISTED_FILES = {
+    # Validate-on-save ping only (T-202) — never a completion call. See module
+    # docstring above and provider_key_service.py's own docstring.
+    "apps/api/src/api/services/provider_key_service.py",
+}
 _IMPORT_RE = re.compile(r"^\s*(import|from)\s+(anthropic|openai)\b")
 
 
@@ -34,7 +46,7 @@ def _tracked_python_files() -> list[str]:
 def find_violations() -> list[str]:
     violations = []
     for rel_path in _tracked_python_files():
-        if rel_path.startswith(ALLOWED_PREFIX):
+        if rel_path.startswith(ALLOWED_PREFIX) or rel_path in _ALLOWLISTED_FILES:
             continue
         text = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
         for line_no, line in enumerate(text.splitlines(), start=1):

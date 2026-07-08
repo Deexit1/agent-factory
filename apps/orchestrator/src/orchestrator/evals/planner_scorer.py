@@ -12,7 +12,7 @@ from pathlib import Path
 from llm_router import route
 from schemas import PlannerPlan, PlannerQuestions
 
-from orchestrator.evals.judge import JudgeFn, haiku_judge
+from orchestrator.evals.judge import JudgeFn, haiku_judge, platform_credentials
 from orchestrator.evals.loader import PlannerCase
 from orchestrator.json_utils import extract_json_object
 
@@ -39,6 +39,7 @@ def invoke_planner(
 ) -> PlannerPlan | PlannerQuestions:
     result = route(
         "planner",
+        credentials=platform_credentials(),
         system=system_prompt,
         messages=[
             {

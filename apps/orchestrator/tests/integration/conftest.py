@@ -64,6 +64,13 @@ def running_api() -> Iterator[str]:
             "AGENT_FACTORY_SERVICE_TOKEN": SERVICE_TOKEN,
             "AUTH_DEV_MODE": "true",
             "SESSION_JWT_SECRET": "test-session-secret-at-least-32-bytes-long",
+            # T-202: platform-fallback key for the default org (no BYOK ProviderKey
+            # configured in these tests) — non-empty is all that's required, since
+            # llm_router.route()/claude_runner.run() are monkeypatched/faked in every
+            # test that would otherwise make a real provider call.
+            "ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY") or "sk-ant-test-fake-key",
+            "VAULT_ADDR": os.environ.get("VAULT_ADDR", "http://localhost:8200"),
+            "VAULT_TOKEN": os.environ.get("VAULT_TOKEN", "test-vault-token"),
         }
         _wait_for_postgres(python, database_url)
 

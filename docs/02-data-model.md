@@ -7,11 +7,15 @@ row to it; real per-request org resolution, invites, per-org RBAC, quotas, and s
 impersonation auditing are T-201.
 
 ## orgs
-`id (PK), name, created_at, max_parallel_tickets` — the tenant.
+`id (PK), name, created_at, max_parallel_tickets, llm_fallback_order` — the tenant.
 `max_parallel_tickets` (nullable = unlimited, T-201) is the one quota that's actually
 enforced today — sandbox-minutes/day and storage caps from SPEC-201's wording have no
 real usage metering to enforce against yet (`apps/sandbox` isn't wired to the dev-agent
-path, T-105's own disclosed gap), so no column exists for them.
+path, T-105's own disclosed gap), so no column exists for them. `llm_fallback_order`
+(T-202, nullable JSONB array of provider names e.g. `["anthropic", "openai"]`) is the
+org's BYOK provider priority order — a single small setting, not a separate ordering
+table (same judgment as `max_parallel_tickets`); `None`/empty means "whatever
+`provider_keys` rows exist, anthropic first".
 
 ## org_members (T-201)
 `id, org_id (FK orgs), user_email (FK users.email), role (user_role enum), created_at`
@@ -30,6 +34,23 @@ API response (a real deployment would email a link instead).
 `id, staff_email, org_id, action, path (nullable), ts` — one row per platform-staff
 impersonation action: `impersonate_start` when a "view as org" session begins, and one
 `page_view` row (with `path`) per page the frontend visits while impersonating.
+
+## provider_keys (T-202)
+`id, org_id (FK orgs), provider, last4, status (active|invalid|revoked), created_at,
+created_by, rotated_at (nullable)` — unique on `(org_id, provider)`. Audit-only
+metadata for an org's BYOK provider key; the secret itself lives ONLY in Vault at
+`tenants/<org_id>/llm/<provider>`, never in this table, a log, an event, or a trace.
+`status` drives dispatch: only `active` keys are ever returned by the runtime-keys
+resolution endpoint agents fetch from at run start — a `revoked`/`invalid` key drops
+out immediately, the enforcement behind SPEC-202 AC6's "paused within 60s" (every
+dispatch re-fetches fresh, so there's no cache to go stale).
+
+## provider_eval_opt_ins (T-202 AC5)
+`id, org_id (FK orgs), agent_role, provider, opted_in_by, ts` — unique on `(org_id,
+agent_role, provider)`. An org's explicit opt-in to dispatch a (role, provider) combo
+that has no green eval floor yet ("unverified quality"). A standing, org-level
+decision — distinct from `ticket_events` (ticket-scoped) and `staff_audit_log` (a
+staff action).
 
 ## tickets
 | column | type | notes |
@@ -60,15 +81,20 @@ impersonation action: `impersonate_start` when a "view as org" session begins, a
 
 ## agent_runs
 one row per agent invocation: `id, ticket_id, agent_role, model, started_at, ended_at,
-status, tokens_in, tokens_out, cost_usd, trace_id, prompt_version` (links to Langfuse).
-`agent_role` is the dev agent's assigned capability-registry profile id
+status, tokens_in, tokens_out, cost_usd, trace_id, prompt_version, provider` (links to
+Langfuse). `agent_role` is the dev agent's assigned capability-registry profile id
 (`dev-frontend`/`dev-backend`/`dev-devops`/`dev-generalist`) when one was assigned,
 else the generic role (`planner`/`review`/`delivery-manager`/`dev`) — this doubles as
 the "spend by profile" dimension (T-108). `prompt_version` is parsed from the agent's
 own prompt file's `# ... · vX.Y` header at run time; `null` for runs that predate T-108.
+`provider` (T-202, nullable — `null` for runs that predate BYOK) is which provider
+actually served the run (`anthropic`/`openai`), dynamic now instead of the old
+hard-coded `"anthropic"` literal.
 
 ## cost_ledger
 `id, ticket_id, agent_run_id, provider, model, usd, ts` — source of truth for $/ticket.
+`provider` (real since T-202 — previously always the literal `"anthropic"`) is the
+provider that actually served the run, threaded from `agent_runs.provider`.
 
 ## cost rollups (T-108)
 No new tables — `GET /tickets/{id}/cost-rollup` sums `cost_ledger` over a ticket and

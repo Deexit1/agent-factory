@@ -20,6 +20,13 @@ dependencies = [
   # T-104 (SPEC-103): reads capability_registry.yaml to enforce per-profile/per-repo
   # capacity during a ready->in_progress transition.
   "pyyaml>=6.0,<7.0",
+  # T-202 (SPEC-202): Vault KV v2 client for BYOK provider keys.
+  "hvac>=2.1,<3.0",
+  # T-202: provider_key_service.py's validate-on-save ping is the one, disclosed,
+  # narrow exception to "provider SDKs live only in packages/llm_router" — see
+  # scripts/check_llm_router_gate.py's _ALLOWLISTED_FILES and that service's docstring.
+  "anthropic>=0.40,<1.0",
+  "openai>=1.40,<2.0",
 ]
 
 [project.optional-dependencies]
@@ -59,6 +66,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "authlib.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "hvac.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
