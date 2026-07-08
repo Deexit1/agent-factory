@@ -30,6 +30,9 @@ _ALLOWLISTED_FILES = {
     # Pre-existing Squid egress-proxy domain allowlist (SPEC-003) — a literal domain
     # name in a list, not an API call; predates T-203.
     "apps/sandbox/src/sandbox/config.py",
+    # T-204: mirrors the same egress domain allowlist above (a literal domain name in a
+    # list, not an API call) for the org-scoped effective-domains merge.
+    "apps/api/src/api/repositories/egress_repository.py",
     # This gate's own source discusses the pattern it forbids in prose/strings.
     "scripts/check_github_app_gate.py",
 }

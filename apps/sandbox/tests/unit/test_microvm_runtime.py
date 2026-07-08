@@ -1,6 +1,6 @@
 """Proves `MicroVMRuntime`'s own control flow (argv shapes against `ctr`) via a
 monkeypatched `subprocess.run`/`subprocess.Popen` — the same fault-injection precedent
-T-203 used for `respx` against `api.github.com`. This does NOT prove a real Firecracker
+T-203 used for `respx` against GitHub's REST API. This does NOT prove a real Firecracker
 VM boots; no hypervisor is reachable in this environment. See runtime.py's docstring."""
 
 import subprocess

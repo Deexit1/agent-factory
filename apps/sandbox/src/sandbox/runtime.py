@@ -98,8 +98,8 @@ class MicroVMRuntime:
     documented `ctr` CLI surface. NOT LIVE-VERIFIED: no hypervisor is reachable in this
     environment to boot a real microVM against. Every method here is proven only at the
     subprocess-invocation boundary (argv shape), the same fault-injection precedent
-    T-203 used for `respx` against `api.github.com` — it proves this class's own control
-    flow, not that a real Firecracker VM actually boots and behaves as asserted.
+    T-203 used for `respx` against GitHub's REST API — it proves this class's own
+    control flow, not that a real Firecracker VM actually boots and behaves as asserted.
     """
 
     def __init__(self, ctr_bin: str = "ctr") -> None:
