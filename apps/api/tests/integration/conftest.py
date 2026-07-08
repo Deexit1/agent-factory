@@ -198,3 +198,16 @@ def webhook_secret_configured(monkeypatch: pytest.MonkeyPatch) -> str:
     secret = "test-github-webhook-secret"
     monkeypatch.setenv("GITHUB_APP_WEBHOOK_SECRET", secret)
     return secret
+
+
+@pytest.fixture
+def razorpay_webhook_secret_configured(monkeypatch: pytest.MonkeyPatch) -> str:
+    secret = "test-razorpay-webhook-secret"
+    monkeypatch.setenv("RAZORPAY_WEBHOOK_SECRET", secret)
+    return secret
+
+
+@pytest.fixture
+def razorpay_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_fake_key_id")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "rzp_test_fake_key_secret")

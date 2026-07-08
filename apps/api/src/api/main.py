@@ -12,6 +12,7 @@ from api.routers import (
     agent_runs,
     artifacts,
     auth,
+    billing,
     capability_registry,
     dashboard,
     egress,
@@ -72,3 +73,4 @@ app.include_router(repos.install_token_router)
 app.include_router(egress.router)
 app.include_router(egress.effective_router)
 app.include_router(artifacts.router)
+app.include_router(billing.router)

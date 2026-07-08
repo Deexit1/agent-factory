@@ -30,7 +30,7 @@ in_progress → in_review → in_qa → done` plus `bounced`, `escalated`, `bloc
 | in_progress | escalated | system | budget exhausted OR wall-clock timeout |
 | escalated | ready | HUMAN | requeues the task for Delivery Manager (re)assignment; distinct from `bounced → in_progress`'s same-agent retry |
 | any | cancelled | HUMAN | |
-| any | blocked | HUMAN or `system:github` | T-203 (SPEC-203 AC4): the GitHub webhook handler force-blocks in-flight tickets when their repo's App installation is uninstalled — the one disclosed exception to "blocked is human-only", scoped to this exact actor string (not any `system:*` actor). Synchronous, same-request — no polling, satisfies the 60s bound by construction. |
+| any | blocked | HUMAN or `system:github` or `system:billing` | T-203 (SPEC-203 AC4): the GitHub webhook handler force-blocks in-flight tickets when their repo's App installation is uninstalled. T-205 (SPEC-205 AC4) adds the second, otherwise-identical exception: an org whose Razorpay payment grace period expires gets force-blocked by `billing_service.pause_org_for_nonpayment`. Both are exact-string allowlist entries (not a `startswith("system:")` blanket rule) so this doesn't silently widen to any future system actor. Synchronous, same-request — no polling, satisfies the 60s bound by construction. Neither exception restores an unblock path — `blocked` has no whitelisted exit at all today, a pre-existing gap since T-203. |
 
 ## Bounce accounting
 Review blocks and QA failures share the same `bounce_count` (a ticket gets 3 total

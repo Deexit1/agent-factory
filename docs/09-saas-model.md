@@ -4,8 +4,10 @@
 
 **T-201 status**: real for orgs/org_members/invites/RBAC (owner/approver/member/
 viewer)/the parallel-ticket quota/staff impersonation+audit — see docs/02-data-model.md
-and docs/07-conventions.md's "Tenant scoping" section. Not yet real: sandbox-minutes/
-day and storage quotas (no usage metering exists to enforce against).
+and docs/07-conventions.md's "Tenant scoping" section. Sandbox-minutes/agent-run-minutes
+usage metering is real as of T-205 (see "Billing & metering" below) and enforced as a
+hard cap for free-tier orgs (`ticket_service._org_over_usage_cap`); storage quotas are
+still not real (no metering exists to enforce against).
 
 **T-202 status**: real BYOK key management (add/rotate/delete, Vault storage, last-4
 UI), a real provider router with Anthropic+OpenAI fallover/retries, per-provider eval
@@ -172,10 +174,64 @@ as T-202's "no OpenAI credits" / T-203's "no live GitHub App").
 ## Billing & metering
 - BYOK means tokens are the customer's cost. We charge platform usage: subscription
   tier (seats, parallel tickets) + metered units (agent-run minutes, sandbox minutes,
-  active tickets). Stripe subscriptions + usage records fed nightly from cost_ledger /
-  runner metrics.
+  active tickets). Razorpay subscriptions + metered addons fed nightly from
+  `agent_runs`/`usage_events`/`ticket_events`.
 - Hard spend guards remain per ticket/org even on customer keys — runaway loops burn
   THEIR money and OUR reputation.
+
+**T-205 status (SPEC-205), vendor swapped Stripe → Razorpay this session (human
+decision, no live account for either):**
+1. **Vendor client (AC2/AC4's plumbing).** `apps/api/src/api/razorpay_client.py` is the
+   sole owner of any `api.razorpay.com` call (`scripts/check_razorpay_gate.py`, `make
+   razorpay-gate`) — a hand-rolled `httpx` REST wrapper (this repo's own convention,
+   not the vendor SDK), real HMAC-SHA256 webhook-signature verification. No live
+   Razorpay account is reachable here; every call is respx HTTP-boundary fault-injection
+   tested, same standing as T-202/T-203's GitHub/OpenAI live-infra gaps.
+2. **Tiers are real placeholders.** `apps/api/src/api/billing_plans.py` defines
+   `free`/`starter`/`team` with concrete ₹ figures and a pure `compute_invoice`
+   function — the mechanism (plan storage, SPEC-201 quota mapping, metered overage
+   math) is fully real; the numbers are explicit placeholders pending a real pricing
+   decision, swappable in that one module without touching logic.
+3. **Idempotent nightly metering job (AC1).** `apps/api/scripts/run_billing_metering.py`
+   (`make billing-meter DATE=...`) — no scheduler daemon exists anywhere in this repo
+   (`provider_health_service.py`'s own disclosed standing), so this is an externally
+   triggered ops entrypoint, same framing as `run_pilot.py`. Per day, per org: records
+   raw usage into `billing_usage_reports` (upsert-if-absent on `(org_id, report_date,
+   kind)` — a second run for the same day is provably a no-op, real Postgres-tested).
+4. **Golden-total invoice (AC2).** A seeded month of real `agent_runs`/`usage_events`/
+   `ticket_events` fixtures, run through the real metering job, produces a total that
+   matches a hand-computed golden figure via `compute_invoice` — proven at both the
+   pure-function level and the full-pipeline level.
+5. **Plan enforcement (AC3).** `billing_service.set_plan`: upgrades apply immediately
+   to `orgs.max_parallel_tickets` (T-201's one enforced quota); downgrades defer to
+   `orgs.current_period_end` and only tighten once the period-end sweep
+   (`apply_pending_plan_sweep`, part of the same nightly job) runs past it — both sides
+   tested against real Postgres.
+6. **Dunning (AC4) reuses T-203's force-block precedent verbatim.** `POST
+   /webhooks/razorpay` (HMAC-verified) → `payment.failed` starts a 7-day grace period
+   (`billing_status=past_due`) → an expired grace period
+   (`billing_service.expire_grace_periods`) pauses the org and force-transitions every
+   in-flight ticket to `BLOCKED` via the exact same
+   `ticket_service.request_transition`/`disconnect_repo`-style loop T-203 built, keyed
+   off org instead of repo (`system:billing` is the second exact-string entry in
+   `state_machine.py`'s `_SYSTEM_BLOCK_ACTORS`, next to `system:github`) →
+   `payment.captured`/`subscription.charged` unpauses the org. Already-`BLOCKED`
+   tickets are not auto-unblocked — a pre-existing gap since T-203, not created or
+   closed here.
+7. **Reconciliation (AC5) is a real two-path check, not a tautology.**
+   `GET /orgs/{id}/billing/usage` (the org dashboard's data source) computes live from
+   `usage_events`/`agent_runs`/`ticket_events`
+   (`billing_service.compute_live_invoice_for_period`), independent of
+   `billing_usage_reports`; the reconciliation test proves this agrees with what the
+   metering job actually recorded as sent to Razorpay
+   (`compute_invoice_for_period`, ledger-based) for the same period.
+8. **Free-tier hard caps.** `max_parallel_tickets` (already enforced since T-201) plus a
+   new `org_over_usage_cap` guard in `state_machine.py`/`ticket_service.py` — same
+   rejection-not-hard-block shape as T-201's `org_at_quota`, applies only to
+   `plan == "free"` orgs over their included agent-run-minutes/sandbox-minutes.
+   **Not yet real:** seats (`PlanDefinition.seats_included`) are stored but not
+   enforced — no AC requires seat-capacity enforcement; no new `apps/web` UI, matching
+   T-201–204's own precedent exactly.
 
 ## Isolation & abuse
 - Multi-tenant sandboxes require VM-grade isolation (Firecracker/Kata) at GA — gVisor

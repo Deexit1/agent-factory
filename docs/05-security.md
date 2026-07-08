@@ -36,6 +36,10 @@
 - Issued and revoked by Vault (or cloud secret manager). Nothing long-lived in containers.
 - Agents NEVER receive production credentials. Deploys run from a separate,
   human-approved pipeline (protected environments).
+- T-205: Razorpay platform credentials (`RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`/
+  `RAZORPAY_WEBHOOK_SECRET`) are env-var-only, never persisted to DB/logs/traces — same
+  standing as `GITHUB_APP_WEBHOOK_SECRET`. Unlike BYOK provider keys these are platform
+  (not per-org) secrets; no org ever supplies its own Razorpay credentials.
 
 ## Code gates on every agent PR (blocking)
 - Semgrep (SAST) · gitleaks (secret scan) · pip-audit / npm audit (dependencies)

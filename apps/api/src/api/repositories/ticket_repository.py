@@ -194,6 +194,22 @@ def list_in_flight_by_repo(session: Session, *, org_id: str, repo_id: int) -> li
     )
 
 
+def list_in_flight_by_org(session: Session, *, org_id: str) -> list[Ticket]:
+    """T-205 (SPEC-205 AC4): same "in-flight" definition as list_in_flight_by_repo
+    above, scoped to the whole org instead of one repo — which tickets a nonpayment
+    pause needs force-transitioned to BLOCKED."""
+    return list(
+        session.execute(
+            select(Ticket).where(
+                Ticket.org_id == org_id,
+                Ticket.state.not_in(_NOT_IN_FLIGHT_STATES),
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
 def has_approval(
     session: Session,
     ticket_id: str,

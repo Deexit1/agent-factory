@@ -21,7 +21,7 @@
 | LLM routing | `packages/llm_router` (thin custom router, LiteLLM-style): role+complexity+org → provider/model; sole owner of provider SDKs |
 | Tenant secrets (BYOK) | Vault KV `tenants/<org>/llm/<provider>`; keys never in DB/logs/traces/sandboxes |
 | Repo delivery | GitHub App (contents + PRs on selected repos), per-ticket installation tokens |
-| Billing | Stripe (subscriptions + metered usage records) |
+| Billing | Razorpay (subscriptions + metered addons) — swapped from Stripe at T-205, human-approved this session; see the implementation-status note below |
 | Multi-tenant sandbox | Firecracker/Kata microVMs — REQUIRED at multi-tenant GA (gVisor allowed for single-tenant/dev and closed beta only). As of T-204: real org-aware egress, per-org artifact storage ACLs (MinIO), an in-process scheduler enforcing no cross-org co-location, and a pre-warmed provisioning pool all land on top of the real Docker runtime; the actual Firecracker/Kata hypervisor swap itself is not live-verified in this environment |
 
 ## Implementation status notes (do not change the locked rows above without a doc PR)
@@ -78,6 +78,30 @@
   process/host — today's actual single-runner-VM deployment shape, see the Phase-2
   activation note below); real disk-level encryption for worktree storage (per-org path
   scoping + OS permissions only, not LUKS/dm-crypt).
+- **Billing row — real as of T-205, vendor swapped from Stripe to Razorpay** (human
+  decision this session; no live account existed for either, so this was a build-time,
+  not migration-time, choice). Real: a hand-rolled `httpx` REST client
+  (`apps/api/src/api/razorpay_client.py`, sole owner of `api.razorpay.com` per
+  `scripts/check_razorpay_gate.py`, same discipline as `github_app_client.py`) covering
+  customer/subscription/addon creation and HMAC webhook-signature verification; three
+  placeholder tiers (`free`/`starter`/`team`, `apps/api/src/api/billing_plans.py`) with
+  a pure `compute_invoice` function; an idempotent nightly metering job
+  (`apps/api/scripts/run_billing_metering.py`, `make billing-meter`) that records real
+  usage from `agent_runs`/`usage_events`/`ticket_events` into a `billing_usage_reports`
+  ledger and bills overage as real Razorpay addons once a billing period elapses;
+  deferred-to-period-end plan downgrades mapping straight onto `orgs.max_parallel_
+  tickets` (T-201's one enforced quota); a real dunning path (`POST /webhooks/razorpay`)
+  reusing T-203's `disconnect_repo` force-block precedent verbatim (`system:billing` is
+  the second disclosed exception in `state_machine.py`'s `_SYSTEM_BLOCK_ACTORS`); and a
+  free-tier hard-usage-cap guard extending T-201's `org_at_quota` pattern. **Not yet
+  real:** no live Razorpay account reachable in this environment — every call is
+  respx-tested at the HTTP boundary only, same standing as T-202/T-203/T-204's
+  equivalent live-infra gaps; the three tiers' ₹ figures are explicit placeholders
+  pending a real pricing decision; no new `apps/web` UI (matches T-201–204's own
+  precedent — AC5's dashboard/Razorpay reconciliation is proven at the API layer); seats
+  are stored but not enforced; no real cron/scheduler daemon runs the metering job
+  (external trigger only, matching `provider_health_service.py`'s own disclosed
+  standing).
 
 ## Phase-2 activations (pre-approved escalation paths)
 - **Runner pool → Kubernetes** (EKS/GKE + autoscaling runners) WHEN sustained parallel

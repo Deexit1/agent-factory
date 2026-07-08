@@ -819,10 +819,108 @@ multi-line stdout streamed from a real `docker exec`. `make check`-equivalent (l
 typecheck + test + all three gates + `escape-test`) green across `apps/api`,
 `apps/sandbox`, `apps/orchestrator`.
 
-## T-205 · Billing & metering — `ready`
-**Spec:** SPEC-205  **Est:** M
-Stripe tiers + metered usage from cost_ledger/runner metrics; dunning; free beta tier.
-All five criteria apply. Requires T-201.
+## T-205 · Billing & metering — `done`
+**Spec:** SPEC-205  **Est:** M (grew slightly via a human-approved vendor swap,
+Stripe → Razorpay, mid-design — see below)
+Razorpay tiers + metered usage from cost_ledger/runner metrics; dunning; free beta tier.
+
+**Acceptance criteria**
+- [x] Metering job is idempotent: re-running a day produces zero duplicate usage
+  records — `apps/api/tests/integration/test_billing_metering_job.py::
+  test_run_metering_for_day_is_idempotent`: real Postgres, a second call for the same
+  `(org_id, report_date)` returns zero newly-reported kinds and writes zero new
+  `billing_usage_reports` rows (the table's own unique constraint on `(org_id,
+  report_date, kind)` is the second line of defense, the job's own upsert-if-absent
+  check is the first).
+- [x] Seeded month of fixtures produces a Stripe [Razorpay] test-mode invoice matching a
+  golden total — `apps/api/tests/test_billing_plans.py` (pure `compute_invoice`
+  function, 3 tests) + `test_billing_metering_job.py::
+  test_metering_a_seeded_month_produces_the_golden_invoice_total`: real `agent_runs`/
+  `usage_events`/`ticket_events` fixtures across two different days in the same month,
+  run through the real metering job, sum to a hand-computed golden total (₹5,599 —
+  ₹4,999 base + ₹400 + ₹200 overage) via `compute_invoice_for_period`.
+- [x] Downgrading a plan tightens quotas at period end, not immediately (test both
+  sides) — `apps/api/tests/integration/test_billing_plan_changes.py` (3 tests, real
+  Postgres): an upgrade applies to `orgs.max_parallel_tickets` immediately; a downgrade
+  leaves it unchanged right after the request (`pending_plan` stored instead); running
+  `apply_pending_plan_sweep` with a `now` past `current_period_end` applies it for real
+  and rolls the period forward.
+- [x] Payment failure walks the dunning path and pauses the org; payment fix unpauses —
+  `apps/api/tests/integration/test_billing_dunning.py` (5 tests) +
+  `test_billing_router.py`'s 2 webhook tests: `payment.failed` starts a 7-day grace
+  period without touching in-flight tickets; an expired grace period pauses the org and
+  force-transitions every in-flight ticket to `BLOCKED` (real Postgres, real
+  `ticket_events` trail showing `actor="system:billing"`) — `github_repo_service.
+  disconnect_repo`'s exact force-block loop, reused verbatim, keyed off org instead of
+  repo; `payment.captured` unpauses the org (already-`BLOCKED` tickets are NOT
+  auto-unblocked — a pre-existing gap since T-203, not created or closed here, verified
+  explicitly by a dedicated test). The real Razorpay webhook signature is HMAC-verified
+  end-to-end via `TestClient` (forged signature → 401).
+- [x] Usage shown in the org dashboard equals what Stripe [Razorpay] was told
+  (reconciliation test) — `apps/api/tests/integration/test_billing_reconciliation.py`:
+  a genuine two-path check, not a tautology. `GET /orgs/{id}/billing/usage`
+  (`compute_live_invoice_for_period`) computes directly from `usage_events`/
+  `agent_runs`/`ticket_events`; the test proves this agrees, line item by line item,
+  with `compute_invoice_for_period`'s ledger-based total (what `run_metering_for_day`
+  actually recorded as sent to Razorpay) for the same period, once the metering job has
+  run.
+
+**Resolved via AskUserQuestion (two decisions)**:
+1. **Vendor swap: Razorpay, not Stripe.** The human explicitly requested this instead
+   of the locked table's `Stripe` row and has no live keys for either — a
+   locked-row change with human approval, done in this PR per CLAUDE.md's rule.
+2. **Pricing tiers: placeholder numbers, real mechanism.** No pricing exists anywhere
+   in this repo's docs — three tiers (`free`/`starter`/`team`,
+   `apps/api/src/api/billing_plans.py`) with concrete placeholder ₹ figures make the
+   mechanism (plan storage, quota mapping, overage math, idempotent reporting) fully
+   real; the numbers are swappable later without touching logic.
+
+**Architecture decisions (disclosed)**: `razorpay_client.py` is a hand-rolled `httpx`
+REST wrapper (this repo's T-202/T-203 convention, not the vendor SDK) — sole owner of
+`api.razorpay.com` per new `scripts/check_razorpay_gate.py` (`make razorpay-gate`,
+added to `check`). `usage_events`/`billing_usage_reports` are new tables (siblings to
+`cost_ledger`, not an overload of `ticket_events`'s Postgres-enum `kind` column).
+`orgs` gains 8 plain-string/timestamp columns (`plan`, `pending_plan`,
+`pending_plan_effective_at`, `current_period_end`, `billing_status`,
+`dunning_grace_until`, `razorpay_customer_id`, `razorpay_subscription_id`) — no new
+Postgres enum, avoiding the documented two-migration ADD-VALUE-then-USE split.
+`agent_run_minutes` needs no new instrumentation (derived from existing
+`agent_runs.started_at`/`ended_at`); `sandbox_minutes` is newly posted by
+`apps/orchestrator`'s `SandboxClaudeCodeRunner` (the exact `HostPool.acquire`/`release`
+bracket T-204's AC2 already used to prove no cross-org co-location doubles as the real
+wall-clock billing window); `active_tickets` is derived from the existing
+`ticket_events` transition audit trail. The nightly job
+(`apps/api/scripts/run_billing_metering.py`, `make billing-meter DATE=...`) is a
+standalone, externally-triggered script, not a daemon — no scheduler infra exists
+anywhere in this repo (`provider_health_service.py`'s own disclosed standing). Overage
+is billed once per elapsed billing period (`_bill_elapsed_period`, part of the same
+period-end sweep that applies deferred downgrades), not prorated per day, so it agrees
+exactly with `compute_invoice_for_period`'s math. Free-tier hard caps extend T-201's
+exact `org_at_quota` guard pattern in `state_machine.py`/`ticket_service.py`
+(`org_over_usage_cap`, free-plan-only). Dunning extends `state_machine.py`'s
+`_SYSTEM_BLOCK_ACTORS` with one new exact-string entry, `"system:billing"`, next to
+T-203's `"system:github"`.
+
+**Non-goals (disclosed)**: no live Razorpay account reachable in this environment —
+`razorpay_client.py` is real and respx-tested at the HTTP boundary only, same standing
+as T-202/T-203/T-204's equivalent live-infra gaps. Pricing figures in `billing_plans.py`
+are explicit placeholders. No new `apps/web` UI — matches T-201–204's own precedent
+exactly; AC5's reconciliation is proven at the API layer. Seats
+(`PlanDefinition.seats_included`) are stored but not enforced — no AC requires
+seat-capacity enforcement. No real cron/scheduler daemon. Already-`BLOCKED` tickets
+have no unblock path (billing- or otherwise) — a pre-existing gap since T-203.
+
+**Verification**: `apps/api` 199/199 green (up from 165 — 34 new tests: 3 pure
+`compute_invoice` + 9 real `razorpay_client.py` respx + 2 metering-job + 3 plan-change +
+5 dunning + 1 reconciliation + 9 billing-router + 2 free-tier-cap), ruff/mypy clean, all
+four static gates pass (`llm-router-gate`, `tenant-scope-gate`, `github-app-gate`, new
+`razorpay-gate`). `apps/orchestrator` 50/50 green (test count unchanged — the 4
+pre-existing `test_sandbox_runner.py` tests gained new usage-recording assertions
+rather than new test functions), ruff/mypy clean. Migration verified reversible for
+real (`alembic upgrade head` → `downgrade -1` → `upgrade head` against a throwaway
+Postgres container, not just inferred). The nightly metering script was smoke-tested
+directly against a fresh migrated database: first run reports usage, an immediate
+second run for the same date is a real no-op.
 
 ## T-206 · Onboarding & abuse controls — `ready`
 **Spec:** SPEC-206  **Est:** M

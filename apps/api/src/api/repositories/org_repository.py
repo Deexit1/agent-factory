@@ -1,14 +1,26 @@
 import secrets
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api.db.models import Org, OrgInvite, OrgInviteStatus, OrgMember, StaffAuditLog, UserRole
 
+_BILLING_PERIOD = timedelta(days=30)
+
 
 def create_org(session: Session, *, name: str) -> Org:
-    org = Org(id=f"org-{secrets.token_urlsafe(8)}", name=name, created_at=datetime.now(UTC))
+    now = datetime.now(UTC)
+    # T-205: every org starts on the "free" plan with a real billing period from day
+    # one — no card required, no Razorpay customer/subscription created yet (those stay
+    # null until a paid-plan subscribe call).
+    org = Org(
+        id=f"org-{secrets.token_urlsafe(8)}",
+        name=name,
+        created_at=now,
+        plan="free",
+        current_period_end=now + _BILLING_PERIOD,
+    )
     session.add(org)
     session.flush()
     return org

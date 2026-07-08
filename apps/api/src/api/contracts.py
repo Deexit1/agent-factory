@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -518,3 +518,89 @@ class ArtifactCredentialOut(BaseModel):
     bucket: str
     prefix: str
     expires_at: datetime
+
+
+class RecordUsageEventRequest(BaseModel):
+    """T-205 (SPEC-205): posted by apps/orchestrator's SandboxClaudeCodeRunner after
+    each real sandbox lease — the only kind in use today is "sandbox_minutes"
+    (agent_run_minutes is derived from agent_runs, not posted here)."""
+
+    kind: str = Field(min_length=1)
+    quantity: float = Field(ge=0)
+
+
+class UsageEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    org_id: str
+    ticket_id: str
+    kind: str
+    quantity: float
+    ts: datetime
+
+
+class PlanOut(BaseModel):
+    key: str
+    name: str
+    monthly_price_inr: float
+    seats_included: int
+    max_parallel_tickets: int
+    included_agent_run_minutes: float
+    included_sandbox_minutes: float
+    included_active_tickets: float
+    agent_run_minute_rate_inr: float | None
+    sandbox_minute_rate_inr: float | None
+    active_ticket_rate_inr: float | None
+    requires_card: bool
+
+
+class OrgBillingOut(BaseModel):
+    org_id: str
+    plan: str
+    pending_plan: str | None
+    pending_plan_effective_at: datetime | None
+    current_period_end: datetime | None
+    billing_status: str
+    dunning_grace_until: datetime | None
+
+
+class SetPlanRequest(BaseModel):
+    plan: str = Field(min_length=1)
+
+
+class SubscribeRequest(BaseModel):
+    plan: str = Field(min_length=1)
+    email: str = Field(min_length=1)
+
+
+class SubscribeOut(BaseModel):
+    checkout_url: str
+
+
+class PortalLinkOut(BaseModel):
+    url: str
+
+
+class BillingUsageLineOut(BaseModel):
+    kind: str
+    included: float
+    used: float
+    overage: float
+    rate_inr: float | None
+    amount_inr: float
+
+
+class BillingUsageOut(BaseModel):
+    """AC5: what the org dashboard shows — computed independently from
+    usage_events/agent_runs/ticket_events, the same source data the metering job reads.
+    The reconciliation test checks this against billing_usage_reports, what the
+    metering job actually recorded for the period."""
+
+    org_id: str
+    period_start: date
+    period_end: date
+    plan_key: str
+    base_fee_inr: float
+    total_inr: float
+    line_items: list[BillingUsageLineOut]

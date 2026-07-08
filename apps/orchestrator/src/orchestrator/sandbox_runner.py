@@ -8,6 +8,10 @@ it inside an isolated, org-scoped Docker sandbox container instead. Implements t
 Reuses `claude_runner.py`'s private NDJSON-parsing helpers verbatim rather than
 duplicating them, so the retry-on-transient-API-error behavior matches
 `SubprocessClaudeCodeRunner`'s exactly.
+
+T-205 (SPEC-205): also the real source of "sandbox_minutes" usage — the exact
+HostPool.acquire()/release() bracket AC2 of T-204 already used to prove no cross-org
+co-location doubles as the real wall-clock window billed to the org.
 """
 
 import time
@@ -101,6 +105,9 @@ class SandboxClaudeCodeRunner:
         # sandbox container is created until a slot is actually held, so two orgs never
         # co-locate on the same logical VM slot at once.
         lease = self._host_pool.acquire(org_id=org_id, ticket_id=ticket_id, timeout_s=timeout_s)
+        # T-205: starts after the lease is actually held, not before — queue wait time
+        # spent blocked in HostPool.acquire() above is not real sandbox usage.
+        lease_started = time.monotonic()
         try:
             org_state_dir_for(org_id, ticket_id).mkdir(parents=True, exist_ok=True)
             container = self._pool.acquire_for(
@@ -121,6 +128,8 @@ class SandboxClaudeCodeRunner:
                 self._pool.release(ticket_id)
         finally:
             self._host_pool.release(lease)
+            elapsed_minutes = (time.monotonic() - lease_started) / 60.0
+            self._api.record_sandbox_usage_minutes(ticket_id, elapsed_minutes)
 
     def _exec_claude(
         self, container: str, *, prompt: str, model: str, timeout_s: float

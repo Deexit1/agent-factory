@@ -21,11 +21,13 @@ _BASE_TRANSITIONS: dict[TicketState, set[TicketState]] = {
 # Every state may transition here, but only a human actor may request it.
 _HUMAN_ONLY_TARGETS = {TicketState.CANCELLED}
 
-# T-203 (SPEC-203 AC4): the ONE disclosed exception to "blocked is human-only" — the
-# GitHub webhook handler force-blocks in-flight tickets when their repo's App
-# installation is uninstalled. An exact-string allowlist (not a `startswith("system:")`
-# blanket rule) so this doesn't silently widen to any future system actor.
-_SYSTEM_BLOCK_ACTORS = frozenset({"system:github"})
+# T-203 (SPEC-203 AC4) / T-205 (SPEC-205 AC4): the two disclosed exceptions to "blocked
+# is human-only" — the GitHub webhook handler force-blocks in-flight tickets when their
+# repo's App installation is uninstalled, and billing_service.pause_org_for_nonpayment
+# force-blocks them when an org's grace period for a failed payment expires. An
+# exact-string allowlist (not a `startswith("system:")` blanket rule) so this doesn't
+# silently widen to any future system actor.
+_SYSTEM_BLOCK_ACTORS = frozenset({"system:github", "system:billing"})
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,11 @@ class TransitionRequest:
     # ready->in_progress attempt, not just DM-mediated ones with an assignee_agent
     # (unlike profile/repo capacity, which only apply to capability-registry profiles).
     org_at_quota: bool = False
+    # T-205 (SPEC-205 "In scope": free tier hard caps): free-plan orgs that have used up
+    # this month's included agent-run-minutes/sandbox-minutes — same
+    # rejection-not-hard-block shape as org_at_quota, just usage- instead of
+    # concurrency-based. Paid plans never set this (they bill overage instead).
+    org_over_usage_cap: bool = False
     # Merge queue gate (SPEC-106), computed by the service layer — state_machine.py
     # stays a pure function, no I/O.
     has_merged_queue_entry: bool = True
@@ -164,6 +171,10 @@ def _check_guard(request: TransitionRequest) -> None:
                 raise TransitionRejected("repo is at its concurrency limit")
         if request.org_at_quota:
             raise TransitionRejected("org has reached its max parallel-ticket quota")
+        if request.org_over_usage_cap:
+            raise TransitionRejected(
+                "org has used its free-tier monthly usage allowance; upgrade to continue"
+            )
 
     if request.from_state is TicketState.IN_QA and request.to_state is TicketState.DONE:
         if request.bounce_count >= MAX_BOUNCES:

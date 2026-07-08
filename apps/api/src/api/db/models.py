@@ -1,9 +1,9 @@
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 
+from sqlalchemy import Date, ForeignKey, Numeric, UniqueConstraint
 from sqlalchemy import Enum as PgEnum
-from sqlalchemy import ForeignKey, Numeric, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -107,6 +107,28 @@ class Org(Base):
     # max_parallel_tickets above). None/empty means "whatever ProviderKey rows exist,
     # anthropic first".
     llm_fallback_order: Mapped[list[str] | None] = mapped_column(JSONB, default=None)
+    # T-205 (SPEC-205): billing_plans.PLANS key. "free" needs no card and is never
+    # touched by Razorpay — razorpay_customer_id/subscription_id stay null for it.
+    plan: Mapped[str] = mapped_column(default="free")
+    # A scheduled downgrade — set by billing_service.set_plan, applied for real by
+    # apply_pending_plan_sweep once current_period_end passes (AC3: tightens at period
+    # end, not immediately). Upgrades never touch these; they apply straight to `plan`.
+    pending_plan: Mapped[str | None] = mapped_column(default=None)
+    pending_plan_effective_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), default=None
+    )
+    # Nullable rather than backfilled: lazily initialized (org.created_at + 30d) the
+    # first time billing_service touches an org, so no migration-time backfill sweep is
+    # needed for orgs created before this column existed.
+    current_period_end: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), default=None
+    )
+    billing_status: Mapped[str] = mapped_column(default="active")  # active/past_due/paused
+    dunning_grace_until: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), default=None
+    )
+    razorpay_customer_id: Mapped[str | None] = mapped_column(default=None)
+    razorpay_subscription_id: Mapped[str | None] = mapped_column(default=None)
 
 
 class Ticket(Base):
@@ -197,6 +219,48 @@ class CostLedgerEntry(Base):
     model: Mapped[str] = mapped_column()
     usd: Mapped[float] = mapped_column(Numeric)
     ts: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class UsageEvent(Base):
+    """T-205 (SPEC-205): a sibling to `cost_ledger`, not an overload of `ticket_events`
+    (whose `kind` is a Postgres enum — adding a value would force the documented
+    two-migration ADD-VALUE-then-USE split for no benefit, and billing math wants a
+    typed numeric column, not JSONB parsing). Only `kind="sandbox_minutes"` is written
+    today, by `apps/orchestrator`'s `SandboxClaudeCodeRunner` after each real sandbox
+    lease. `agent_run_minutes` needs no row here — it's derived at metering time from
+    `agent_runs.started_at`/`ended_at`, which already exists and already carries
+    `org_id`."""
+
+    __tablename__ = "usage_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
+    ticket_id: Mapped[str] = mapped_column(ForeignKey("tickets.id"))
+    kind: Mapped[str] = mapped_column()
+    quantity: Mapped[float] = mapped_column(Numeric)
+    ts: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class BillingUsageReport(Base):
+    """T-205 (SPEC-205 AC1): the nightly metering job's own idempotency ledger — one row
+    per `(org_id, report_date, kind)` it has ever reported to Razorpay. A second run for
+    a day that already has a row is a no-op by construction: the unique constraint is a
+    second line of defense, the job's own upsert-if-absent check is the first."""
+
+    __tablename__ = "billing_usage_reports"
+    __table_args__ = (
+        UniqueConstraint(
+            "org_id", "report_date", "kind", name="uq_billing_usage_reports_org_date_kind"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
+    report_date: Mapped[date] = mapped_column(Date)
+    kind: Mapped[str] = mapped_column()
+    quantity: Mapped[float] = mapped_column(Numeric)
+    razorpay_addon_id: Mapped[str | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
 
 
 class User(Base):

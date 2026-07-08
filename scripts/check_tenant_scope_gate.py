@@ -38,6 +38,12 @@ _ALLOWLIST = {
     "list_by_installation",  # repo_repository.py: T-203 — a GitHub webhook delivery
     # only ever gives us an installation_id, never an org_id; the caller resolves
     # org_id per returned Repo row before doing anything tenant-scoped with it
+    "list_all_org_ids",  # billing_repository.py: T-205 — the nightly metering job's one
+    # legitimate cross-tenant sweep; every org gets visited, so there is no single
+    # org_id to scope this particular query by
+    "get_org_by_razorpay_subscription_id",  # billing_repository.py: T-205 — a Razorpay
+    # webhook delivery only ever gives us a subscription id, never an org_id; the caller
+    # resolves org_id from the returned row (same shape as list_by_installation above)
 }
 
 

@@ -7,18 +7,42 @@ row to it; real per-request org resolution, invites, per-org RBAC, quotas, and s
 impersonation auditing are T-201.
 
 ## orgs
-`id (PK), name, created_at, max_parallel_tickets, llm_fallback_order` — the tenant.
+`id (PK), name, created_at, max_parallel_tickets, llm_fallback_order, plan,
+pending_plan, pending_plan_effective_at, current_period_end, billing_status,
+dunning_grace_until, razorpay_customer_id, razorpay_subscription_id` — the tenant.
 `max_parallel_tickets` (nullable = unlimited, T-201) is the one ticket-count quota
-that's actually enforced today. Sandbox-minutes/day usage metering still has no real
-column (no usage metering exists to bill against yet) — but org-scoped egress and
-per-org artifact storage ACLs ARE real as of T-204 (see `org_egress_rules` below and
-`apps/api/src/api/artifact_storage.py`), and `apps/sandbox` is now wired into the real
-dev-agent path (`orchestrator/sandbox_runner.py`, opt-in via `--sandbox`) — closing the
-T-105-disclosed gap this note used to describe. `llm_fallback_order`
-(T-202, nullable JSONB array of provider names e.g. `["anthropic", "openai"]`) is the
-org's BYOK provider priority order — a single small setting, not a separate ordering
-table (same judgment as `max_parallel_tickets`); `None`/empty means "whatever
-`provider_keys` rows exist, anthropic first".
+that's actually enforced today; org-scoped egress and per-org artifact storage ACLs ARE
+real as of T-204 (see `org_egress_rules` below and `apps/api/src/api/
+artifact_storage.py`), and `apps/sandbox` is now wired into the real dev-agent path
+(`orchestrator/sandbox_runner.py`, opt-in via `--sandbox`) — closing the T-105-disclosed
+gap this note used to describe. `llm_fallback_order` (T-202, nullable JSONB array of
+provider names e.g. `["anthropic", "openai"]`) is the org's BYOK provider priority
+order — a single small setting, not a separate ordering table (same judgment as
+`max_parallel_tickets`); `None`/empty means "whatever `provider_keys` rows exist,
+anthropic first". `plan` (T-205, default `"free"`, `billing_plans.PLANS` key) plus
+`pending_plan`/`pending_plan_effective_at` (a deferred downgrade, applied by
+`apply_pending_plan_sweep` once `current_period_end` passes — plain strings, no new
+Postgres enum, avoiding the documented two-migration ADD-VALUE-then-USE split);
+`current_period_end` (nullable, lazily initialized `created_at + 30d` for orgs that
+predate this column); `billing_status` (`active`/`past_due`/`paused`) +
+`dunning_grace_until` (T-205's dunning path); `razorpay_customer_id`/
+`razorpay_subscription_id` (nullable — stay null for `free`-plan orgs, which never
+touch Razorpay).
+
+## usage_events (T-205)
+`id, org_id (FK), ticket_id (FK), kind (str), quantity (Numeric), ts` — a sibling to
+`cost_ledger`, not an overload of `ticket_events` (whose `kind` is a Postgres enum).
+Only `kind="sandbox_minutes"` is written today, via `POST /tickets/{id}/usage-events`
+(service-token auth), posted by `apps/orchestrator`'s `SandboxClaudeCodeRunner` after
+each real sandbox lease. `agent_run_minutes` needs no row here — the metering job
+derives it directly from `agent_runs.started_at`/`ended_at`.
+
+## billing_usage_reports (T-205)
+`id, org_id (FK), report_date (date), kind (str), quantity (Numeric),
+razorpay_addon_id (nullable str), created_at` — unique on `(org_id, report_date,
+kind)`. This unique constraint *is* SPEC-205 AC1's idempotency mechanism: the nightly
+metering job (`scripts/run_billing_metering.py`) upserts-if-absent per day/kind, so a
+second run for the same day is provably a no-op.
 
 ## org_members (T-201)
 `id, org_id (FK orgs), user_email (FK users.email), role (user_role enum), created_at`

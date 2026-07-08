@@ -1,6 +1,9 @@
+from datetime import UTC, datetime
+
 from schemas.models import DEFAULT_REPO, FailureReport
 from sqlalchemy.orm import Session
 
+from api import billing_plans
 from api.capability_registry import load_registry
 from api.contracts import CreateTicketRequest
 from api.db.models import (
@@ -16,9 +19,11 @@ from api.db.models import (
     TicketEvent,
     TicketState,
     TicketType,
+    UsageEvent,
 )
 from api.domain import state_machine
 from api.repositories import agent_run_repository, repo_repository
+from api.repositories import billing_repository as billing_repo
 from api.repositories import ticket_repository as repo
 from api.ws.broadcaster import broadcaster
 
@@ -166,6 +171,27 @@ def record_event(
     return event
 
 
+def record_usage_event(
+    session: Session, ticket_id: str, *, org_id: str, kind: str, quantity: float
+) -> UsageEvent:
+    """T-205: posted by apps/orchestrator's SandboxClaudeCodeRunner after each real
+    sandbox lease. Same "org_id from actor_context, not derived from the ticket"
+    caveat as record_event above for service-token callers — a pre-existing T-201
+    orchestrator-org-awareness gap (see api.auth.get_actor_context's docstring), not
+    something this ticket fixes on its own."""
+    get_ticket(session, ticket_id, org_id=org_id)  # 404s if the ticket doesn't exist
+    event = billing_repo.record_usage_event(
+        session,
+        org_id=org_id,
+        ticket_id=ticket_id,
+        kind=kind,
+        quantity=quantity,
+        ts=datetime.now(UTC),
+    )
+    session.commit()
+    return event
+
+
 def _acceptance_criteria_count(ticket: Ticket) -> int:
     return len(ticket.acceptance_criteria)
 
@@ -291,6 +317,28 @@ def _org_at_quota(session: Session, *, org_id: str) -> bool:
     return in_progress >= org.max_parallel_tickets
 
 
+def _org_over_usage_cap(session: Session, *, org_id: str) -> bool:
+    """T-205 (SPEC-205 "In scope": free tier hard caps) — only meaningful for
+    free-plan orgs; paid plans bill overage instead of hard-capping
+    (billing_service.run_metering_for_day / _bill_elapsed_period)."""
+    org = session.get(Org, org_id)
+    if org is None or org.plan != "free":
+        return False
+    plan = billing_plans.PLANS["free"]
+    now = datetime.now(UTC)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    agent_run_minutes = billing_repo.sum_agent_run_minutes(
+        session, org_id=org_id, start=month_start, end=now
+    )
+    sandbox_minutes = billing_repo.sum_usage_events(
+        session, org_id=org_id, kind="sandbox_minutes", start=month_start, end=now
+    )
+    return (
+        agent_run_minutes >= plan.included_agent_run_minutes
+        or sandbox_minutes >= plan.included_sandbox_minutes
+    )
+
+
 def _has_merged_queue_entry(session: Session, ticket: Ticket, *, org_id: str) -> bool:
     """Only meaningful for an `in_qa -> done` attempt — CI-green alone no longer
     completes a ticket (SPEC-106); it must have a real `merged` merge-queue entry,
@@ -346,6 +394,9 @@ def request_transition(
         else (False, False)
     )
     org_at_quota = _org_at_quota(session, org_id=org_id) if is_assignment_attempt else False
+    org_over_usage_cap = (
+        _org_over_usage_cap(session, org_id=org_id) if is_assignment_attempt else False
+    )
     is_completion_attempt = from_state is TicketState.IN_QA and to_state is TicketState.DONE
     has_merged_queue_entry = (
         _has_merged_queue_entry(session, ticket, org_id=org_id) if is_completion_attempt else True
@@ -368,6 +419,7 @@ def request_transition(
         profile_at_capacity=profile_at_capacity,
         repo_at_capacity=repo_at_capacity,
         org_at_quota=org_at_quota,
+        org_over_usage_cap=org_over_usage_cap,
         has_merged_queue_entry=has_merged_queue_entry,
     )
 
