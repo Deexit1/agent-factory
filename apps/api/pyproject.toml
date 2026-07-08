@@ -30,6 +30,10 @@ dependencies = [
   # scripts/check_llm_router_gate.py's _ALLOWLISTED_FILES and that service's docstring.
   "anthropic>=0.40,<1.0",
   "openai>=1.40,<2.0",
+  # T-204 (SPEC-204 AC5): real MinIO STS AssumeRole + S3 calls for per-org artifact
+  # storage ACLs (artifact_storage.py). MinIO is S3-API-compatible; boto3 is the
+  # standard client, no MinIO-specific SDK needed.
+  "boto3>=1.34,<2.0",
 ]
 
 [project.optional-dependencies]
@@ -77,6 +81,14 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "hvac.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "boto3.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "botocore.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

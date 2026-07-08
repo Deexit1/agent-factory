@@ -33,7 +33,10 @@ class FixtureClaudeCodeRunner:
         budget_usd: float,
         timeout_s: float,
         anthropic_api_key: str | None = None,
+        org_id: str | None = None,
+        ticket_id: str | None = None,
     ) -> Iterator[TranscriptEvent]:
+        del org_id, ticket_id
         self.last_prompt = prompt
         self.last_model = model
         self.last_anthropic_api_key = anthropic_api_key

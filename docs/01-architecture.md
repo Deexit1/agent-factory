@@ -13,8 +13,10 @@ Five layers with clean contracts. Higher layers never bypass lower ones.
 │ 3. AGENT RUNTIME  role agents (exec/planner/dev/QA),    │
 │                 each = prompt + tools + model + evals   │
 ├─────────────────────────────────────────────────────────┤
-│ 4. EXECUTION SANDBOX  container per task · git worktree │
-│                 · test runners · egress allow-list      │
+│ 4. EXECUTION SANDBOX  org-scoped container per task ·   │
+│                 pre-warmed pool · no-co-location         │
+│                 scheduler · git worktree · test runners  │
+│                 · per-org egress allow-list (T-204)      │
 ├─────────────────────────────────────────────────────────┤
 │ 5. DATA & AUDIT  tickets · event log · cost ledger ·    │
 │                 artifacts · traces (append-only)        │

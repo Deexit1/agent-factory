@@ -10,9 +10,11 @@ from starlette.middleware.sessions import SessionMiddleware
 from api.routers import (
     admin,
     agent_runs,
+    artifacts,
     auth,
     capability_registry,
     dashboard,
+    egress,
     eval_floors,
     health,
     merge_queue,
@@ -67,3 +69,6 @@ app.include_router(eval_floors.router)
 app.include_router(repos.router)
 app.include_router(repos.connect_callback_router)
 app.include_router(repos.install_token_router)
+app.include_router(egress.router)
+app.include_router(egress.effective_router)
+app.include_router(artifacts.router)

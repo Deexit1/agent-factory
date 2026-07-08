@@ -120,6 +120,55 @@ of disclosed gaps).
    platform's own monorepo (what every ticket targeted before T-203) keeps working
    unmodified.
 
+## Sandbox isolation (real, T-204)
+
+**T-204 status**: real org-aware egress, a real no-co-location scheduler, a real
+pre-warmed provisioning pool, real per-org artifact storage ACLs, a formal escape-test
+suite, and — closing the gap disclosed since T-105/106/107 — the orchestrator's real
+dev-agent run now actually executes inside this isolated sandbox instead of on the bare
+host. No real Firecracker/Kata hypervisor is registered in this environment; the
+runtime swap is built and pluggable but not live-verified (same disclosed-gap category
+as T-202's "no OpenAI credits" / T-203's "no live GitHub App").
+
+1. **Runtime.** `apps/sandbox/src/sandbox/runtime.py`'s `SandboxRuntime` interface has
+   two implementations: `DockerRuntime` (real, live-tested, today's default — network-
+   per-ticket, read-only rootfs, tmpfs, CPU/RAM limits, no docker-socket access) and
+   `MicroVMRuntime` (built against Firecracker/Kata's real `ctr` CLI shapes, proven only
+   via subprocess-boundary fault injection — no hypervisor here to boot a real VM
+   against). Swapping is a `SandboxConfig.runtime` flag, not a rebuild.
+2. **Scheduling (AC2).** `HostPool` (`apps/sandbox/src/sandbox/scheduler.py`) admits
+   every real sandbox provisioning through a fixed pool of logical slots with real
+   `threading.Lock`s — two different orgs' leases can never hold the same slot at once
+   (concurrency-tested, 100 rounds, and gated into `SandboxClaudeCodeRunner`'s actual
+   `run()` path, not just its own isolated tests). Honest scope: one process/host,
+   matching today's actual single-runner-VM deployment (`docs/06-tech-stack.md`'s
+   "Runner pool → Kubernetes" Phase-2 activation) — true multi-host coordination is
+   deferred to whenever that activation fires.
+3. **Pre-warming (AC4).** `SandboxPool` keeps idle network+proxy pairs ready ahead of a
+   request (the genuinely slow parts to provision) and live-reconfigures Squid's
+   allow-list per org at hand-out time (`squid -k reconfigure`, no container restart) —
+   proven against real Docker with a concurrent load test.
+4. **Egress (AC3).** A base allow-list (unchanged) plus org-approved additions,
+   staff-gated (`org_egress_rules`, `POST/DELETE /orgs/{id}/egress-rules`) — reuses the
+   exact `ActorContext.is_platform_staff` check T-201 impersonation established, no new
+   auth concept. An org's own additions are proven not to leak into another org's list.
+5. **Storage ACLs (AC5).** Per-org MinIO bucket-prefix ACLs minted via a real STS
+   `AssumeRole` call with an inline session policy (`apps/api/src/api/
+   artifact_storage.py`) — the denial an org-A credential hits reading org-B's prefix is
+   MinIO's own policy engine, proven against a real MinIO container, not a hand-rolled
+   check. Worktree storage gets per-org path scoping + OS permissions only, not real
+   disk-level encryption (LUKS/dm-crypt needs host provisioning beyond a rootless
+   container) — a disclosed gap.
+6. **Escape-test suite (AC1).** Host-fs escape, docker-socket invisibility, and
+   cross-org network unreachability all run for real against `DockerRuntime`
+   (`apps/sandbox/tests/integration/test_escape_probes.py`, `make escape-test`); the
+   same suite against `MicroVMRuntime` is honestly skipped (no hypervisor), not faked.
+7. **Orchestrator wiring.** `orchestrator/sandbox_runner.py`'s `SandboxClaudeCodeRunner`
+   implements the same `ClaudeCodeRunner` protocol the bare-host
+   `SubprocessClaudeCodeRunner` does — `agents/dev.py`'s call site is unchanged beyond
+   threading `org_id`/`ticket_id` through. `scripts/run_pilot.py --sandbox` opts a real
+   pilot run into it; the default stays the bare-host path.
+
 ## Billing & metering
 - BYOK means tokens are the customer's cost. We charge platform usage: subscription
   tier (seats, parallel tickets) + metered units (agent-run minutes, sandbox minutes,
@@ -130,7 +179,10 @@ of disclosed gaps).
 
 ## Isolation & abuse
 - Multi-tenant sandboxes require VM-grade isolation (Firecracker/Kata) at GA — gVisor
-  acceptable only for the closed beta.
+  acceptable only for the closed beta. As of T-204, every isolation mechanism AROUND
+  the runtime (scheduling, egress, storage ACLs, escape-tests) is real; the hypervisor
+  swap itself is the one piece still not live-verified — see "Sandbox isolation" above.
 - Acceptable-use policy; automated screening of idea/task content at intake (malware,
   scraping farms, credential attacks, spam infrastructure → reject + audit event).
-- Per-org egress allow-list additions require human platform-staff approval.
+- Per-org egress allow-list additions require human platform-staff approval — real as of
+  T-204 (`org_egress_rules`, staff-only `POST/DELETE /orgs/{id}/egress-rules`).

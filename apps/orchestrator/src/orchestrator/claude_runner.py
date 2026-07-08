@@ -33,6 +33,8 @@ class ClaudeCodeRunner(Protocol):
         budget_usd: float,
         timeout_s: float,
         anthropic_api_key: str | None = None,
+        org_id: str | None = None,
+        ticket_id: str | None = None,
     ) -> Iterator[TranscriptEvent]: ...
 
 
@@ -67,7 +69,13 @@ class SubprocessClaudeCodeRunner:
         budget_usd: float,
         timeout_s: float,
         anthropic_api_key: str | None = None,
+        org_id: str | None = None,
+        ticket_id: str | None = None,
     ) -> Iterator[TranscriptEvent]:
+        # T-204: org_id/ticket_id are accepted-and-ignored here — the bare-host-
+        # subprocess path is unaffected by sandbox org-scoping. SandboxClaudeCodeRunner
+        # (sandbox_runner.py) is the implementation that actually uses them.
+        del org_id, ticket_id
         claude_bin = shutil.which("claude")
         if claude_bin is None:
             raise RuntimeError(

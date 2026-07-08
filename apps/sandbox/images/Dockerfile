@@ -7,6 +7,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# T-204: lets the orchestrator's SandboxClaudeCodeRunner exec the real dev-agent CLI
+# inside this container (docker_runtime.exec_stream) instead of on the bare host.
+RUN npm install -g @anthropic-ai/claude-code
+
 # System-wide (not /home/sandbox, which is tmpfs and wiped at container start):
 # bind-mounted paths won't be owned by the sandbox user, which git otherwise
 # refuses to operate on ("dubious ownership"). Safe here: single-tenant, ephemeral,

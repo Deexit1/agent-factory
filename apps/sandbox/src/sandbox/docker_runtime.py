@@ -1,5 +1,6 @@
 import subprocess
 import time
+from collections.abc import Iterator
 
 from sandbox.config import SandboxConfig
 
@@ -107,10 +108,13 @@ def run_sandbox(
     worktree_host_path: str,
     git_token: str,
     extra_mount: tuple[str, str] | None = None,
+    extra_env: dict[str, str] | None = None,
+    network: str | None = None,
+    proxy_url: str | None = None,
 ) -> str:
     name = sandbox_name(ticket_id)
-    net = network_name(ticket_id)
-    proxy_url = f"http://{proxy_name(ticket_id)}:3128"
+    net = network if network is not None else network_name(ticket_id)
+    resolved_proxy_url = proxy_url if proxy_url is not None else f"http://{proxy_name(ticket_id)}:3128"
     remove_container(name)
     args = [
         "run",
@@ -133,9 +137,9 @@ def run_sandbox(
         "--security-opt",
         "no-new-privileges",
         "-e",
-        f"HTTP_PROXY={proxy_url}",
+        f"HTTP_PROXY={resolved_proxy_url}",
         "-e",
-        f"HTTPS_PROXY={proxy_url}",
+        f"HTTPS_PROXY={resolved_proxy_url}",
         "-e",
         "NO_PROXY=localhost,127.0.0.1",
         "-e",
@@ -148,6 +152,12 @@ def run_sandbox(
     if extra_mount is not None:
         host_path, container_path = extra_mount
         args += ["-v", f"{host_path}:{container_path}"]
+    # T-204: caller-supplied secrets (e.g. a BYOK ANTHROPIC_API_KEY) scoped to this
+    # single container's env only — never written to disk, never in this function's
+    # own argv-visible parts beyond the "-e" pairs docker itself requires.
+    if extra_env is not None:
+        for key, value in extra_env.items():
+            args += ["-e", f"{key}={value}"]
     args.append(config.image)
     _run(args)
     return name
@@ -155,6 +165,33 @@ def run_sandbox(
 
 def exec_in(container: str, cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["docker", "exec", container, *cmd], capture_output=True, text=True)
+
+
+def exec_stream(
+    container: str, cmd: list[str], env: dict[str, str] | None = None
+) -> Iterator[str]:
+    """Stream stdout lines from a command run inside an already-running container.
+
+    T-204: the orchestrator's real dev-agent run execs `claude` this way instead of
+    spawning it as a bare host subprocess (`claude_runner.py`'s pre-T-204 behavior).
+    `env` is passed via `docker exec -e` (per-invocation, never written to the
+    container's own persistent env, never logged) — same secret-handling discipline as
+    `run_sandbox`'s `extra_env`.
+    """
+    args = ["docker", "exec", "-i"]
+    if env:
+        for key, value in env.items():
+            args += ["-e", f"{key}={value}"]
+    args += [container, *cmd]
+    process = subprocess.Popen(
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
+    assert process.stdout is not None
+    try:
+        yield from process.stdout
+    finally:
+        if process.poll() is None:
+            process.terminate()
 
 
 def remove_container(name: str) -> None:

@@ -5,7 +5,7 @@ LLM_ROUTER_DIR := packages/llm_router
 SANDBOX_DIR := apps/sandbox
 ORCHESTRATOR_DIR := apps/orchestrator
 
-.PHONY: dev test test-unit test-integration check lint typecheck e2e a11y migrate coverage-gate eval llm-router-gate tenant-scope-gate github-app-gate
+.PHONY: dev test test-unit test-integration check lint typecheck e2e a11y migrate coverage-gate eval llm-router-gate tenant-scope-gate github-app-gate escape-test
 
 $(API_DIR)/.venv/.stamp: $(API_DIR)/pyproject.toml $(SCHEMAS_DIR)/pyproject.toml
 	cd $(API_DIR) && python3 -m venv .venv
@@ -32,11 +32,14 @@ $(SANDBOX_DIR)/.venv/.stamp: $(SANDBOX_DIR)/pyproject.toml
 	cd $(SANDBOX_DIR) && .venv/bin/pip install -e ".[dev]"
 	touch $@
 
-$(ORCHESTRATOR_DIR)/.venv/.stamp: $(ORCHESTRATOR_DIR)/pyproject.toml $(SCHEMAS_DIR)/pyproject.toml $(LLM_ROUTER_DIR)/pyproject.toml
+$(ORCHESTRATOR_DIR)/.venv/.stamp: $(ORCHESTRATOR_DIR)/pyproject.toml $(SCHEMAS_DIR)/pyproject.toml $(LLM_ROUTER_DIR)/pyproject.toml $(SANDBOX_DIR)/pyproject.toml
 	cd $(ORCHESTRATOR_DIR) && python3 -m venv .venv
 	cd $(ORCHESTRATOR_DIR) && .venv/bin/pip install --upgrade pip
 	cd $(ORCHESTRATOR_DIR) && .venv/bin/pip install -e "../../$(SCHEMAS_DIR)"
 	cd $(ORCHESTRATOR_DIR) && .venv/bin/pip install -e "../../$(LLM_ROUTER_DIR)"
+	# T-204: SandboxClaudeCodeRunner (sandbox_runner.py) imports apps/sandbox directly —
+	# same editable-install pattern as schemas/llm_router above.
+	cd $(ORCHESTRATOR_DIR) && .venv/bin/pip install -e "../../$(SANDBOX_DIR)"
 	cd $(ORCHESTRATOR_DIR) && .venv/bin/pip install -e ".[dev]"
 	touch $@
 
@@ -102,6 +105,13 @@ tenant-scope-gate: ## Fail if any repository-layer function queries the DB witho
 
 github-app-gate: ## Fail if api.github.com is referenced outside github_app_client.py (T-203)
 	python3 scripts/check_github_app_gate.py
+
+# T-204 (SPEC-204 AC1): named explicitly per the spec's "escape-test suite" language.
+# Already runs as part of `test-integration` (it lives under apps/sandbox/tests/
+# integration/) — this target exists for discoverability/direct invocation, not as a
+# second, duplicate run in `check`.
+escape-test: $(SANDBOX_DIR)/.venv/.stamp ## Docker-backed sandbox escape probes (host fs, docker socket, cross-org network)
+	cd $(SANDBOX_DIR) && .venv/bin/pytest tests/integration/test_escape_probes.py -v
 
 check: lint typecheck test llm-router-gate tenant-scope-gate github-app-gate ## Full QA gate: lint + typecheck + unit + integration + router gate + tenant-scope gate + github-app gate
 

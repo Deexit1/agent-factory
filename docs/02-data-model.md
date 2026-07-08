@@ -8,10 +8,13 @@ impersonation auditing are T-201.
 
 ## orgs
 `id (PK), name, created_at, max_parallel_tickets, llm_fallback_order` — the tenant.
-`max_parallel_tickets` (nullable = unlimited, T-201) is the one quota that's actually
-enforced today — sandbox-minutes/day and storage caps from SPEC-201's wording have no
-real usage metering to enforce against yet (`apps/sandbox` isn't wired to the dev-agent
-path, T-105's own disclosed gap), so no column exists for them. `llm_fallback_order`
+`max_parallel_tickets` (nullable = unlimited, T-201) is the one ticket-count quota
+that's actually enforced today. Sandbox-minutes/day usage metering still has no real
+column (no usage metering exists to bill against yet) — but org-scoped egress and
+per-org artifact storage ACLs ARE real as of T-204 (see `org_egress_rules` below and
+`apps/api/src/api/artifact_storage.py`), and `apps/sandbox` is now wired into the real
+dev-agent path (`orchestrator/sandbox_runner.py`, opt-in via `--sandbox`) — closing the
+T-105-disclosed gap this note used to describe. `llm_fallback_order`
 (T-202, nullable JSONB array of provider names e.g. `["anthropic", "openai"]`) is the
 org's BYOK provider priority order — a single small setting, not a separate ordering
 table (same judgment as `max_parallel_tickets`); `None`/empty means "whatever
@@ -88,6 +91,15 @@ connect (warn-and-allow, matches T-202's precedent), since the platform's own co
 (`git_ops.py`'s `agent/*`-only push guard) refuses direct pushes to any other branch
 regardless of what GitHub-side protection is configured.
 
+## org_egress_rules (T-204)
+`id (PK), org_id (FK orgs), domain, approved_by, approved_at, created_at` — unique on
+`(org_id, domain)`. One org-approved addition to the sandbox egress allow-list, on top
+of `sandbox.config.DEFAULT_ALLOWED_DOMAINS` (the base list every org gets). Only
+platform staff may create/remove rows here (`ActorContext.is_platform_staff`, the same
+gate `staff_audit_log`'s impersonation flow uses — no new auth concept). The
+orchestrator fetches the merged base+org list at sandbox-provision time via the
+service-token-only `GET /orgs/{id}/egress-rules/effective`.
+
 ## ticket_events (append-only, partitioned monthly)
 | column | type | notes |
 |---|---|---|
@@ -136,7 +148,12 @@ CI-green alone only creates a `queued` one. Written by `apps/orchestrator`'s
 `merge_queue.py` after a real rebase-and-retest, not by the CI webhook directly.
 
 ## artifacts
-`id, ticket_id, kind (diff|ci_log|trace|coverage), s3_key, ts`.
+`id, ticket_id, kind (diff|ci_log|trace|coverage), s3_key, ts`. Still not a real
+SQLAlchemy model/table (unchanged since T-203's disclosure) — no code writes rows here
+yet. T-204 makes the underlying STORAGE mechanism real and org-scoped
+(`apps/api/src/api/artifact_storage.py`'s per-org MinIO bucket-prefix ACLs via a real
+STS `AssumeRole`), but that's a credential-minting service, not this tracking table;
+wiring actual artifact writes through it remains a disclosed gap.
 
 ## users
 `email (PK), is_platform_staff, created_at` — OIDC-authenticated humans (SPEC-006). A

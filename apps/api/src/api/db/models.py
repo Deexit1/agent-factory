@@ -98,9 +98,9 @@ class Org(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
     # T-201: only the one quota that's actually enforceable today (mirrors
     # capability_registry.yaml's repo_concurrency_limit, scoped per-org instead of
-    # global). Sandbox-minutes/day and storage caps are NOT here — apps/sandbox has no
-    # real usage metering to enforce against (T-105's own disclosed gap); adding config
-    # for an unenforceable quota would be dead config, not real work.
+    # global). Sandbox-minutes/day usage metering is still not enforced (T-105's own
+    # disclosed gap) — but org-scoped egress IS real as of T-204 (see OrgEgressRule
+    # below), so this column no longer needs to carry that caveat for egress.
     max_parallel_tickets: Mapped[int | None] = mapped_column(default=None)
     # T-202: ordered provider names, e.g. ["anthropic", "openai"] — a single small
     # per-org setting, not a separate ordering table (same judgment as
@@ -402,3 +402,23 @@ class Repo(Base):
     disconnected_reason: Mapped[str | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
     created_by: Mapped[str] = mapped_column()
+
+
+class OrgEgressRule(Base):
+    """T-204 (SPEC-204 AC3): one org-approved addition to the sandbox egress
+    allow-list, on top of `sandbox.config.DEFAULT_ALLOWED_DOMAINS` (the base list every
+    org gets). Only platform staff may create/remove rows here — same
+    `ActorContext.is_platform_staff` gate `routers/admin.py` already established for
+    T-201 impersonation, no new auth concept."""
+
+    __tablename__ = "org_egress_rules"
+    __table_args__ = (
+        UniqueConstraint("org_id", "domain", name="uq_org_egress_rules_org_domain"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
+    domain: Mapped[str] = mapped_column()
+    approved_by: Mapped[str] = mapped_column()
+    approved_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
