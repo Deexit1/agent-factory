@@ -1682,3 +1682,111 @@ Format:
   without a full uninstall, and real production Vault topology are all
   explicitly out of scope, not silent gaps — see `tasks/BACKLOG.md`'s
   T-203 entry for the full list.
+
+## T-204 · VM-grade tenant isolation — 2026-07-09
+- What changed: `apps/sandbox` was real (Docker network-per-ticket,
+  read-only rootfs, Squid egress proxy) but had zero org-awareness and zero
+  placement/pooling code, and — more importantly — `apps/orchestrator`'s
+  real dev-agent run never invoked it at all: `SubprocessClaudeCodeRunner`
+  spawned `claude` as a bare host subprocess against a plain git worktree,
+  a gap already disclosed three times (T-105/106/107 notes). Resolved via
+  two AskUserQuestion decisions: (1) this task closes that orchestrator-
+  wiring gap too, not just apps/sandbox's own isolation mechanism, so the
+  new guarantees actually protect real ticket runs; (2) since no
+  Firecracker/Kata hypervisor is reachable in this environment (Windows dev
+  host), the microVM runtime is a pluggable interface with a disclosed,
+  subprocess-fault-injection-tested-only mock, not an attempted real boot —
+  same disclosed category as T-202's "no OpenAI credits" / T-203's "no live
+  GitHub App". New `apps/sandbox/src/sandbox/runtime.py`: a `SandboxRuntime`
+  Protocol with `DockerRuntime` (thin wrapper over the pre-existing,
+  behavior-unchanged `docker_runtime.py`) as the real default and
+  `MicroVMRuntime` (Firecracker/Kata `ctr` CLI shapes) as the disclosed
+  mock. New `scheduler.py`'s `HostPool`: real `threading.Lock`-guarded
+  mutual exclusion over N logical slots, proving two different orgs never
+  hold the same slot concurrently (100-round concurrent-threads property
+  test) — deliberately scoped to one process/host, matching
+  `docs/06-tech-stack.md`'s own "second runner VM until sustained parallel
+  tickets > 5" Phase-2 activation note; true multi-host coordination is
+  deferred to whenever that fires. New `pool.py`'s `SandboxPool`:
+  pre-warms network+proxy pairs (the genuinely slow parts to provision —
+  image pull, `wait_until_execable`/`wait_until_port_listening` polling),
+  attaches a fresh ticket-bound sandbox container to an already-warm pair
+  on request, and live-reconfigures the reused proxy's Squid allow-list to
+  the requesting org's actual merged list via `squid -k reconfigure` (no
+  container restart) — proven with a real 10-concurrent-request load test
+  against real Docker, p95 comfortably under the 30s budget. New
+  `org_egress_rules` table (apps/api) + `POST/DELETE /orgs/{id}/
+  egress-rules`, staff-gated via the exact `ActorContext.is_platform_staff`
+  check T-201 impersonation already established — no new auth concept; the
+  orchestrator fetches the merged base+org list via a new service-token-
+  only `GET /orgs/{id}/egress-rules/effective`. New
+  `apps/api/src/api/artifact_storage.py`: real per-org MinIO storage ACLs
+  via MinIO's own STS `AssumeRole` with an inline session policy scoped to
+  `orgs/<org_id>/*` — closes a repo-wide disclosed gap for real (MinIO has
+  sat declared-but-unused in `docker-compose.yml` since before T-203). New
+  `apps/sandbox/tests/integration/test_escape_probes.py` formalizes a named
+  escape-test suite (`make escape-test`): host-fs write rejected outside
+  declared mounts, docker socket invisible, org A's sandbox cannot reach
+  org B's — real, against `DockerRuntime`; the same probes against
+  `MicroVMRuntime` are honestly `skipif`'d, not faked green. Orchestrator
+  wiring: `ClaudeCodeRunner.run()` gained two **optional** kwargs,
+  `org_id`/`ticket_id` (default `None`, every existing caller/
+  implementation unaffected); new `orchestrator/sandbox_runner.py`'s
+  `SandboxClaudeCodeRunner` implements the same Protocol, acquires a
+  `HostPool` lease before ever provisioning a container (this is what makes
+  AC2 real for actual dispatch, not just apps/sandbox's own isolated
+  tests), execs `claude` inside the container via a new streaming
+  `docker_runtime.exec_stream`, and reuses `claude_runner.py`'s private
+  NDJSON-parsing helpers verbatim so its retry-on-transient-API-error
+  behavior matches `SubprocessClaudeCodeRunner`'s exactly.
+  `apps/orchestrator` gained `apps/sandbox` as a real editable dependency
+  (same Makefile pattern as `packages/schemas`/`llm_router`); `apps/sandbox`
+  gained a `py.typed` marker so the cross-package import type-checks under
+  strict mypy. `scripts/run_pilot.py` (already disclosed as "NOT part of
+  the product") gained a `--sandbox` opt-in flag; default stays the
+  bare-host path. A real bug was caught and fixed mid-task: `HostPool` was
+  built and tested in isolation first, then discovered to be completely
+  unwired from `SandboxClaudeCodeRunner`'s real `run()` path until a new
+  concurrency test (`test_host_pool_serializes_two_orgs_when_only_one_
+  slot_exists`) forced the integration — the scheduler would otherwise have
+  been decorative, not protective.
+- Verification: `apps/sandbox` 38 tests (35 passed, 3 `skipif`'d for the
+  disclosed microVM gap) — up from 19 pre-existing, all re-passed
+  unmodified; ruff/mypy clean. `apps/api` 165/165 green (up from 158 — 7
+  new: 5 egress-router + 2 real-MinIO artifact-storage integration tests),
+  ruff/mypy clean, all three static gates pass unchanged
+  (`llm-router-gate`, `tenant-scope-gate`, `github-app-gate`).
+  `apps/orchestrator` 50/50 green (up from 46 — 4 new
+  `test_sandbox_runner.py` tests), ruff/mypy clean. Docker Desktop was not
+  running at the start of this session (a Windows dev host) — it was
+  started and every Docker-dependent test in this task (pool load test,
+  escape probes, real `docker_runtime.exec_stream` multi-line streaming,
+  MinIO cross-org ACL denial) ran for real against it locally in this same
+  session, not merely asserted to pass in CI: genuine p95 < 30s measured,
+  genuine cross-org MinIO policy denial observed via a real
+  `botocore.exceptions.ClientError`, genuine multi-line stdout streamed
+  from a real running container. A pre-existing, unrelated test-hygiene
+  issue was hit and worked around (not fixed, out of this task's scope):
+  `apps/sandbox`'s own `test_egress_attempts_are_logged_as_ticket_events`
+  reuses a real, sequentially-incrementing ticket id
+  (`~/.agent-factory-sandbox/T-001/...`) as a host cache-directory key, so
+  stale state from an earlier session/run collides with a fresh `tmp_path`
+  — cleaning `~/.agent-factory-sandbox` before each full run resolved it.
+  Not re-verified against a clean `main` checkout, but the caching logic
+  it's hitting (`cli.py`/`worktree.py`'s bare-clone cache) was untouched by
+  this task and the stale directories themselves predate this session
+  (timestamped days before T-204 started), so this reads as pre-existing,
+  not a regression introduced here.
+- Notes / follow-ups: no real Firecracker/Kata hypervisor boot anywhere —
+  `MicroVMRuntime` is built and subprocess-fault-injection tested only,
+  never live-verified; its escape-tests skip with an explicit reason.
+  `HostPool` enforces mutual exclusion per-process/per-host only; true
+  multi-host distributed coordination (Postgres advisory locks / Redis) is
+  deferred to the "Runner pool → Kubernetes" Phase-2 activation, not built
+  preemptively. Worktree storage gets per-org path scoping
+  (`sandbox.config.org_state_dir_for`) + OS permissions only, not real
+  disk-level encryption (LUKS/dm-crypt needs host provisioning beyond a
+  rootless container) — a disclosed gap. Production MinIO/Vault topology
+  stays dev-mode only, same standing as every other MinIO/Vault note in
+  these docs. See `tasks/BACKLOG.md`'s T-204 entry for the full
+  per-AC evidence and architecture-decision list.

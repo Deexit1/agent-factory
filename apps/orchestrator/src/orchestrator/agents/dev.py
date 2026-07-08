@@ -98,6 +98,8 @@ def run_dev_agent(
         budget_usd=budget_usd,
         timeout_s=config.timeout_s,
         anthropic_api_key=anthropic_key,
+        org_id=org_id,
+        ticket_id=ticket_id,
     ):
         api.append_event(ticket_id, actor=actor, kind=event.kind, payload=event.payload)
 

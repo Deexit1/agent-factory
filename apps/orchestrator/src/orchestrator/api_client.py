@@ -237,5 +237,12 @@ class ApiClient:
         response.raise_for_status()
         return response.json()  # type: ignore[no-any-return]
 
+    def get_org_egress_rules(self, org_id: str) -> list[str]:
+        """T-204: the base sandbox egress allow-list plus this org's staff-approved
+        additions — fetched at sandbox-provision time (sandbox_runner.py)."""
+        response = self._client.get(f"/orgs/{org_id}/egress-rules/effective")
+        response.raise_for_status()
+        return response.json()["domains"]  # type: ignore[no-any-return]
+
     def close(self) -> None:
         self._client.close()

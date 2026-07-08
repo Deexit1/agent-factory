@@ -66,6 +66,8 @@ class _FakeClaudeCodeRunner:
         budget_usd: float,
         timeout_s: float,
         anthropic_api_key: str | None = None,
+        org_id: str | None = None,
+        ticket_id: str | None = None,
     ) -> Iterator[TranscriptEvent]:
         self._edit(cwd)
         yield TranscriptEvent(

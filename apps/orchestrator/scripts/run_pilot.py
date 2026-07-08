@@ -34,9 +34,10 @@ from pilot_tickets import PILOT_TICKETS  # noqa: E402
 
 from orchestrator.agents.dev import run_dev_agent  # noqa: E402
 from orchestrator.api_client import ApiClient  # noqa: E402
-from orchestrator.claude_runner import SubprocessClaudeCodeRunner  # noqa: E402
+from orchestrator.claude_runner import ClaudeCodeRunner, SubprocessClaudeCodeRunner  # noqa: E402
 from orchestrator.config import DevAgentConfig  # noqa: E402
 from orchestrator.github_client import GhCliGitHubClient  # noqa: E402
+from orchestrator.sandbox_runner import SandboxClaudeCodeRunner  # noqa: E402
 
 API_URL = "http://localhost:8000"
 REPO_URL = "git@github.com:Deexit1/agent-factory.git"
@@ -114,7 +115,7 @@ def pr_number_from_url(url: str) -> int:
     return int(url.rstrip("/").rsplit("/", 1)[-1])
 
 
-def run_one_ticket(task_spec, tmp_root: Path) -> PilotOutcome:
+def run_one_ticket(task_spec, tmp_root: Path, claude_runner: ClaudeCodeRunner) -> PilotOutcome:
     print(f"\n=== {task_spec.id}: {task_spec.title} ===")
 
     real_ticket_id = create_ticket(
@@ -134,7 +135,7 @@ def run_one_ticket(task_spec, tmp_root: Path) -> PilotOutcome:
         task_spec=task_spec.model_copy(update={"id": real_ticket_id}),
         workspace_dir=workspace,
         api=api,
-        claude_runner=SubprocessClaudeCodeRunner(),
+        claude_runner=claude_runner,
         github=GhCliGitHubClient(),
         config=config,
     )
@@ -227,6 +228,14 @@ def main() -> None:
     parser.add_argument(
         "--start-at", type=int, default=0, help="skip the first N tickets with --all"
     )
+    parser.add_argument(
+        "--sandbox",
+        action="store_true",
+        help=(
+            "T-204: run the dev agent inside an isolated apps/sandbox Docker container "
+            "instead of as a bare host subprocess (default). Requires Docker."
+        ),
+    )
     args = parser.parse_args()
 
     if args.all:
@@ -237,11 +246,22 @@ def main() -> None:
         parser.error("pass --tickets ID [ID ...] or --all")
         return
 
+    # T-204: one shared runner across every ticket in this run — SandboxClaudeCodeRunner
+    # owns a pre-warmed pool whose value only shows up when it's reused across tickets,
+    # not reconstructed fresh per ticket.
+    claude_runner: ClaudeCodeRunner = (
+        SandboxClaudeCodeRunner(
+            api=ApiClient(API_URL, actor="system:pilot-sandbox", service_token=_service_token())
+        )
+        if args.sandbox
+        else SubprocessClaudeCodeRunner()
+    )
+
     with tempfile.TemporaryDirectory(prefix="pilot-") as tmp:
         tmp_root = Path(tmp)
         outcomes: list[PilotOutcome] = []
         for spec in specs:
-            outcome = run_one_ticket(spec, tmp_root)
+            outcome = run_one_ticket(spec, tmp_root, claude_runner)
             outcomes.append(outcome)
             if outcome.pr_url is not None:
                 poll_ci(outcome)

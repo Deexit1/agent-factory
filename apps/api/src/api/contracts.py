@@ -479,3 +479,42 @@ class GitHubInstallTokenOut(BaseModel):
     token: str
     expires_at: datetime
     default_branch: str
+
+
+class EgressRuleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    org_id: str
+    domain: str
+    approved_by: str
+    approved_at: datetime
+    created_at: datetime
+
+
+class EgressRuleListOut(BaseModel):
+    items: list[EgressRuleOut]
+
+
+class AddEgressRuleRequest(BaseModel):
+    domain: str = Field(min_length=1)
+
+
+class EffectiveEgressDomainsOut(BaseModel):
+    """Service-token-only: the base allow-list plus this org's approved additions —
+    what the orchestrator fetches at sandbox-provision time (T-204)."""
+
+    domains: list[str]
+
+
+class ArtifactCredentialOut(BaseModel):
+    """T-204 (SPEC-204 AC5): a short-lived, org-prefix-scoped MinIO credential — never
+    persisted, mirrors GitHubInstallTokenOut/RuntimeKeysOut's "minted on demand, held in
+    memory only" doctrine."""
+
+    access_key: str
+    secret_key: str
+    session_token: str
+    bucket: str
+    prefix: str
+    expires_at: datetime

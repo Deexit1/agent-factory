@@ -11,7 +11,7 @@
 | Dev agents | Claude Code headless (Claude Agent SDK), per-profile base images |
 | Database | PostgreSQL 16 (JSONB payloads), Redis 7 |
 | Artifacts | S3 / MinIO |
-| Sandbox | Rootless Docker + gVisor; egress proxy (Squid); Vault for secrets |
+| Sandbox | Rootless Docker (real, default); egress proxy (Squid) with a per-org allow-list; Vault for secrets; pluggable runtime interface (`apps/sandbox/src/sandbox/runtime.py`) — a Firecracker/Kata `MicroVMRuntime` is built but not live-verified (see below) |
 | VCS / CI | GitHub, branch `task/T-xxx`, GitHub Actions with self-hosted runners |
 | Tests | pytest, Vitest, Testcontainers, Playwright; smoke suite tagged `@smoke` |
 | Static gates | ruff, mypy, eslint, tsc, Semgrep, gitleaks, pip-audit/npm audit |
@@ -22,7 +22,7 @@
 | Tenant secrets (BYOK) | Vault KV `tenants/<org>/llm/<provider>`; keys never in DB/logs/traces/sandboxes |
 | Repo delivery | GitHub App (contents + PRs on selected repos), per-ticket installation tokens |
 | Billing | Stripe (subscriptions + metered usage records) |
-| Multi-tenant sandbox | Firecracker/Kata microVMs — REQUIRED at multi-tenant GA (gVisor allowed for single-tenant/dev and closed beta only) |
+| Multi-tenant sandbox | Firecracker/Kata microVMs — REQUIRED at multi-tenant GA (gVisor allowed for single-tenant/dev and closed beta only). As of T-204: real org-aware egress, per-org artifact storage ACLs (MinIO), an in-process scheduler enforcing no cross-org co-location, and a pre-warmed provisioning pool all land on top of the real Docker runtime; the actual Firecracker/Kata hypervisor swap itself is not live-verified in this environment |
 
 ## Implementation status notes (do not change the locked rows above without a doc PR)
 - **LLM routing / Tenant secrets (BYOK) rows — real as of T-202.** `packages/llm_router`
@@ -52,11 +52,44 @@
   `POST /repos/{owner}/{repo}/transfer` at all) are built and tested against the
   documented request/response shape but flagged as needing live verification before
   first real use.
+- **Sandbox isolation row — real as of T-204** for: a pluggable `SandboxRuntime`
+  interface (`apps/sandbox/src/sandbox/runtime.py`) with `DockerRuntime` (today's real,
+  fully-tested mechanism, unchanged behavior) as the live default; org-aware egress
+  (`org_egress_rules` table, staff-approval-gated additions on top of the base
+  allow-list, `apps/api/src/api/routers/egress.py`); a real, concurrency-tested
+  `HostPool` scheduler (`apps/sandbox/src/sandbox/scheduler.py`) that gates every real
+  sandbox provisioning through a fixed pool of logical slots so two different orgs can
+  never hold the same slot at once; a pre-warmed `SandboxPool`
+  (`apps/sandbox/src/sandbox/pool.py`) that keeps idle network+proxy pairs ready and
+  live-reconfigures Squid's allow-list per org at hand-out time; per-org MinIO artifact
+  storage ACLs proven against MinIO's own STS/policy engine
+  (`apps/api/src/api/artifact_storage.py`); a formal escape-test suite (host fs,
+  docker-socket, cross-org network — `apps/sandbox/tests/integration/
+  test_escape_probes.py`, `make escape-test`); and — closing the gap disclosed since
+  T-105/106/107 — `apps/orchestrator`'s dev-agent run now actually executes inside this
+  isolated, org-scoped sandbox (`orchestrator/sandbox_runner.py`'s
+  `SandboxClaudeCodeRunner`) when opted into (`scripts/run_pilot.py --sandbox`); the
+  bare-host-subprocess path (`SubprocessClaudeCodeRunner`) remains the default,
+  unaffected. **Not yet real:** any actual Firecracker/Kata microVM boot
+  (`MicroVMRuntime` is built against the real CLI shapes and subprocess-fault-injection
+  tested only — no hypervisor is reachable in this environment, same disclosed category
+  as T-202/T-203's live-infra gaps); true multi-host/multi-process scheduler
+  coordination (`HostPool` enforces its guarantee correctly but only within one
+  process/host — today's actual single-runner-VM deployment shape, see the Phase-2
+  activation note below); real disk-level encryption for worktree storage (per-org path
+  scoping + OS permissions only, not LUKS/dm-crypt).
 
 ## Phase-2 activations (pre-approved escalation paths)
 - **Runner pool → Kubernetes** (EKS/GKE + autoscaling runners) WHEN sustained parallel
-  tickets > 5. Until then: second runner VM.
+  tickets > 5. Until then: second runner VM. `HostPool`'s scheduler (T-204) is scoped to
+  exactly this shape — one process, one host — and its cross-host coordination gap is
+  deferred to whenever this activation fires, not built preemptively.
 - **Orchestration → Temporal** WHEN LangGraph checkpoint recovery fails us twice in
   production or ticket volume > 50/day. Not before — migration is expensive.
 - **Sandbox → Firecracker/Kata** WHEN agents get access to repos with sensitive data
-  classifications. gVisor remains fine for the pilot repos.
+  classifications (same trigger condition the locked table's "Multi-tenant sandbox" row
+  states as "at multi-tenant GA" — both describe the same event). gVisor remains fine
+  for the pilot repos. T-204 built the pluggable runtime interface and every
+  org-isolation mechanism around it ahead of this activation firing, so the swap itself
+  (once a real hypervisor is available) is a `SandboxConfig.runtime` flag flip, not a
+  from-scratch build.
