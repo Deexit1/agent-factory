@@ -1,3 +1,6 @@
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { useAuth } from "../auth/AuthContext";
 import { downloadDashboardCsv } from "../api/client";
 import {
@@ -26,20 +29,16 @@ export function DashboardPage(): React.JSX.Element {
   const { data: spendByPromptVersion } = useSpendByPromptVersion();
 
   return (
-    <main className="flex h-screen flex-col gap-4 bg-white p-4">
+    <main className="flex h-screen flex-col gap-4 bg-background p-4">
       <header className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">Pilot Dashboard</h1>
-        <button
-          type="button"
-          onClick={() => void downloadDashboardCsv(actorContext)}
-          className="rounded bg-gray-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-900"
-        >
+        <h1 className="text-xl font-bold text-foreground">Pilot Dashboard</h1>
+        <Button variant="secondary" onClick={() => void downloadDashboardCsv(actorContext)}>
           Download CSV
-        </button>
+        </Button>
       </header>
 
-      {isLoading && <p className="text-gray-500">Loading metrics…</p>}
-      {isError && <p className="text-red-600">Failed to load dashboard metrics.</p>}
+      {isLoading && <p className="text-muted-foreground">Loading metrics…</p>}
+      {isError && <p className="text-destructive">Failed to load dashboard metrics.</p>}
 
       {metrics && (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -65,10 +64,12 @@ export function DashboardPage(): React.JSX.Element {
 
 function Tile({ label, value }: { label: string; value: string }): React.JSX.Element {
   return (
-    <div className="rounded-md border border-gray-200 p-4">
-      <p className="text-xs font-semibold text-gray-500">{label}</p>
-      <p className="mt-1 text-2xl font-bold text-gray-900">{value}</p>
-    </div>
+    <Card>
+      <CardContent>
+        <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+        <p className="mt-1 text-2xl font-bold text-foreground">{value}</p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -82,26 +83,23 @@ function SpendBreakdownChart({
   const maxUsd = Math.max(1, ...(rows ?? []).map((row) => row.total_usd));
 
   return (
-    <div className="rounded-md border border-gray-200 p-4">
-      <h2 className="mb-2 text-sm font-semibold text-gray-700">{title}</h2>
-      {!rows && <p className="text-sm text-gray-500">Loading…</p>}
-      {rows && rows.length === 0 && <p className="text-sm text-gray-400">No spend recorded</p>}
-      <ul className="flex flex-col gap-2">
-        {rows?.map((row) => (
-          <li key={row.label}>
-            <div className="flex items-center justify-between text-xs text-gray-600">
-              <span>{row.label}</span>
-              <span>${row.total_usd.toFixed(2)}</span>
-            </div>
-            <div className="h-2 w-full rounded-full bg-gray-100">
-              <div
-                className="h-2 rounded-full bg-blue-500"
-                style={{ width: `${(row.total_usd / maxUsd) * 100}%` }}
-              />
-            </div>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <Card>
+      <CardContent>
+        <h2 className="mb-2 text-sm font-semibold text-foreground">{title}</h2>
+        {!rows && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {rows && rows.length === 0 && <p className="text-sm text-muted-foreground">No spend recorded</p>}
+        <ul className="flex flex-col gap-2">
+          {rows?.map((row) => (
+            <li key={row.label}>
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{row.label}</span>
+                <span>${row.total_usd.toFixed(2)}</span>
+              </div>
+              <Progress value={(row.total_usd / maxUsd) * 100} />
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }

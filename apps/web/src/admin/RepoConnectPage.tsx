@@ -1,5 +1,9 @@
 import { useState } from "react";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   useConnectUrl,
   useDisconnectRepo,
@@ -9,10 +13,10 @@ import {
 } from "../api/queries";
 import { useAuth } from "../auth/AuthContext";
 
-function statusColor(status: string): string {
-  if (status === "active") return "bg-green-100 text-green-800";
-  if (status === "exported") return "bg-gray-200 text-gray-600";
-  return "bg-red-100 text-red-800";
+function statusBadgeClassName(status: string): string {
+  if (status === "active") return "border-green-300 bg-green-50 text-green-800";
+  if (status === "exported") return "border-transparent bg-muted text-muted-foreground";
+  return "border-red-300 bg-red-50 text-red-800";
 }
 
 export function RepoConnectPage(): React.JSX.Element {
@@ -29,7 +33,7 @@ export function RepoConnectPage(): React.JSX.Element {
   const [exportResult, setExportResult] = useState<{ repoId: number; url: string } | null>(null);
 
   if (!orgId) {
-    return <p className="p-4 text-gray-500">Loading…</p>;
+    return <p className="p-4 text-muted-foreground">Loading…</p>;
   }
 
   const items = repos?.items ?? [];
@@ -68,62 +72,65 @@ export function RepoConnectPage(): React.JSX.Element {
   };
 
   return (
-    <main className="mx-auto max-w-2xl p-6">
-      <h1 className="text-xl font-bold text-gray-900">Repos</h1>
-      <p className="mt-1 text-sm text-gray-500">
-        Connect your own GitHub repo (via the GitHub App) so agents deliver PRs there, or
-        provision a fresh repo we create and hand over later.
-      </p>
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="text-xl font-bold text-foreground">Repos</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Connect your own GitHub repo (via the GitHub App) so agents deliver PRs there, or
+          provision a fresh repo we create and hand over later.
+        </p>
+      </div>
 
-      <ul className="mt-4 flex flex-col gap-2">
+      <ul className="flex flex-col gap-2">
         {items.map((repo) => (
-          <li
-            key={repo.id}
-            className="flex flex-col gap-1 rounded border border-gray-200 p-3 text-sm"
-          >
+          <li key={repo.id} className="flex flex-col gap-1 rounded-lg border p-3 text-sm">
             <div className="flex items-center justify-between">
               <span className="font-medium">{repo.github_full_name ?? `repo #${repo.id}`}</span>
-              <span className={`rounded px-2 py-0.5 text-xs ${statusColor(repo.status)}`}>
+              <Badge variant="outline" className={statusBadgeClassName(repo.status)}>
                 {repo.status}
-              </span>
+              </Badge>
             </div>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-muted-foreground">
               {repo.mode} · default branch: {repo.default_branch ?? "unknown"}
             </span>
             {!repo.protected_branch_rules_verified && repo.status === "active" && (
-              <p role="alert" className="text-xs text-amber-700">
-                Default branch has no verified branch-protection rules on GitHub. Agent
-                pushes are still restricted to agent/* branches by this platform's own
-                code, but we recommend enabling protection on GitHub too.
-              </p>
+              <Alert variant="destructive" role="alert" className="border-amber-300 bg-amber-50">
+                <AlertDescription className="text-amber-800">
+                  Default branch has no verified branch-protection rules on GitHub. Agent
+                  pushes are still restricted to agent/* branches by this platform's own
+                  code, but we recommend enabling protection on GitHub too.
+                </AlertDescription>
+              </Alert>
             )}
             {repo.disconnected_reason && (
-              <p className="text-xs text-gray-500">{repo.disconnected_reason}</p>
+              <p className="text-xs text-muted-foreground">{repo.disconnected_reason}</p>
             )}
             {isOwner && repo.status === "active" && (
               <div className="flex items-center gap-3 text-xs">
-                <button
-                  type="button"
+                <Button
+                  variant="link"
+                  size="sm"
                   onClick={() => void handleExport(repo.id)}
                   disabled={exportRepo.isPending}
-                  className="text-gray-600 hover:underline disabled:opacity-50"
+                  className="h-auto p-0 text-muted-foreground"
                 >
                   Export (download archive)
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="link"
+                  size="sm"
                   onClick={() => void disconnectRepo.mutateAsync({ orgId, repoId: repo.id })}
                   disabled={disconnectRepo.isPending}
-                  className="ml-auto text-red-600 hover:underline disabled:opacity-50"
+                  className="ml-auto h-auto p-0 text-destructive"
                 >
                   Disconnect
-                </button>
+                </Button>
               </div>
             )}
             {exportResult?.repoId === repo.id && (
               <a
                 href={exportResult.url}
-                className="text-xs text-blue-600 hover:underline"
+                className="text-xs text-primary hover:underline"
                 target="_blank"
                 rel="noreferrer"
               >
@@ -133,47 +140,44 @@ export function RepoConnectPage(): React.JSX.Element {
           </li>
         ))}
         {items.length === 0 && (
-          <li className="text-sm text-gray-500">No repos connected or provisioned yet.</li>
+          <li className="text-sm text-muted-foreground">No repos connected or provisioned yet.</li>
         )}
       </ul>
 
       {isOwner && (
-        <div className="mt-6 flex flex-col gap-4">
-          <div className="flex flex-col gap-2 rounded border border-gray-200 p-4">
-            <h2 className="text-sm font-semibold text-gray-900">Connect a GitHub repo</h2>
-            <button
-              type="button"
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2 rounded-lg border p-4">
+            <h2 className="text-sm font-semibold text-foreground">Connect a GitHub repo</h2>
+            <Button
               onClick={() => void handleConnect()}
               disabled={connectUrl.isPending}
-              className="self-start rounded bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+              className="self-start"
             >
               Connect via GitHub App
-            </button>
+            </Button>
           </div>
 
-          <div className="flex flex-col gap-2 rounded border border-gray-200 p-4">
-            <h2 className="text-sm font-semibold text-gray-900">Provision a new repo</h2>
-            <input
+          <div className="flex flex-col gap-2 rounded-lg border p-4">
+            <h2 className="text-sm font-semibold text-foreground">Provision a new repo</h2>
+            <Input
               type="text"
               placeholder="repo-name"
               value={newRepoName}
               onChange={(event) => setNewRepoName(event.target.value)}
               aria-label="New repo name"
-              className="rounded border border-gray-300 px-2 py-1 text-sm"
             />
-            <button
-              type="button"
+            <Button
               onClick={() => void handleProvision()}
               disabled={!newRepoName || provisionRepo.isPending}
-              className="self-start rounded bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+              className="self-start"
             >
               Provision repo
-            </button>
+            </Button>
           </div>
 
-          {error && <p className="text-xs text-red-600">{error}</p>}
+          {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
       )}
-    </main>
+    </div>
   );
 }

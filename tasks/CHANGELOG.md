@@ -2201,3 +2201,57 @@ Format:
   forwarding, and this repo is on React 18; doesn't affect functionality,
   stripped in production builds, not hand-patched since these are
   CLI-generated files. Worth revisiting on a future shadcn/React upgrade.
+
+## T-209 · Full shadcn redesign — sidebar shell + onboarding flow + all pages — 2026-07-09
+- What changed: replaced the top nav with a fixed, always-expanded shadcn
+  `Sidebar` (`src/shell/AppSidebar.tsx`, grouped Workspace/Org/Staff nav,
+  `TopNav.tsx` deleted); redesigned the onboarding wizard with a numbered-
+  circle stepper and shadcn `Checkbox`/`Input`/`Card` throughout
+  (`OnboardingWizard.tsx`, `TosAcceptanceStep.tsx`, `CreateOrgStep.tsx`,
+  `ByokSetupGuide.tsx`); restyled all 11 remaining pages (Board suite,
+  Planning, Assignments, Dashboard, Keys, Repos, Impersonate, Intake,
+  Strikes, Funnel, Docs) with shadcn `Card`/`Table`/`Badge`/`Button`/
+  `Input`/`Textarea`/`Progress`/`Alert` — every hook, mutation, and piece
+  of state left untouched, markup only. Board's dnd-kit refs (draggable
+  `TicketCard`, droppable `Column`) deliberately kept on native DOM
+  elements rather than wrapped in shadcn `Card` (which isn't
+  `React.forwardRef`-wrapped in this Base UI/React-19-shaped CLI output
+  on a React-18 app — wrapping would have silently broken the drag ref).
+  `TicketDrawer.tsx` rebuilt on shadcn `Sheet`, adding Escape/backdrop-
+  click-to-close (disclosed as an intentional small behavior addition,
+  not silent scope creep — the old hand-rolled `<aside>` had neither).
+  Re-verified (not modified) that `OnboardingGate.tsx` already blocks
+  every route under `_loggedIn/_onboarded` until onboarding completes —
+  this pass makes that visually unmistakable, the gate itself needed no
+  changes.
+- Files touched: new — `src/shell/AppSidebar.tsx`,
+  `src/components/ui/{sidebar,checkbox,progress,textarea,tooltip}.tsx`,
+  `src/hooks/use-mobile.ts`. Modified — `src/shell/AppShell.tsx`,
+  `src/shell/OrgSwitcher.tsx`, `src/onboarding/*.tsx`,
+  `src/docs/ByokSetupGuide.tsx`, `src/board/*.tsx`,
+  `src/planning/PlanningReviewPage.tsx`,
+  `src/assignments/AssignmentQueuePage.tsx`,
+  `src/dashboard/DashboardPage.tsx`, `src/admin/*.tsx`,
+  `src/docs/CheckpointExplainerPage.tsx`,
+  `src/routes/_loggedIn/_onboarded/{keys,repos}.tsx` (gained a small
+  inline `<main>` wrapper since `ProviderKeysPage`/`RepoConnectPage` had
+  their own wrapper removed so they don't double-wrap when embedded in
+  the onboarding wizard). Deleted — `src/shell/TopNav.tsx`.
+- Test evidence: `apps/web` `tsc -b`/`eslint`/`vitest run`/`vite build`
+  clean after every batch. Real Playwright suite: `smoke.spec.ts` + all
+  3 `routing.spec.ts` tests green; `board.spec.ts`'s 4 `createTicket`
+  tests hit the same pre-existing, already-disclosed local `.env`
+  service-token override as T-208 (unrelated to this change; CI
+  unaffected). Independently hand-verified drag-and-drop + drawer
+  open/click/Escape-close via a real headless-Chromium script against a
+  dedicated `AUTH_DEV_MODE=true` instance, service token passed via an
+  environment variable (corrected after the auto-mode classifier
+  flagged an initial hardcoded-credential attempt): ticket created, card
+  rendered, drawer opened/closed correctly, drag from Ready → In
+  Progress succeeded, zero page errors. Screenshots taken against the
+  real running `docker compose` stack (api + web containers, real
+  Postgres/Vault) of the sidebar, onboarding "key" step, Dashboard, and
+  Docs pages — all render correctly with no console errors.
+- Notes / follow-ups: mobile sidebar responsiveness not addressed
+  (fixed sidebar only, per the human's explicit choice of the simpler
+  option over a collapsible one). No backend changes in this task.

@@ -1,5 +1,8 @@
 import { useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { useAuth } from "../auth/AuthContext";
 import { useImpersonateOrg } from "../api/queries";
 
@@ -20,31 +23,31 @@ export function ImpersonatePage(): React.JSX.Element {
   };
 
   return (
-    <main className="flex h-screen flex-col items-center justify-center gap-4 bg-white">
-      <h1 className="text-xl font-bold text-gray-900">Staff: view as org</h1>
-      <p className="max-w-sm text-center text-sm text-gray-500">
+    <main className="flex h-full flex-col items-center justify-center gap-4 bg-background p-6">
+      <h1 className="text-xl font-bold text-foreground">Staff: view as org</h1>
+      <p className="max-w-sm text-center text-sm text-muted-foreground">
         Starts a short-lived, read-mostly session scoped to the org below. Every page you
         visit while impersonating is audited.
       </p>
-      <div className="flex w-72 flex-col gap-2 rounded-md border border-gray-200 p-4">
-        <input
-          type="text"
-          placeholder="org id"
-          value={orgId}
-          onChange={(event) => setOrgId(event.target.value)}
-          aria-label="Org id"
-          className="rounded border border-gray-300 px-2 py-1 text-sm"
-        />
-        <button
-          type="button"
-          onClick={() => void handleImpersonate()}
-          disabled={!orgId || impersonate.isPending}
-          className="rounded bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-        >
-          View as this org
-        </button>
-        {error && <p className="text-xs text-red-600">{error}</p>}
-      </div>
+      <Card className="w-72">
+        <CardContent className="flex flex-col gap-2">
+          <Input
+            type="text"
+            placeholder="org id"
+            value={orgId}
+            onChange={(event) => setOrgId(event.target.value)}
+            aria-label="Org id"
+          />
+          <Button
+            variant="destructive"
+            onClick={() => void handleImpersonate()}
+            disabled={!orgId || impersonate.isPending}
+          >
+            View as this org
+          </Button>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </CardContent>
+      </Card>
     </main>
   );
 }
