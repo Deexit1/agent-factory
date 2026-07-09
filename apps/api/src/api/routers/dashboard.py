@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import UTC, datetime, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
@@ -7,10 +9,12 @@ from api.contracts import (
     DashboardMetricsOut,
     EscapedDefectReportIn,
     EscapedDefectReportOut,
+    FunnelCohortOut,
+    FunnelStageCountOut,
     SpendBreakdownOut,
 )
 from api.db.session import get_db
-from api.services import dashboard_service, ticket_service
+from api.services import dashboard_service, onboarding_service, ticket_service
 
 router = APIRouter(
     prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(get_actor_context)]
@@ -67,3 +71,27 @@ def report_escaped_defect(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return EscapedDefectReportOut.model_validate(report)
+
+
+@router.get("/funnel", response_model=FunnelCohortOut)
+def get_funnel(
+    start: datetime | None = Query(default=None),
+    end: datetime | None = Query(default=None),
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
+) -> FunnelCohortOut:
+    """T-206 (SPEC-206 AC4): a platform-wide cohort report, not this caller's own org's
+    data — staff-only, deliberately not gated by actor_context.org_id equality."""
+    if not actor_context.is_platform_staff:
+        raise HTTPException(status_code=403, detail="platform staff only")
+    if end is None:
+        end = datetime.now(UTC)
+    if start is None:
+        start = end - timedelta(days=30)
+
+    stages = onboarding_service.compute_funnel_cohort(db, cohort_start=start, cohort_end=end)
+    return FunnelCohortOut(
+        cohort_start=start,
+        cohort_end=end,
+        stages=[FunnelStageCountOut(stage=stage, org_count=count) for stage, count in stages],
+    )

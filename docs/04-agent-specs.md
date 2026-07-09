@@ -13,6 +13,7 @@ must pass the golden-set eval in CI before merge.
 | Test author | sonnet-class | repo, coverage report | `AcceptanceCriteria` → new/updated tests in the same PR |
 | Failure distiller | haiku-class | CI logs, artifacts | raw logs → `FailureReport` (failing test, expected vs actual, suspect files) |
 | Review agent | sonnet-class | PR diff, style guide, Semgrep output (T-106: an injectable string param today — CI's real Semgrep output isn't wired back to the agent yet) | PR → `ReviewResult` (comments + scope_violations + approve/block verdict; human may override) |
+| Intake screener | n/a — no LLM (T-206) | none; pure keyword/regex over title+spec | idea/task submission → `ScreeningVerdict` (pass\|review\|reject, reason, matched_rule) |
 
 ## Shared schema contracts (`packages/schemas`)
 - `TaskSpec`: id, title, context, constraints, acceptance_criteria[], complexity,
@@ -29,6 +30,16 @@ must pass the golden-set eval in CI before merge.
 - `BusinessCase`: idea_id, opportunity, market_evidence[cited], cost_estimate, risks[], recommendation
 
 Schemas are versioned; hand-offs validate or the orchestrator rejects the transition.
+
+**Intake screener is a deliberate exception to "every agent = prompt + model + eval"
+(T-206, SPEC-206 AC2).** `api.services.intake_screening_service.screen_content` is a
+pure, dependency-free keyword/regex engine (`apps/api/src/api/services/
+intake_screening_service.py`) — no prompt file, no `packages/schemas` structured-output
+type, no LLM call, no eval suite. This is the only thing AC2 is verified against in
+this environment (zero live Anthropic credit — same disclosed constraint as every other
+eval-gate in this repo). A haiku-class LLM judgment layer for genuinely ambiguous
+borderline cases was scoped but NOT built — no prompt/schema/router-entry scaffolding
+exists for it yet, a disclosed gap, not a partially-built feature.
 
 ## End-to-end verification (T-109)
 The full chain above (idea → planner → budget approval → Delivery Manager → 2 parallel

@@ -16,6 +16,11 @@ _BASE_TRANSITIONS: dict[TicketState, set[TicketState]] = {
     TicketState.IN_QA: {TicketState.DONE, TicketState.BOUNCED, TicketState.ESCALATED},
     TicketState.BOUNCED: {TicketState.IN_PROGRESS, TicketState.IN_QA},
     TicketState.ESCALATED: {TicketState.IN_PROGRESS, TicketState.PLANNING, TicketState.READY},
+    # T-206 (SPEC-206 AC5): the first-ever whitelisted exit from BLOCKED — previously
+    # there was none at all (a gap disclosed since T-203). Human-only (see the guard in
+    # _check_guard below): a struck org's appeal is decided by platform staff, never
+    # self-service, so this is deliberately NOT extended to any system actor.
+    TicketState.BLOCKED: {TicketState.READY},
 }
 
 # Every state may transition here, but only a human actor may request it.
@@ -205,3 +210,7 @@ def _check_guard(request: TransitionRequest) -> None:
             raise TransitionRejected(
                 "only a human may override a bounced ticket straight to QA"
             )
+
+    if request.from_state is TicketState.BLOCKED and request.to_state is TicketState.READY:
+        if not is_human_actor(request.actor):
+            raise TransitionRejected("only a human may reactivate a blocked ticket")

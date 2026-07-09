@@ -8,6 +8,13 @@ name: Nightly E2E Management Flow
 # integration/test_e2e_management_flow.py's own docstring for the full breakdown) —
 # a scheduled job that could fail on provider billing instead of a real regression
 # would be worse than not having it at all.
+#
+# T-206 (SPEC-206 AC1/AC2/AC3): also runs test_e2e_onboarding_flow.py — a fresh org's
+# real signup/ToS-acceptance/intake-screening path. Disclosed, not silently narrower
+# than it looks: it does NOT continue that new org's idea through planner/dev/review/
+# merge-queue to `done` (a pre-existing, disclosed "orchestrator isn't multi-org-aware"
+# gap, see that test file's own docstring for the full explanation) — the pipeline
+# mechanics above are what test_e2e_management_flow.py already covers, nightly.
 
 on:
   schedule:
@@ -31,3 +38,8 @@ jobs:
         run: |
           cd apps/orchestrator
           .venv/bin/pytest tests/integration/test_e2e_management_flow.py -v
+
+      - name: Run the T-206 onboarding end-to-end scenario
+        run: |
+          cd apps/orchestrator
+          .venv/bin/pytest tests/integration/test_e2e_onboarding_flow.py -v

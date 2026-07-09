@@ -3,10 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import {
   acceptInvite,
+  acceptTos,
   addProviderKey,
   answerPlanningQuestions,
+  appealStrike,
+  approveIntakeReview,
   approveTicket,
   createOrg,
+  createTicket,
   deleteProviderKey,
   disconnectRepo,
   exportRepo,
@@ -16,25 +20,33 @@ import {
   fetchDashboardMetrics,
   fetchDescendants,
   fetchEvalFloor,
+  fetchFunnelCohort,
+  fetchIntakeReviews,
   fetchMyOrgs,
+  fetchOnboardingStatus,
   fetchOrgMembers,
+  fetchOrgStrikes,
   fetchProviderKeys,
   fetchRepos,
   fetchSpendByPromptVersion,
   fetchSpendByProfile,
   fetchTicket,
   fetchTickets,
+  fetchTos,
   fetchUtilisation,
   healthCheckProviderKeys,
   impersonateOrg,
   inviteMember,
   optInEvalFloor,
   provisionRepo,
+  rejectIntakeReview,
   reportEscapedDefect,
   reportPageViewAudit,
+  resolveStrikeAppeal,
   returnToDev,
   rotateProviderKey,
   setFallbackOrder,
+  strikeOrg,
   switchOrg,
   transitionTicket,
   updateTask,
@@ -55,8 +67,14 @@ import type {
   ApprovalGate,
   CostRollup,
   CostSummary,
+  CreateTicketRequest,
   DashboardMetrics,
   Descendants,
+  FunnelCohort,
+  IntakeQueuedResult,
+  IntakeReview,
+  OnboardingStatus,
+  OrgStrike,
   SpendBreakdown,
   Ticket,
   TicketState,
@@ -240,13 +258,55 @@ export function useSwitchOrg() {
   });
 }
 
+export function useTos() {
+  const actorContext = useAuth();
+  return useQuery<{ version: string; policy_text: string }>({
+    queryKey: ["tos"],
+    queryFn: () => fetchTos(actorContext),
+  });
+}
+
 export function useCreateOrg() {
   const actorContext = useAuth();
   const queryClient = useQueryClient();
-  return useMutation<Org, ApiError, { name: string }>({
-    mutationFn: ({ name }) => createOrg(actorContext, name),
+  return useMutation<Org, ApiError, { name: string; tosVersion: string }>({
+    mutationFn: ({ name, tosVersion }) => createOrg(actorContext, name, tosVersion),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["orgs-mine"] });
+    },
+  });
+}
+
+export function useAcceptTos() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<unknown, ApiError, { orgId: string; tosVersion: string }>({
+    mutationFn: ({ orgId, tosVersion }) => acceptTos(actorContext, orgId, tosVersion),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: onboardingStatusQueryKey(variables.orgId) });
+    },
+  });
+}
+
+export const onboardingStatusQueryKey = (orgId: string | null) =>
+  ["onboarding-status", orgId] as const;
+
+export function useOnboardingStatus(orgId: string | null) {
+  const actorContext = useAuth();
+  return useQuery<OnboardingStatus>({
+    queryKey: onboardingStatusQueryKey(orgId),
+    queryFn: () => fetchOnboardingStatus(actorContext, orgId as string),
+    enabled: orgId !== null,
+  });
+}
+
+export function useCreateTicket() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<Ticket | IntakeQueuedResult, ApiError, CreateTicketRequest>({
+    mutationFn: (body) => createTicket(actorContext, body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ticketsQueryKey });
     },
   });
 }
@@ -436,5 +496,103 @@ export function useDisconnectRepo() {
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: reposQueryKey(variables.orgId) });
     },
+  });
+}
+
+// --- T-206 (SPEC-206): intake review queue ---
+
+export const intakeReviewsQueryKey = (status: string) => ["intake-reviews", status] as const;
+
+export function useIntakeReviews(status: string = "pending") {
+  const actorContext = useAuth();
+  return useQuery<{ items: IntakeReview[] }>({
+    queryKey: intakeReviewsQueryKey(status),
+    queryFn: () => fetchIntakeReviews(actorContext, status),
+    refetchInterval: 15000,
+  });
+}
+
+export function useApproveIntakeReview() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<Ticket, ApiError, { reviewId: number; note?: string }>({
+    mutationFn: ({ reviewId, note }) => approveIntakeReview(actorContext, reviewId, note),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["intake-reviews"] });
+    },
+  });
+}
+
+export function useRejectIntakeReview() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<IntakeReview, ApiError, { reviewId: number; note?: string }>({
+    mutationFn: ({ reviewId, note }) => rejectIntakeReview(actorContext, reviewId, note),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["intake-reviews"] });
+    },
+  });
+}
+
+// --- T-206 (SPEC-206): org strikes + appeal ---
+
+export const orgStrikesQueryKey = (orgId: string | null) => ["org-strikes", orgId] as const;
+
+export function useOrgStrikes(orgId: string | null) {
+  const actorContext = useAuth();
+  return useQuery<{ items: OrgStrike[] }>({
+    queryKey: orgStrikesQueryKey(orgId),
+    queryFn: () => fetchOrgStrikes(actorContext, orgId as string),
+    enabled: orgId !== null,
+    refetchInterval: 15000,
+  });
+}
+
+export function useStrikeOrg() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<OrgStrike, ApiError, { orgId: string; reason: string }>({
+    mutationFn: ({ orgId, reason }) => strikeOrg(actorContext, orgId, reason),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: orgStrikesQueryKey(variables.orgId) });
+    },
+  });
+}
+
+export function useAppealStrike() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<OrgStrike, ApiError, { orgId: string; strikeId: number; note: string }>({
+    mutationFn: ({ orgId, strikeId, note }) => appealStrike(actorContext, orgId, strikeId, note),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: orgStrikesQueryKey(variables.orgId) });
+    },
+  });
+}
+
+export function useResolveStrikeAppeal() {
+  const actorContext = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation<
+    OrgStrike,
+    ApiError,
+    { strikeId: number; decision: "reinstate" | "deny"; orgId?: string }
+  >({
+    mutationFn: ({ strikeId, decision }) => resolveStrikeAppeal(actorContext, strikeId, decision),
+    onSuccess: (_data, variables) => {
+      if (variables.orgId) {
+        void queryClient.invalidateQueries({ queryKey: orgStrikesQueryKey(variables.orgId) });
+      }
+    },
+  });
+}
+
+// --- T-206 (SPEC-206): funnel dashboard ---
+
+export function useFunnelCohort(start?: string, end?: string) {
+  const actorContext = useAuth();
+  return useQuery<FunnelCohort>({
+    queryKey: ["funnel-cohort", start, end],
+    queryFn: () => fetchFunnelCohort(actorContext, start, end),
   });
 }

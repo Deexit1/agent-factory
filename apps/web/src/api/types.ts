@@ -141,3 +141,69 @@ export interface UpdateTaskRequest {
   acceptance_criteria?: AcceptanceCriterion[];
   budget_usd?: number;
 }
+
+export interface OnboardingStatus {
+  org_id: string;
+  tos_accepted: boolean;
+  has_provider_key: boolean;
+  has_repo: boolean;
+  has_idea_ticket: boolean;
+}
+
+export interface IntakeQueuedResult {
+  status: "queued_for_review";
+  intake_review_id: number;
+  reason: string;
+}
+
+export function isIntakeQueuedResult(
+  value: Ticket | IntakeQueuedResult,
+): value is IntakeQueuedResult {
+  return "status" in value && value.status === "queued_for_review";
+}
+
+export type IntakeReviewStatus = "pending" | "approved" | "rejected";
+
+export interface IntakeReview {
+  id: number;
+  org_id: string;
+  ticket_type: string;
+  title: string;
+  parent_id: string | null;
+  budget_usd: number | null;
+  repo_id: number | null;
+  submitted_by: string;
+  submitted_at: string;
+  status: IntakeReviewStatus;
+  screening_reason: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+}
+
+export type OrgStrikeStatus = "active" | "appealed" | "reinstated" | "denied";
+
+export interface OrgStrike {
+  id: number;
+  org_id: string;
+  reason: string;
+  struck_by: string;
+  struck_at: string;
+  status: OrgStrikeStatus;
+  appeal_note: string | null;
+  appealed_by: string | null;
+  appealed_at: string | null;
+  appeal_decided_by: string | null;
+  appeal_decided_at: string | null;
+}
+
+export interface FunnelStageCount {
+  stage: string;
+  org_count: number;
+}
+
+export interface FunnelCohort {
+  cohort_start: string;
+  cohort_end: string;
+  stages: FunnelStageCount[];
+}

@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 
 import { ImpersonatePage } from "./admin/ImpersonatePage";
+import { FunnelDashboardPage } from "./admin/FunnelDashboardPage";
+import { IntakeReviewPage } from "./admin/IntakeReviewPage";
+import { OrgStrikesPage } from "./admin/OrgStrikesPage";
 import { ProviderKeysPage } from "./admin/ProviderKeysPage";
 import { RepoConnectPage } from "./admin/RepoConnectPage";
 import { AssignmentQueuePage } from "./assignments/AssignmentQueuePage";
@@ -8,6 +11,8 @@ import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { LoginPage } from "./auth/LoginPage";
 import { BoardPage } from "./board/BoardPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
+import { CheckpointExplainerPage } from "./docs/CheckpointExplainerPage";
+import { OnboardingWizard } from "./onboarding/OnboardingWizard";
 import { PlanningReviewPage } from "./planning/PlanningReviewPage";
 import { useMyOrgs, usePageViewAudit, useSwitchOrg } from "./api/queries";
 
@@ -18,7 +23,12 @@ type View =
   | "dashboard"
   | "keys"
   | "repos"
-  | "impersonate";
+  | "docs"
+  | "onboarding"
+  | "impersonate"
+  | "intake"
+  | "strikes"
+  | "funnel";
 
 function OrgSwitcher(): React.JSX.Element | null {
   const { orgId, setToken } = useAuth();
@@ -123,14 +133,53 @@ function AuthedApp(): React.JSX.Element {
           >
             Repos
           </button>
-          {isPlatformStaff && !impersonating && (
+          <button
+            type="button"
+            onClick={() => setView("docs")}
+            className={view === "docs" ? "font-semibold text-gray-900" : "text-gray-500"}
+          >
+            Docs
+          </button>
+          {!impersonating && (
             <button
               type="button"
-              onClick={() => setView("impersonate")}
-              className={view === "impersonate" ? "font-semibold text-gray-900" : "text-gray-500"}
+              onClick={() => setView("onboarding")}
+              className={view === "onboarding" ? "font-semibold text-gray-900" : "text-gray-500"}
             >
-              Staff
+              Get started
             </button>
+          )}
+          {isPlatformStaff && !impersonating && (
+            <>
+              <button
+                type="button"
+                onClick={() => setView("impersonate")}
+                className={view === "impersonate" ? "font-semibold text-gray-900" : "text-gray-500"}
+              >
+                Staff
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("intake")}
+                className={view === "intake" ? "font-semibold text-gray-900" : "text-gray-500"}
+              >
+                Intake
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("strikes")}
+                className={view === "strikes" ? "font-semibold text-gray-900" : "text-gray-500"}
+              >
+                Strikes
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("funnel")}
+                className={view === "funnel" ? "font-semibold text-gray-900" : "text-gray-500"}
+              >
+                Funnel
+              </button>
+            </>
           )}
         </div>
         <div className="flex items-center gap-3 text-gray-500">
@@ -148,7 +197,12 @@ function AuthedApp(): React.JSX.Element {
         {view === "dashboard" && <DashboardPage />}
         {view === "keys" && <ProviderKeysPage />}
         {view === "repos" && <RepoConnectPage />}
+        {view === "docs" && <CheckpointExplainerPage />}
+        {view === "onboarding" && <OnboardingWizard onComplete={() => setView("board")} />}
         {view === "impersonate" && <ImpersonatePage />}
+        {view === "intake" && <IntakeReviewPage />}
+        {view === "strikes" && <OrgStrikesPage />}
+        {view === "funnel" && <FunnelDashboardPage />}
       </div>
     </div>
   );

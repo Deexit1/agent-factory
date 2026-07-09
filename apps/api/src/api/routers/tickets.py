@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from api.auth import ActorContext, get_actor_context
@@ -10,6 +10,7 @@ from api.contracts import (
     CreateTicketRequest,
     DescendantsOut,
     EventOut,
+    IntakeQueuedOut,
     PaginatedEvents,
     PaginatedTickets,
     RecordUsageEventRequest,
@@ -22,25 +23,36 @@ from api.contracts import (
 )
 from api.db.models import TicketState, TicketType
 from api.db.session import get_db
-from api.services import ticket_service
+from api.services import intake_service, ticket_service
 
 router = APIRouter(prefix="/tickets", tags=["tickets"], dependencies=[Depends(get_actor_context)])
 
 APPROVER_ROLES = {"approver", "owner"}
 
 
-@router.post("", response_model=TicketOut, status_code=201)
+@router.post("", response_model=TicketOut | IntakeQueuedOut, status_code=201)
 def create_ticket(
     request: CreateTicketRequest,
+    response: Response,
     actor_context: ActorContext = Depends(get_actor_context),
     db: Session = Depends(get_db),
-) -> TicketOut:
+) -> TicketOut | IntakeQueuedOut:
     try:
         ticket = ticket_service.create_ticket(db, request, org_id=actor_context.org_id)
     except ticket_service.RepoNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ticket_service.RepoNotActive as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ticket_service.TosNotCurrent as exc:
+        raise HTTPException(
+            status_code=403,
+            detail=f"org must accept the current ToS (version {exc.current_version}) first",
+        ) from exc
+    except intake_service.IntakeRejected as exc:
+        raise HTTPException(status_code=422, detail=exc.reason) from exc
+    except intake_service.IntakeQueuedForReview as exc:
+        response.status_code = 202
+        return IntakeQueuedOut(intake_review_id=exc.review_id, reason=exc.reason)
     return TicketOut.model_validate(ticket)
 
 

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from api.routers import (
+    abuse,
     admin,
     agent_runs,
     artifacts,
@@ -18,11 +19,13 @@ from api.routers import (
     egress,
     eval_floors,
     health,
+    intake_reviews,
     merge_queue,
     orgs,
     provider_keys,
     repos,
     tickets,
+    tos,
     webhooks,
     ws_tickets,
 )
@@ -74,3 +77,7 @@ app.include_router(egress.router)
 app.include_router(egress.effective_router)
 app.include_router(artifacts.router)
 app.include_router(billing.router)
+app.include_router(intake_reviews.router)
+app.include_router(abuse.router)
+app.include_router(abuse.admin_router)
+app.include_router(tos.router)

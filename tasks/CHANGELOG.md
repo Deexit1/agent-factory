@@ -1927,3 +1927,152 @@ Format:
   tickets have no unblock path (billing- or otherwise) — a pre-existing
   gap since T-203, not created or closed here. See `tasks/BACKLOG.md`'s
   T-205 entry for the full per-AC evidence and architecture-decision list.
+
+## T-206 · Onboarding & abuse controls — 2026-07-09
+- What changed: Implemented SPEC-206 — a self-serve org-creation wizard
+  reached via an explicit "Get started" nav entry after OIDC/dev-login
+  (`apps/web/src/onboarding/OnboardingWizard.tsx`: ToS accept →
+  `POST /orgs` → mandatory `POST /auth/switch-org` → the *existing*
+  `ProviderKeysPage`/`RepoConnectPage` reused inside wizard chrome → a
+  new `CreateFirstIdeaStep`, the first real ticket-creation UI surface
+  in this app). Originally auto-triggered on login for any session
+  without an `idea`-type ticket; reverted to an explicit nav entry after
+  PR #21's own CI `e2e` job showed this broke the pre-existing Playwright
+  suite (and would have broken any real org that only ever works with
+  `task`-type tickets directly) — see the dedicated bug-fix bullet
+  below. A real, deterministic (zero-LLM) intake-screening rules
+  engine (`api/services/intake_screening_service.py`) gating
+  `POST /tickets` for idea/task submissions, with a staff-only review
+  queue (`intake_reviews` table, `POST /admin/intake-reviews/{id}/
+  approve|reject`) for borderline matches and an immediate 422 for
+  hard-rejects; real ToS acceptance recorded transactionally with org
+  creation (`tos_acceptances` table) and re-prompted (ticket creation
+  403s) once `api.tos.CURRENT_TOS_VERSION` moves past an org's latest
+  acceptance — orgs with no acceptance record at all (every pre-T-206
+  org) are grandfathered, not retroactively broken; platform-staff org
+  strikes (`org_strikes` table, `POST /admin/orgs/{id}/strikes`) that
+  force-block every in-flight ticket via the exact loop
+  `billing_service.pause_org_for_nonpayment` (T-205) already
+  established, plus the first-ever whitelisted exit from `BLOCKED`
+  (`BLOCKED → READY`, human-only) so a staff-approved appeal
+  (`POST /orgs/{id}/strikes/{id}/appeal` self-service request,
+  `POST /admin/strikes/{id}/resolve-appeal` staff-only decision) can
+  actually reactivate them — closing a gap disclosed since T-203; and a
+  derived (not event-sourced) cross-org funnel dashboard
+  (`onboarding_service.compute_funnel_cohort`, `GET /dashboard/funnel`,
+  staff-only) computing each stage's org count live from existing
+  timestamped rows. New `GET /tos` endpoint so neither the wizard UI nor
+  any test ever hardcodes a ToS version. Resolved via AskUserQuestion:
+  "self-serve signup (email + OAuth)" is satisfied by OIDC alone (real
+  IdPs authenticate via email identity) — no new password-based auth
+  mechanism, zero change to the locked `docs/06-tech-stack.md` Auth row;
+  the actually-missing piece was the org-creation wizard itself.
+- Files touched: `apps/api/src/api/db/models.py` (3 new models:
+  `TosAcceptance`, `IntakeReview`, `OrgStrike`), new migration
+  `b3c4d5e6f7a8_onboarding_abuse.py`, new `api/tos.py`, new
+  `api/routers/tos.py`, `api/routers/intake_reviews.py` (new),
+  `api/routers/abuse.py` (new), `api/routers/orgs.py` (tos_version on
+  create, `POST /orgs/{id}/tos/accept`, `GET /orgs/{id}/
+  onboarding-status`), `api/routers/tickets.py` (screening + ToS gate
+  wired into `create_ticket`), `api/routers/dashboard.py` (`GET
+  /dashboard/funnel`), `api/services/intake_screening_service.py` (new,
+  pure), `api/services/intake_service.py` (new), `api/services/
+  abuse_service.py` (new), `api/services/onboarding_service.py` (new),
+  `api/services/org_service.py`, `api/services/ticket_service.py`,
+  `api/domain/state_machine.py` (new `BLOCKED → READY` edge),
+  `api/repositories/{intake,abuse,funnel,tos}_repository.py` (all new),
+  `api/repositories/ticket_repository.py` (`list_blocked_by_org`),
+  `api/contracts.py`, `api/main.py`,
+  `scripts/check_tenant_scope_gate.py` (6 new allowlist entries),
+  `.env.example`; `apps/web/src/onboarding/*` (new: `OnboardingWizard`,
+  `TosAcceptanceStep`, `CreateOrgStep`, `CreateFirstIdeaStep`),
+  `apps/web/src/admin/{IntakeReviewPage,OrgStrikesPage,
+  FunnelDashboardPage}.tsx` (all new), `apps/web/src/docs/*` (new:
+  `ByokSetupGuide`, `CheckpointExplainerPage`), `apps/web/src/api/
+  {client,queries,types}.ts`, `apps/web/src/App.tsx`; new
+  `apps/orchestrator/tests/integration/test_e2e_onboarding_flow.py`,
+  `apps/orchestrator/tests/integration/conftest.py` (new `STAFF_EMAIL`
+  constant + `PLATFORM_STAFF_EMAILS` in the `running_api` env),
+  `.github/workflows/nightly-e2e.yml`; plus 6 new test files under
+  `apps/api/tests/`; docs: `docs/02-data-model.md`,
+  `docs/03-state-machine.md`, `docs/04-agent-specs.md`,
+  `docs/09-saas-model.md`.
+- Test evidence: `apps/api` 233/233 green (up from 199 — 34 new: 9 pure
+  `intake_screening_service` unit tests, 6 intake-review-flow, 6
+  ToS-acceptance incl. `GET /tos`, 8 org-strikes, 2 funnel-dashboard, 2
+  onboarding-status, 1 membership-race regression), ruff/mypy clean, all four static gates pass
+  (`llm-router-gate`, `tenant-scope-gate`, `github-app-gate`,
+  `razorpay-gate` — no new gate needed, T-206 added no new external
+  vendor client). Migration verified reversible for real (`alembic
+  upgrade head` → `downgrade -1` → `upgrade head` against a throwaway
+  Postgres database, not just inferred). `apps/orchestrator` 83/83 green
+  (up from 80 — 3 new `test_e2e_onboarding_flow.py` tests), ruff/mypy
+  clean. `apps/web` `tsc -b`/`eslint`/`vitest run`/`vite build` all
+  clean; every new page was smoke-tested for real against a real running
+  stack (real Postgres + real dev-mode Vault + real `apps/api`/
+  `apps/web` dev servers) via real headless-Chromium (Playwright) — a
+  fresh dev-login viewer reaching the wizard, accepting ToS, creating an
+  org, and reaching a correctly-rendered BYOK key step (real Vault write
+  path); a platform-staff session seeing all four new nav buttons and
+  every new admin page rendering with zero console errors; the funnel
+  endpoint verified against real seeded data via a direct request. Two
+  real bugs caught and fixed along the way, not just by design review:
+  (1) `OnboardingWizard`'s initial-step logic used `orgId` truthiness to
+  decide whether to skip ToS+org-creation — since every authenticated
+  session always has an `orgId` (even the auto-joined default org), this
+  always jumped straight to the key step; fixed to key off
+  `onboardingStatus.tos_accepted` instead, which is genuinely false for
+  the ungraduated default org. (2) The staff-facing `OrgStrikesPage` UI
+  called `GET /orgs/{id}/strikes`, but that route's original
+  `_require_member` gate 404'd for platform staff viewing a non-member
+  org — added `_require_member_or_staff` (staff already sees everything
+  about any org via impersonation, T-201) and a dedicated regression
+  test proving staff can list a non-member org's strikes for real.
+  (3) PR #21's own real CI `e2e` job (Playwright, `e2e/board.spec.ts`)
+  failed with a 500 from `POST /auth/dev-login` —
+  `psycopg.errors.UniqueViolation` on `uq_org_members_org_user`.
+  `org_service.get_or_create_dev_membership`/`ensure_default_org_membership`
+  had the exact same check-then-insert TOCTOU race
+  `user_service.get_or_create_user` was already fixed for; Playwright's
+  parallel workers all log in as the same fixed email in a
+  `beforeEach`, so two workers' dev-logins can race past the
+  "no existing membership" check before either commits. Pre-existing,
+  not introduced by this ticket's own new code, but directly triggered
+  by it. Fixed with the same `except IntegrityError: rollback();
+  re-fetch` recovery `get_or_create_user` already uses, plus a
+  regression test proving the repository layer raises the specific
+  exception type the recovery depends on. (4) After that fix, CI's
+  `e2e` job failed a different way: `board.spec.ts` timed out unable to
+  find the board at all. Root cause: `App.tsx`'s wizard trigger
+  (`!onboardingStatus.has_idea_ticket`) auto-redirected ANY session
+  without an `idea`-type ticket into the wizard — including the
+  pre-existing e2e suite's fixed `e2e-default@example.com` fixture user,
+  which only ever creates `task`-type tickets via `e2e/api.ts` and
+  expects direct board access. This was a real design flaw, not just a
+  test-compatibility issue: any real org that only ever works with tasks
+  directly would have been permanently locked out of the board. Fixed by
+  making the wizard a normal, explicit "Get started" nav entry instead
+  of an auto-redirect gate; re-verified locally with the real Playwright
+  suite (5/5 passing) against manually-started real dev servers before
+  pushing the fix.
+- Notes / follow-ups: no haiku-class LLM intake-screening layer was
+  built at all (scoped but zero prompt/schema/router scaffolding exists
+  — a disclosed gap, not a partial feature, see `docs/04-agent-specs.md`
+  for why the deterministic rules engine is what AC2 is actually
+  verified against in an environment with zero live Anthropic credit).
+  The orchestrator's dev-agent pipeline (planner → Delivery Manager →
+  dev → review → merge queue) cannot run against a freshly created,
+  non-default org today — `dispatch_gate.resolve_dispatch`'s
+  service-principal-only `runtime-keys` check and `ticket_service`'s
+  actor-derived `org_id` scoping can't both be satisfied by one
+  `ApiClient` instance, confirmed by reading `dispatch_gate.py`/
+  `provider_keys.py` directly. This is the same "orchestrator isn't
+  multi-org-aware" gap T-202/T-205 already disclosed, not created or
+  closed here — `test_e2e_onboarding_flow.py`'s own docstring has the
+  full explanation, and `test_e2e_management_flow.py` (T-109) remains
+  the independent, nightly proof that the full idea→done pipeline
+  mechanics work for real. Strike reinstatement is org-wide, not
+  per-strike-cause (no `blocked_reason` column). No real legal ToS/AUP
+  text, no real product-analytics vendor, no live OIDC IdP in this
+  environment (unchanged since T-008/T-201). See `tasks/BACKLOG.md`'s
+  T-206 entry for the full per-AC evidence and architecture-decision list.
