@@ -9,8 +9,12 @@ if [ ! -f .env ]; then
   cp .env.example .env
 fi
 
-docker compose up -d postgres
+docker compose up -d postgres vault
 until docker compose ps postgres | grep -q "healthy"; do sleep 1; done
+# Onboarding-gate enforcement's global-setup.ts writes a real BYOK key to Vault even
+# when PROVIDER_KEY_VALIDATION_SKIP skips the live SDK ping (add_or_rotate_key still
+# calls vault.put_key) — the API needs a real Vault to write to, same as local dev.
+until docker compose ps vault | grep -q "healthy"; do sleep 1; done
 
 set -a
 source .env
