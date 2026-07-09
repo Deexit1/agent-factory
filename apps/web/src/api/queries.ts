@@ -14,6 +14,7 @@ import {
   deleteProviderKey,
   disconnectRepo,
   exportRepo,
+  fetchBillingUsage,
   fetchConnectUrl,
   fetchCostRollup,
   fetchCostSummary,
@@ -24,6 +25,7 @@ import {
   fetchIntakeReviews,
   fetchMyOrgs,
   fetchOnboardingStatus,
+  fetchOrgBilling,
   fetchOrgMembers,
   fetchOrgStrikes,
   fetchProviderKeys,
@@ -65,6 +67,7 @@ import type {
   Approval,
   ApprovalDecision,
   ApprovalGate,
+  BillingUsage,
   CostRollup,
   CostSummary,
   CreateTicketRequest,
@@ -74,6 +77,7 @@ import type {
   IntakeQueuedResult,
   IntakeReview,
   OnboardingStatus,
+  OrgBilling,
   OrgStrike,
   SpendBreakdown,
   Ticket,
@@ -596,5 +600,29 @@ export function useFunnelCohort(start?: string, end?: string) {
   return useQuery<FunnelCohort>({
     queryKey: ["funnel-cohort", start, end],
     queryFn: () => fetchFunnelCohort(actorContext, start, end),
+  });
+}
+
+// --- T-208: billing/usage display (SPEC-205 AC5) ---
+
+export const billingQueryKey = (orgId: string | null) => ["billing", orgId] as const;
+
+export function useOrgBilling(orgId: string | null) {
+  const actorContext = useAuth();
+  return useQuery<OrgBilling>({
+    queryKey: billingQueryKey(orgId),
+    queryFn: () => fetchOrgBilling(actorContext, orgId as string),
+    enabled: orgId !== null,
+  });
+}
+
+export const billingUsageQueryKey = (orgId: string | null) => ["billing-usage", orgId] as const;
+
+export function useBillingUsage(orgId: string | null) {
+  const actorContext = useAuth();
+  return useQuery<BillingUsage>({
+    queryKey: billingUsageQueryKey(orgId),
+    queryFn: () => fetchBillingUsage(actorContext, orgId as string),
+    enabled: orgId !== null,
   });
 }
