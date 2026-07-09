@@ -186,12 +186,51 @@ not here. First login auto-joins the seeded default org as `viewer` unless the e
 is pre-seeded via `ADMIN_EMAILS` (→ `owner`) or the user already has a membership from
 an accepted invite. `is_platform_staff` (bootstrapped via `PLATFORM_STAFF_EMAILS`,
 mirroring `ADMIN_EMAILS`'s pattern) is a separate, cross-org concept — staff
-impersonation, not an org role.
+impersonation, not an org role. T-206: `apps/web`'s `OnboardingWizard` now gives a
+freshly auto-joined viewer a real self-serve path OUT of that seeded default org —
+`POST /orgs` (ToS acceptance bundled transactionally) → `POST /auth/switch-org` →
+BYOK key → repo → first idea — closing the gap where org creation was API-only with
+no UI entry point.
 
 ## escaped_defect_reports
 `id, ticket_id, note, reported_by, ts` — manual entry feeding the pilot dashboard's
 "escaped defects" metric (docs/00-vision.md); a defect found after a ticket reached
 `done` that QA didn't catch.
+
+## tos_acceptances (T-206)
+`id, org_id (FK), accepted_by, tos_version, accepted_at` — unique on
+`(org_id, tos_version)`, mirroring `provider_eval_opt_ins`'s "one row per (tenant,
+versioned-dimension)" shape. Written transactionally by `org_service.create_org`
+(bundled into org creation — an org can't exist before ToS acceptance) and by
+`POST /orgs/{id}/tos/accept` (re-acceptance after `api.tos.CURRENT_TOS_VERSION`
+bumps). An org with NO row here at all (every pre-T-206 org, including the seeded
+default org) is grandfathered — `ticket_service._is_org_tos_current` only re-prompts
+orgs that have accepted a version before and have since gone stale.
+
+## intake_reviews (T-206)
+`id, org_id (FK), ticket_type, title, parent_id (nullable FK tickets), spec (jsonb),
+acceptance_criteria (jsonb), budget_usd, repo_id (nullable FK repos), submitted_by,
+submitted_at, status (pending|approved|rejected), screening_reason, decided_by,
+decided_at, decision_note` — one row per idea/task submission that didn't pass
+`intake_screening_service.screen_content` cleanly (a pure, dependency-free keyword/
+regex engine covering SPEC-206's four named categories: malware, credential attacks,
+scraping farms, spam infra — no LLM call, no live Anthropic credit needed).
+Hard-rejects are decided immediately (`status=rejected`, `decided_by="system:
+intake-screener"`); borderline matches wait `pending` for a platform-staff decision
+(`POST /admin/intake-reviews/{id}/approve|reject`). A clean `pass` writes no row here
+at all, so this table stays a real audit/review signal, not routine noise.
+
+## org_strikes (T-206)
+`id, org_id (FK), reason, struck_by, struck_at, status (active|appealed|reinstated|
+denied), appeal_note, appealed_by, appealed_at, appeal_decided_by, appeal_decided_at` —
+a platform-staff-imposed abuse strike (`POST /admin/orgs/{id}/strikes`), which
+force-blocks every in-flight ticket via the same loop `billing_service.
+pause_org_for_nonpayment` (T-205) established. Appeal *request* is owner-initiated
+self-service (`POST /orgs/{id}/strikes/{id}/appeal`); appeal *decision* is
+platform-staff-only (`POST /admin/strikes/{id}/resolve-appeal`) — an org can never
+un-strike itself. Reinstatement is org-wide, not per-strike-cause: no
+`blocked_reason` column exists to distinguish an abuse-block from a simultaneous
+billing-block, a disclosed limitation (see docs/09-saas-model.md).
 
 ## Rules
 - No updates or deletes on `ticket_events` and `cost_ledger` — append-only, enforced by

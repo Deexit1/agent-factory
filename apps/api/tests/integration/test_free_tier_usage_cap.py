@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from api.billing_plans import PLANS
 from api.db.models import AgentRun, AgentRunStatus, Org
 from api.services import billing_service
+from api.tos import CURRENT_TOS_VERSION
 
 from .conftest import _auth
 from .test_tickets_api import _dev_login
@@ -20,7 +21,11 @@ from .test_tickets_api import _dev_login
 
 def _owner_org_token(client: TestClient, email: str, org_name: str) -> tuple[str, str]:
     owner_token = _dev_login(client, email, "owner")
-    org = client.post("/orgs", json={"name": org_name}, headers=_auth(owner_token)).json()
+    org = client.post(
+        "/orgs",
+        json={"name": org_name, "tos_version": CURRENT_TOS_VERSION},
+        headers=_auth(owner_token),
+    ).json()
     org_id = org["id"]
     owner_org_token = client.post(
         "/auth/switch-org", json={"org_id": org_id}, headers=_auth(owner_token)

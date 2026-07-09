@@ -44,6 +44,24 @@ _ALLOWLIST = {
     "get_org_by_razorpay_subscription_id",  # billing_repository.py: T-205 — a Razorpay
     # webhook delivery only ever gives us a subscription id, never an org_id; the caller
     # resolves org_id from the returned row (same shape as list_by_installation above)
+    "get_intake_review_any_org",  # intake_repository.py: T-206 — platform staff review
+    # submissions across every org, not just their own; the staff-only route
+    # (ActorContext.is_platform_staff) is the enforcement point, not an org_id compare
+    "get_strike_any_org",  # abuse_repository.py: T-206 — same staff-cross-org shape as
+    # get_intake_review_any_org above
+    "list_orgs_created_between",  # funnel_repository.py: T-206 — the funnel dashboard's
+    # one legitimate cross-tenant sweep (a platform-wide cohort report), same shape as
+    # billing_repository.list_all_org_ids
+    "org_ids_with_tos_acceptance",  # funnel_repository.py: T-206 — takes a LIST of
+    # org_ids spanning the whole cohort by design (a platform-wide report), not a
+    # single org_id to scope by; same justification as list_orgs_created_between above
+    "org_ids_with_provider_key",  # funnel_repository.py: T-206 — see
+    # org_ids_with_tos_acceptance above
+    "org_ids_with_repo",  # funnel_repository.py: T-206 — see org_ids_with_tos_acceptance
+    "org_ids_with_idea_ticket",  # funnel_repository.py: T-206 — see
+    # org_ids_with_tos_acceptance above
+    "org_ids_with_merged_pr",  # funnel_repository.py: T-206 — see
+    # org_ids_with_tos_acceptance above
 }
 
 

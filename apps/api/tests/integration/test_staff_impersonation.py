@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.tenancy import DEFAULT_ORG_ID
+from api.tos import CURRENT_TOS_VERSION
 
 from .test_tenant_isolation import _create_task_as
 from .test_tickets_api import _dev_login
@@ -32,7 +33,11 @@ def test_platform_staff_can_impersonate_and_it_is_audited(
     staff_token = _dev_login(client, "staff@example.com", "viewer")
 
     bob_token = _dev_login(client, "bob-impersonated@example.com", "owner")
-    org_b = client.post("/orgs", json={"name": "Impersonated org"}, headers=_auth(bob_token)).json()
+    org_b = client.post(
+        "/orgs",
+        json={"name": "Impersonated org", "tos_version": CURRENT_TOS_VERSION},
+        headers=_auth(bob_token),
+    ).json()
     bob_org_b_token = client.post(
         "/auth/switch-org", json={"org_id": org_b["id"]}, headers=_auth(bob_token)
     ).json()["token"]

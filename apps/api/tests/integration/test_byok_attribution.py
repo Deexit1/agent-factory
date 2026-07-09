@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.services import provider_key_service
+from api.tos import CURRENT_TOS_VERSION
 
 from .test_tickets_api import _dev_login
 
@@ -28,7 +29,11 @@ def _create_org_with_key(
     client: TestClient, *, owner_email: str, org_name: str, api_key: str
 ) -> tuple[str, str]:
     owner_token = _dev_login(client, owner_email, "owner")
-    org = client.post("/orgs", json={"name": org_name}, headers=_auth(owner_token)).json()
+    org = client.post(
+        "/orgs",
+        json={"name": org_name, "tos_version": CURRENT_TOS_VERSION},
+        headers=_auth(owner_token),
+    ).json()
     owner_org_token = client.post(
         "/auth/switch-org", json={"org_id": org["id"]}, headers=_auth(owner_token)
     ).json()["token"]

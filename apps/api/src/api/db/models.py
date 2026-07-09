@@ -468,6 +468,97 @@ class Repo(Base):
     created_by: Mapped[str] = mapped_column()
 
 
+class TosAcceptance(Base):
+    """T-206 (SPEC-206 AC3): one row per (org, ToS version) an owner has accepted.
+    Bundled into org creation (`org_service.create_org` writes this in the same
+    transaction as the `Org` row) since every domain table carries `org_id` and an org
+    doesn't exist before wizard step 1. Re-acceptance for a version bump is a separate
+    `POST /orgs/{id}/tos/accept` call. Mirrors `ProviderEvalOptIn`'s "one row per
+    (tenant, versioned-dimension)" shape."""
+
+    __tablename__ = "tos_acceptances"
+    __table_args__ = (
+        UniqueConstraint("org_id", "tos_version", name="uq_tos_acceptances_org_version"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
+    accepted_by: Mapped[str] = mapped_column()
+    tos_version: Mapped[str] = mapped_column()
+    accepted_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class IntakeReviewStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class IntakeReview(Base):
+    """T-206 (SPEC-206 AC2): one row per idea/task submission that didn't pass straight
+    through `intake_screening_service.screen_content` — a hard-reject (status=rejected,
+    decided immediately by the screener) or a borderline case awaiting platform-staff
+    review (status=pending). No unique constraint: repeated hard-rejects each get their
+    own audit row, by design. A `pass` verdict writes no row here at all, so this table
+    stays small and every row is either a rejection reason or a real review decision —
+    mirrors `OrgInvite`'s/`MergeQueueEntry`'s "one table, multiple statuses" shape."""
+
+    __tablename__ = "intake_reviews"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
+    ticket_type: Mapped[str] = mapped_column()  # "idea" | "task"
+    title: Mapped[str] = mapped_column()
+    parent_id: Mapped[str | None] = mapped_column(ForeignKey("tickets.id"), default=None)
+    spec: Mapped[dict[str, object] | None] = mapped_column(JSONB, default=None)
+    acceptance_criteria: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list)
+    budget_usd: Mapped[float | None] = mapped_column(Numeric, default=None)
+    repo_id: Mapped[int | None] = mapped_column(ForeignKey("repos.id"), default=None)
+    submitted_by: Mapped[str] = mapped_column()
+    submitted_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    # Plain string, not a native Postgres enum (matches Org.billing_status's own
+    # precedent) — avoids the documented two-migration ADD-VALUE-then-USE split.
+    status: Mapped[str] = mapped_column(default=IntakeReviewStatus.PENDING.value)
+    screening_reason: Mapped[str | None] = mapped_column(default=None)
+    decided_by: Mapped[str | None] = mapped_column(default=None)
+    decided_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), default=None)
+    decision_note: Mapped[str | None] = mapped_column(default=None)
+
+
+class OrgStrikeStatus(StrEnum):
+    ACTIVE = "active"
+    APPEALED = "appealed"
+    REINSTATED = "reinstated"
+    DENIED = "denied"
+
+
+class OrgStrike(Base):
+    """T-206 (SPEC-206 AC5): a platform-staff-imposed abuse strike. Imposing a strike
+    reuses `billing_service.pause_org_for_nonpayment`'s force-block loop verbatim
+    (`ticket_repository.list_in_flight_by_org` + `ticket_service.request_transition` to
+    BLOCKED) — the actor is `human:{staff_email}`, already covered by
+    `state_machine.is_human_actor`, so no new `_SYSTEM_BLOCK_ACTORS` entry is needed.
+    Appeal *request* is owner-initiated (self-service); appeal *decision* is
+    platform-staff-only — an org cannot un-strike itself."""
+
+    __tablename__ = "org_strikes"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"))
+    reason: Mapped[str] = mapped_column()
+    struck_by: Mapped[str] = mapped_column()
+    struck_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    # Plain string, not a native Postgres enum — same rationale as IntakeReview.status.
+    status: Mapped[str] = mapped_column(default=OrgStrikeStatus.ACTIVE.value)
+    appeal_note: Mapped[str | None] = mapped_column(default=None)
+    appealed_by: Mapped[str | None] = mapped_column(default=None)
+    appealed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), default=None)
+    appeal_decided_by: Mapped[str | None] = mapped_column(default=None)
+    appeal_decided_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), default=None
+    )
+
+
 class OrgEgressRule(Base):
     """T-204 (SPEC-204 AC3): one org-approved addition to the sandbox egress
     allow-list, on top of `sandbox.config.DEFAULT_ALLOWED_DOMAINS` (the base list every

@@ -17,6 +17,10 @@ FIXTURES_DIR = Path(__file__).resolve().parents[2] / "fixtures"
 TEST_POSTGRES_PORT = 55599
 TEST_API_PORT = 18199
 SERVICE_TOKEN = "orchestrator-test-service-token-at-least-32-bytes"
+# T-206: a fixed platform-staff email baked into the running_api subprocess's own env
+# (session-scoped, can't be overridden per-test) — lets test_e2e_onboarding_flow.py
+# dev-login as a real staff session instead of faking one.
+STAFF_EMAIL = "onboarding-e2e-staff@example.com"
 
 
 def _api_python() -> str:
@@ -71,6 +75,7 @@ def running_api() -> Iterator[str]:
             "ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY") or "sk-ant-test-fake-key",
             "VAULT_ADDR": os.environ.get("VAULT_ADDR", "http://localhost:8200"),
             "VAULT_TOKEN": os.environ.get("VAULT_TOKEN", "test-vault-token"),
+            "PLATFORM_STAFF_EMAILS": STAFF_EMAIL,
         }
         _wait_for_postgres(python, database_url)
 

@@ -7,6 +7,11 @@ import type {
   CreateTicketRequest,
   DashboardMetrics,
   Descendants,
+  FunnelCohort,
+  IntakeQueuedResult,
+  IntakeReview,
+  OnboardingStatus,
+  OrgStrike,
   Paginated,
   SpendBreakdown,
   Ticket,
@@ -165,7 +170,11 @@ export function fetchTicket(
 export function createTicket(
   actorContext: ActorContext,
   body: CreateTicketRequest,
-): Promise<Ticket> {
+): Promise<Ticket | IntakeQueuedResult> {
+  // T-206 (SPEC-206 AC2): a 201 response is a real Ticket; a 202 response means the
+  // submission was routed to the staff intake-review queue instead — callers branch on
+  // isIntakeQueuedResult(). A 403/422 (stale ToS / hard-rejected content) still throws
+  // ApiError via request()'s normal error path.
   return request("/tickets", actorContext, {
     method: "POST",
     body: JSON.stringify(body),
@@ -224,11 +233,37 @@ export function fetchMyOrgs(actorContext: ActorContext): Promise<{ items: Org[] 
   return request("/orgs/mine", actorContext);
 }
 
-export function createOrg(actorContext: ActorContext, name: string): Promise<Org> {
+export function fetchTos(actorContext: ActorContext): Promise<{ version: string; policy_text: string }> {
+  return request("/tos", actorContext);
+}
+
+export function createOrg(
+  actorContext: ActorContext,
+  name: string,
+  tosVersion: string,
+): Promise<Org> {
   return request("/orgs", actorContext, {
     method: "POST",
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, tos_version: tosVersion }),
   });
+}
+
+export function acceptTos(
+  actorContext: ActorContext,
+  orgId: string,
+  tosVersion: string,
+): Promise<void> {
+  return request(`/orgs/${orgId}/tos/accept`, actorContext, {
+    method: "POST",
+    body: JSON.stringify({ tos_version: tosVersion }),
+  });
+}
+
+export function fetchOnboardingStatus(
+  actorContext: ActorContext,
+  orgId: string,
+): Promise<OnboardingStatus> {
+  return request(`/orgs/${orgId}/onboarding-status`, actorContext);
 }
 
 export function inviteMember(
@@ -491,4 +526,89 @@ export async function downloadDashboardCsv(actorContext: ActorContext): Promise<
   link.download = "pilot-dashboard.csv";
   link.click();
   URL.revokeObjectURL(url);
+}
+
+// --- T-206 (SPEC-206): intake review queue, org strikes/appeal, funnel dashboard ---
+
+export function fetchIntakeReviews(
+  actorContext: ActorContext,
+  status: string = "pending",
+): Promise<{ items: IntakeReview[] }> {
+  const query = new URLSearchParams({ status });
+  return request(`/admin/intake-reviews?${query.toString()}`, actorContext);
+}
+
+export function approveIntakeReview(
+  actorContext: ActorContext,
+  reviewId: number,
+  note?: string,
+): Promise<Ticket> {
+  return request(`/admin/intake-reviews/${reviewId}/approve`, actorContext, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+}
+
+export function rejectIntakeReview(
+  actorContext: ActorContext,
+  reviewId: number,
+  note?: string,
+): Promise<IntakeReview> {
+  return request(`/admin/intake-reviews/${reviewId}/reject`, actorContext, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+}
+
+export function fetchOrgStrikes(
+  actorContext: ActorContext,
+  orgId: string,
+): Promise<{ items: OrgStrike[] }> {
+  return request(`/orgs/${orgId}/strikes`, actorContext);
+}
+
+export function strikeOrg(
+  actorContext: ActorContext,
+  orgId: string,
+  reason: string,
+): Promise<OrgStrike> {
+  return request(`/admin/orgs/${orgId}/strikes`, actorContext, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function appealStrike(
+  actorContext: ActorContext,
+  orgId: string,
+  strikeId: number,
+  note: string,
+): Promise<OrgStrike> {
+  return request(`/orgs/${orgId}/strikes/${strikeId}/appeal`, actorContext, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+}
+
+export function resolveStrikeAppeal(
+  actorContext: ActorContext,
+  strikeId: number,
+  decision: "reinstate" | "deny",
+): Promise<OrgStrike> {
+  return request(`/admin/strikes/${strikeId}/resolve-appeal`, actorContext, {
+    method: "POST",
+    body: JSON.stringify({ decision }),
+  });
+}
+
+export function fetchFunnelCohort(
+  actorContext: ActorContext,
+  start?: string,
+  end?: string,
+): Promise<FunnelCohort> {
+  const query = new URLSearchParams();
+  if (start) query.set("start", start);
+  if (end) query.set("end", end);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request(`/dashboard/funnel${suffix}`, actorContext);
 }

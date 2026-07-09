@@ -6,6 +6,8 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+from api.tos import CURRENT_TOS_VERSION
+
 from .test_tickets_api import _create_task, _dev_login
 
 
@@ -35,7 +37,11 @@ def test_owner_cannot_read_or_write_another_orgs_tickets(client: TestClient) -> 
     task_a = _create_task(client)  # default org, via the client fixture's service token
 
     bob_token = _dev_login(client, "bob@example.com", "owner")
-    org_b = client.post("/orgs", json={"name": "Org B"}, headers=_auth(bob_token)).json()
+    org_b = client.post(
+        "/orgs",
+        json={"name": "Org B", "tos_version": CURRENT_TOS_VERSION},
+        headers=_auth(bob_token),
+    ).json()
     switched = client.post(
         "/auth/switch-org", json={"org_id": org_b["id"]}, headers=_auth(bob_token)
     )
@@ -62,7 +68,11 @@ def test_invited_member_gets_role_appropriate_access_and_viewer_cannot_approve(
     not approve — the existing 403 gate, now exercised via a real invite + accept
     round trip instead of dev-login's role param alone)."""
     bob_token = _dev_login(client, "bob-invites@example.com", "owner")
-    org_b = client.post("/orgs", json={"name": "Org B invites"}, headers=_auth(bob_token)).json()
+    org_b = client.post(
+        "/orgs",
+        json={"name": "Org B invites", "tos_version": CURRENT_TOS_VERSION},
+        headers=_auth(bob_token),
+    ).json()
     bob_org_b_token = client.post(
         "/auth/switch-org", json={"org_id": org_b["id"]}, headers=_auth(bob_token)
     ).json()["token"]
@@ -105,7 +115,9 @@ def test_invited_member_gets_role_appropriate_access_and_viewer_cannot_approve(
 def test_only_the_org_owner_may_invite_members(client: TestClient) -> None:
     bob_token = _dev_login(client, "bob-owner-only@example.com", "owner")
     org_b = client.post(
-        "/orgs", json={"name": "Owner-only org"}, headers=_auth(bob_token)
+        "/orgs",
+        json={"name": "Owner-only org", "tos_version": CURRENT_TOS_VERSION},
+        headers=_auth(bob_token),
     ).json()
     bob_org_b_token = client.post(
         "/auth/switch-org", json={"org_id": org_b["id"]}, headers=_auth(bob_token)

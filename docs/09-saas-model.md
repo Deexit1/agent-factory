@@ -238,7 +238,76 @@ decision, no live account for either):**
   acceptable only for the closed beta. As of T-204, every isolation mechanism AROUND
   the runtime (scheduling, egress, storage ACLs, escape-tests) is real; the hypervisor
   swap itself is the one piece still not live-verified — see "Sandbox isolation" above.
-- Acceptable-use policy; automated screening of idea/task content at intake (malware,
-  scraping farms, credential attacks, spam infrastructure → reject + audit event).
 - Per-org egress allow-list additions require human platform-staff approval — real as of
   T-204 (`org_egress_rules`, staff-only `POST/DELETE /orgs/{id}/egress-rules`).
+
+**T-206 status (SPEC-206), real as of this session:**
+1. **Self-serve onboarding wizard (AC1).** `apps/web/src/onboarding/OnboardingWizard.tsx`
+   chains the pieces T-201–205 already built into one guided flow: ToS accept →
+   `POST /orgs` (ToS acceptance recorded transactionally) → `POST /auth/switch-org`
+   (a real trap this UI has to handle — org creation does NOT re-mint the caller's
+   session token) → the *existing* `ProviderKeysPage`/`RepoConnectPage` components
+   rendered inside wizard chrome (reused, not duplicated) → a new
+   `CreateFirstIdeaStep`, the first real ticket-creation UI surface in this app. A
+   fresh OIDC/dev-login still auto-joins the seeded default org as `viewer`
+   unchanged (T-008/T-201); the wizard is what gives that viewer a real path to
+   their OWN org, closing the gap where org creation was API-only.
+2. **Automated intake screening (AC2), real, rule-based, zero LLM.**
+   `api.services.intake_screening_service.screen_content` is a pure keyword/regex
+   engine (malware, credential attacks, scraping farms, spam infra hard-reject;
+   adjacent-but-legitimate terms like "web scraper"/"penetration testing" route to
+   a staff review queue instead) — the only mechanism AC2 is verified against, since
+   this environment has zero live Anthropic credit (same disclosed constraint as
+   every other eval-gate here). A haiku-class LLM judgment layer for genuinely
+   ambiguous cases was scoped but NOT built — no prompt/schema/router scaffolding
+   exists for it, a disclosed gap (see docs/04-agent-specs.md). Hard-rejects and
+   review-queue entries are audited in a new `intake_reviews` table; staff resolve
+   via `POST /admin/intake-reviews/{id}/approve|reject` (`apps/web`'s new
+   `IntakeReviewPage.tsx`).
+3. **ToS acceptance + re-prompt (AC3), real.** New `tos_acceptances` table,
+   `(org_id, tos_version)`-unique. Orgs that HAVE accepted before are re-prompted
+   (ticket creation 403s) once `api.tos.CURRENT_TOS_VERSION` moves past their latest
+   acceptance, until `POST /orgs/{id}/tos/accept`. Orgs with NO acceptance record at
+   all (every pre-T-206 org, including the seeded default org) are grandfathered —
+   not retroactively broken, same judgment as T-201's nullable
+   `max_parallel_tickets`. `api.tos.py`'s policy text is an explicit placeholder,
+   same framing as `billing_plans.py`'s pricing tiers.
+4. **Strike/appeal (AC5), real, closes a gap disclosed since T-203.** A
+   platform-staff-imposed strike (`POST /admin/orgs/{id}/strikes`, new
+   `org_strikes` table) force-blocks every in-flight ticket — the exact
+   `list_in_flight_by_org`/`request_transition`-to-`BLOCKED` loop
+   `billing_service.pause_org_for_nonpayment` (T-205) already established, actor
+   `human:{staff_email}` (already covered by `is_human_actor`, no new
+   `_SYSTEM_BLOCK_ACTORS` entry needed). Appeal *request* is owner-initiated
+   self-service (`POST /orgs/{id}/strikes/{id}/appeal`); appeal *decision* is
+   platform-staff-only (`POST /admin/strikes/{id}/resolve-appeal`) — an org can
+   never un-strike itself. `state_machine.py` gains the first-ever whitelisted exit
+   from `BLOCKED` (`BLOCKED → READY`, human-only) — previously there was none at
+   all, a gap disclosed since T-203/T-205. **Known, disclosed limitation:**
+   reinstatement is org-wide, not per-strike-cause — no `blocked_reason` column
+   exists yet to distinguish an abuse-block from a simultaneous billing-block.
+5. **Funnel telemetry (AC4), real, derived — not an event log.** No new
+   `funnel_events` table: `onboarding_service.compute_funnel_cohort` derives each
+   stage's org count from existing timestamped rows (`orgs.created_at`,
+   `tos_acceptances`, `provider_keys`, `repos`, first `idea`-type `tickets`, first
+   `merge_queue_entries.status=merged`) for orgs created in a cohort window — simpler
+   and lower-risk than a new write-hooked event table, and exactly reproducible from
+   seeded fixture rows. `GET /dashboard/funnel`, staff-only (`apps/web`'s new
+   `FunnelDashboardPage.tsx`), is a platform-wide cross-org aggregate, deliberately
+   not gated by the caller's own `org_id` the way every other org-scoped route is.
+6. **Not yet real / disclosed non-goals:** no real anonymous-visitor funnel
+   (telemetry starts at org creation, per SPEC-206's own "org-level" wording); no
+   real product-analytics vendor; no live OIDC IdP registered in this environment
+   (unchanged since T-008/T-201); no real legal ToS/AUP text. The orchestrator's
+   dev-agent pipeline (planner → Delivery Manager → dev → review → merge queue)
+   still cannot run against a freshly created, non-default org — `dispatch_gate.
+   resolve_dispatch`'s service-principal-only `runtime-keys` check and
+   `ticket_service`'s actor-derived `org_id` scoping can't both be satisfied by one
+   `ApiClient` instance today. This is the same "orchestrator isn't multi-org-aware"
+   gap T-202/T-205 already disclosed, not something T-206 created or closes — see
+   `apps/orchestrator/tests/integration/test_e2e_onboarding_flow.py`'s own
+   docstring for the full explanation. That test proves the real, new onboarding
+   mechanics (signup → ToS → org → intake screening, landing a real ticket in the
+   correct new org); `test_e2e_management_flow.py` (T-109) independently, already
+   proves the full idea-to-done pipeline mechanics, nightly, against the one org the
+   orchestrator can currently dispatch against.

@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from schemas.models import DEFAULT_REPO, FailureReport
 from sqlalchemy.orm import Session
 
-from api import billing_plans
+from api import billing_plans, tos
 from api.capability_registry import load_registry
 from api.contracts import CreateTicketRequest
 from api.db.models import (
@@ -22,9 +22,10 @@ from api.db.models import (
     UsageEvent,
 )
 from api.domain import state_machine
-from api.repositories import agent_run_repository, repo_repository
+from api.repositories import agent_run_repository, repo_repository, tos_repository
 from api.repositories import billing_repository as billing_repo
 from api.repositories import ticket_repository as repo
+from api.services import intake_service
 from api.ws.broadcaster import broadcaster
 
 
@@ -78,7 +79,36 @@ class RepoNotActive(Exception):
         super().__init__(f"repo {repo_id} is not active")
 
 
+class TosNotCurrent(Exception):
+    def __init__(self, current_version: str) -> None:
+        self.current_version = current_version
+        super().__init__(f"org must accept ToS version {current_version} before creating tickets")
+
+
+def _is_org_tos_current(session: Session, *, org_id: str) -> bool:
+    """T-206 (SPEC-206 AC3): "re-prompted on ToS change" — an org that HAS accepted a
+    ToS version before is blocked from creating new tickets once that version goes
+    stale, until it re-accepts (POST /orgs/{id}/tos/accept). An org with NO acceptance
+    record at all is grandfathered (not blocked) — same judgment as T-201's nullable
+    max_parallel_tickets and T-205's org.plan defaulting: pre-T-206 orgs (the seeded
+    default org, every existing test fixture that creates an org via
+    org_repository.create_org directly, bypassing the wizard) keep working unmodified.
+    Only orgs that actually went through org_service.create_org (which always writes a
+    TosAcceptance row transactionally) are subject to re-prompting."""
+    latest = tos_repository.get_latest_tos_acceptance(session, org_id=org_id)
+    if latest is None:
+        return True
+    return tos.is_current(latest.tos_version)
+
+
 def create_ticket(session: Session, request: CreateTicketRequest, *, org_id: str) -> Ticket:
+    if not _is_org_tos_current(session, org_id=org_id):
+        raise TosNotCurrent(tos.CURRENT_TOS_VERSION)
+
+    # T-206 (SPEC-206 AC2): raises IntakeRejected/IntakeQueuedForReview for prohibited/
+    # borderline content — no Ticket row is created in either case.
+    intake_service.screen_submission(session, request, org_id=org_id)
+
     spec = request.spec
     if request.repo_id is not None:
         # T-203 architecture decision 4: repo capacity accounting stays keyed off

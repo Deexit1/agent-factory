@@ -4,6 +4,8 @@ as dispatchable."""
 
 from fastapi.testclient import TestClient
 
+from api.tos import CURRENT_TOS_VERSION
+
 from .test_tickets_api import _dev_login
 
 
@@ -13,7 +15,11 @@ def _auth(token: str) -> dict[str, str]:
 
 def test_anthropic_is_verified_for_dev_no_opt_in_needed(client: TestClient) -> None:
     owner_token = _dev_login(client, "floors-owner1@example.com", "owner")
-    org = client.post("/orgs", json={"name": "Floors org 1"}, headers=_auth(owner_token)).json()
+    org = client.post(
+        "/orgs",
+        json={"name": "Floors org 1", "tos_version": CURRENT_TOS_VERSION},
+        headers=_auth(owner_token),
+    ).json()
     owner_org_token = client.post(
         "/auth/switch-org", json={"org_id": org["id"]}, headers=_auth(owner_token)
     ).json()["token"]
@@ -31,7 +37,11 @@ def test_anthropic_is_verified_for_dev_no_opt_in_needed(client: TestClient) -> N
 
 def test_openai_is_unverified_for_dev_and_requires_opt_in(client: TestClient) -> None:
     owner_token = _dev_login(client, "floors-owner2@example.com", "owner")
-    org = client.post("/orgs", json={"name": "Floors org 2"}, headers=_auth(owner_token)).json()
+    org = client.post(
+        "/orgs",
+        json={"name": "Floors org 2", "tos_version": CURRENT_TOS_VERSION},
+        headers=_auth(owner_token),
+    ).json()
     owner_org_token = client.post(
         "/auth/switch-org", json={"org_id": org["id"]}, headers=_auth(owner_token)
     ).json()["token"]
@@ -65,7 +75,11 @@ def test_delivery_manager_has_no_eval_floor_concept_so_it_is_never_gated(
     client: TestClient,
 ) -> None:
     owner_token = _dev_login(client, "floors-owner3@example.com", "owner")
-    org = client.post("/orgs", json={"name": "Floors org 3"}, headers=_auth(owner_token)).json()
+    org = client.post(
+        "/orgs",
+        json={"name": "Floors org 3", "tos_version": CURRENT_TOS_VERSION},
+        headers=_auth(owner_token),
+    ).json()
     owner_org_token = client.post(
         "/auth/switch-org", json={"org_id": org["id"]}, headers=_auth(owner_token)
     ).json()["token"]
@@ -81,7 +95,11 @@ def test_delivery_manager_has_no_eval_floor_concept_so_it_is_never_gated(
 
 def test_non_owner_cannot_opt_in(client: TestClient) -> None:
     owner_token = _dev_login(client, "floors-owner4@example.com", "owner")
-    org = client.post("/orgs", json={"name": "Floors org 4"}, headers=_auth(owner_token)).json()
+    org = client.post(
+        "/orgs",
+        json={"name": "Floors org 4", "tos_version": CURRENT_TOS_VERSION},
+        headers=_auth(owner_token),
+    ).json()
     owner_org_token = client.post(
         "/auth/switch-org", json={"org_id": org["id"]}, headers=_auth(owner_token)
     ).json()["token"]

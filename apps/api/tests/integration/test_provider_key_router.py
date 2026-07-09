@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from api.services import provider_key_service
+from api.tos import CURRENT_TOS_VERSION
 from api.vault_client import VaultClient
 
 from .test_tickets_api import _dev_login
@@ -31,7 +32,9 @@ def _no_real_provider_validation(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _create_org_as(client: TestClient, token: str, name: str) -> dict[str, Any]:
-    response = client.post("/orgs", json={"name": name}, headers=_auth(token))
+    response = client.post(
+        "/orgs", json={"name": name, "tos_version": CURRENT_TOS_VERSION}, headers=_auth(token)
+    )
     assert response.status_code == 201, response.text
     return response.json()  # type: ignore[no-any-return]
 

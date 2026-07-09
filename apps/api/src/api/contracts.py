@@ -226,6 +226,9 @@ class SessionOut(BaseModel):
 
 class CreateOrgRequest(BaseModel):
     name: str
+    # T-206 (SPEC-206 AC3): must equal api.tos.CURRENT_TOS_VERSION — an org can't be
+    # created without accepting the current ToS, recorded transactionally.
+    tos_version: str
 
 
 class OrgOut(BaseModel):
@@ -604,3 +607,115 @@ class BillingUsageOut(BaseModel):
     base_fee_inr: float
     total_inr: float
     line_items: list[BillingUsageLineOut]
+
+
+class TosOut(BaseModel):
+    version: str
+    policy_text: str
+
+
+class TosAcceptanceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    org_id: str
+    accepted_by: str
+    tos_version: str
+    accepted_at: datetime
+
+
+class AcceptTosRequest(BaseModel):
+    tos_version: str = Field(min_length=1)
+
+
+class OnboardingStatusOut(BaseModel):
+    """T-206: derived live from existing rows each call — no wizard-progress table to
+    drift out of sync with reality."""
+
+    org_id: str
+    tos_accepted: bool
+    has_provider_key: bool
+    has_repo: bool
+    has_idea_ticket: bool
+
+
+class IntakeQueuedOut(BaseModel):
+    """Returned (202) instead of TicketOut when intake screening routes a submission to
+    the staff review queue instead of creating a ticket immediately."""
+
+    status: Literal["queued_for_review"] = "queued_for_review"
+    intake_review_id: int
+    reason: str
+
+
+class IntakeReviewOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    org_id: str
+    ticket_type: str
+    title: str
+    parent_id: str | None
+    budget_usd: float | None
+    repo_id: int | None
+    submitted_by: str
+    submitted_at: datetime
+    status: str
+    screening_reason: str | None
+    decided_by: str | None
+    decided_at: datetime | None
+    decision_note: str | None
+
+
+class IntakeReviewListOut(BaseModel):
+    items: list[IntakeReviewOut]
+
+
+class ResolveIntakeReviewRequest(BaseModel):
+    note: str | None = None
+
+
+class StrikeOrgRequest(BaseModel):
+    reason: str = Field(min_length=1)
+
+
+class OrgStrikeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    org_id: str
+    reason: str
+    struck_by: str
+    struck_at: datetime
+    status: str
+    appeal_note: str | None
+    appealed_by: str | None
+    appealed_at: datetime | None
+    appeal_decided_by: str | None
+    appeal_decided_at: datetime | None
+
+
+class OrgStrikeListOut(BaseModel):
+    items: list[OrgStrikeOut]
+
+
+class AppealStrikeRequest(BaseModel):
+    note: str = Field(min_length=1)
+
+
+class ResolveAppealRequest(BaseModel):
+    decision: Literal["reinstate", "deny"]
+    note: str | None = None
+
+
+class FunnelStageCountOut(BaseModel):
+    stage: str
+    org_count: int
+
+
+class FunnelCohortOut(BaseModel):
+    """AC4: exactly reproducible from seeded fixture rows — each stage's count is a
+    derived aggregate (min(timestamp column) per org), not an event-sourced tally."""
+
+    cohort_start: datetime
+    cohort_end: datetime
+    stages: list[FunnelStageCountOut]

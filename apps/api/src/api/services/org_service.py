@@ -1,9 +1,11 @@
 import os
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
 from api.db.models import Org, OrgInvite, OrgInviteStatus, OrgMember, UserRole
 from api.repositories import org_repository as repo
+from api.repositories import tos_repository
 from api.tenancy import DEFAULT_ORG_ID
 
 
@@ -21,9 +23,19 @@ def _admin_emails() -> set[str]:
     return {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
 
 
-def create_org(session: Session, *, name: str, owner_email: str) -> Org:
+def create_org(session: Session, *, name: str, owner_email: str, tos_version: str) -> Org:
+    """T-206 (SPEC-206 AC3): every org's creation transactionally records its owner's
+    ToS acceptance — an org can't exist before wizard step 1, so acceptance can't
+    predate it either."""
     org = repo.create_org(session, name=name)
     repo.create_membership(session, org_id=org.id, user_email=owner_email, role=UserRole.OWNER)
+    tos_repository.record_tos_acceptance(
+        session,
+        org_id=org.id,
+        accepted_by=owner_email,
+        tos_version=tos_version,
+        accepted_at=datetime.now(UTC),
+    )
     session.commit()
     return org
 
@@ -110,6 +122,25 @@ def list_members(session: Session, *, org_id: str) -> list[OrgMember]:
     return repo.list_members(session, org_id=org_id)
 
 
+def accept_tos(session: Session, *, org_id: str, accepted_by: str, tos_version: str) -> None:
+    """T-206 (SPEC-206 AC3): re-acceptance for an existing org whose latest recorded
+    version is stale (bumped tos.CURRENT_TOS_VERSION). Idempotent per (org, version) —
+    the unique constraint means re-accepting an already-accepted version is a no-op
+    error the caller doesn't need to special-case, since ticket_service only ever
+    checks "is the latest version current", not "how many times was it accepted"."""
+    existing = tos_repository.get_latest_tos_acceptance(session, org_id=org_id)
+    if existing is not None and existing.tos_version == tos_version:
+        return
+    tos_repository.record_tos_acceptance(
+        session,
+        org_id=org_id,
+        accepted_by=accepted_by,
+        tos_version=tos_version,
+        accepted_at=datetime.now(UTC),
+    )
+    session.commit()
+
+
 __all__ = [
     "OrgNotFound",
     "InviteNotFound",
@@ -121,4 +152,5 @@ __all__ = [
     "invite_member",
     "accept_invite",
     "list_members",
+    "accept_tos",
 ]

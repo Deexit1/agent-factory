@@ -5,12 +5,16 @@ auth — no mocked HTTP boundary needed, this is pure DB + auth-gate logic."""
 import pytest
 from fastapi.testclient import TestClient
 
+from api.tos import CURRENT_TOS_VERSION
+
 from .conftest import _auth, _service_auth
 from .test_tickets_api import _dev_login
 
 
 def _create_org_as(client: TestClient, token: str, name: str) -> dict[str, object]:
-    response = client.post("/orgs", json={"name": name}, headers=_auth(token))
+    response = client.post(
+        "/orgs", json={"name": name, "tos_version": CURRENT_TOS_VERSION}, headers=_auth(token)
+    )
     assert response.status_code == 201, response.text
     return response.json()  # type: ignore[return-value]
 

@@ -210,6 +210,18 @@ def list_in_flight_by_org(session: Session, *, org_id: str) -> list[Ticket]:
     )
 
 
+def list_blocked_by_org(session: Session, *, org_id: str) -> list[Ticket]:
+    """T-206 (SPEC-206 AC5): which tickets an appeal reinstatement needs
+    force-transitioned back to READY via the new BLOCKED -> READY state-machine edge."""
+    return list(
+        session.execute(
+            select(Ticket).where(Ticket.org_id == org_id, Ticket.state == TicketState.BLOCKED)
+        )
+        .scalars()
+        .all()
+    )
+
+
 def has_approval(
     session: Session,
     ticket_id: str,

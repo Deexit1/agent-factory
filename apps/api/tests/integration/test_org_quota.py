@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from api.tos import CURRENT_TOS_VERSION
+
 from .test_tickets_api import _dev_login
 
 
@@ -45,7 +47,11 @@ def test_exceeding_the_org_quota_leaves_the_extra_task_ready_with_a_quota_event(
     client: TestClient, db_session: Session
 ) -> None:
     bob_token = _dev_login(client, "bob-quota@example.com", "owner")
-    org_b = client.post("/orgs", json={"name": "Quota org"}, headers=_auth(bob_token)).json()
+    org_b = client.post(
+        "/orgs",
+        json={"name": "Quota org", "tos_version": CURRENT_TOS_VERSION},
+        headers=_auth(bob_token),
+    ).json()
     bob_org_b_token = client.post(
         "/auth/switch-org", json={"org_id": org_b["id"]}, headers=_auth(bob_token)
     ).json()["token"]
@@ -81,7 +87,11 @@ def test_org_with_no_quota_configured_is_unaffected(client: TestClient) -> None:
     (including the seeded default org every other test in this suite runs against)
     must be completely unaffected by this feature."""
     bob_token = _dev_login(client, "bob-no-quota@example.com", "owner")
-    org_b = client.post("/orgs", json={"name": "No quota org"}, headers=_auth(bob_token)).json()
+    org_b = client.post(
+        "/orgs",
+        json={"name": "No quota org", "tos_version": CURRENT_TOS_VERSION},
+        headers=_auth(bob_token),
+    ).json()
     bob_org_b_token = client.post(
         "/auth/switch-org", json={"org_id": org_b["id"]}, headers=_auth(bob_token)
     ).json()["token"]
