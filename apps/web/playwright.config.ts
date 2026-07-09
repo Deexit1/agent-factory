@@ -6,6 +6,10 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: "list",
+  // Onboarding-gate enforcement (apps/web/src/App.tsx): completes real onboarding for
+  // the pre-existing "default" org once, before any test, so every test's dev-login
+  // (e2e/api.ts's loginAs) lands in an already-onboarded org — no per-test changes.
+  globalSetup: "./e2e/global-setup.ts",
   use: {
     baseURL: "http://localhost:5173",
     trace: "on-first-retry",

@@ -163,6 +163,39 @@ def handle_connect_callback(
     return created
 
 
+def _fixture_provisioning_enabled() -> bool:
+    """Onboarding-gate enforcement needs `has_repo` to be reachable without a live
+    GitHub App registered (none exists in this environment — see
+    docs/06-tech-stack.md's repeated disclosure since T-203). Same precedent as
+    AUTH_DEV_MODE/PROVIDER_KEY_VALIDATION_SKIP: explicit, default-off, and additionally
+    requires AUTH_DEV_MODE=true. Never set both in production."""
+    return (
+        os.environ.get("FIXTURE_REPO_PROVISIONING", "").lower() == "true"
+        and os.environ.get("AUTH_DEV_MODE", "").lower() == "true"
+    )
+
+
+def _provision_fixture_repo(session: Session, *, org_id: str, name: str, actor: str) -> Repo:
+    """No real github.com round-trip — a `Repo` row standing in for a provisioned repo,
+    clearly marked (`fixture/` prefix) so it can never be mistaken for a real one.
+    `github_installation_id=0` is a sentinel: real installation ids are always positive."""
+    repo = repo_repo.create_repo(
+        session,
+        org_id=org_id,
+        mode=RepoMode.PROVISIONED,
+        github_installation_id=0,
+        github_repo_id=None,
+        github_full_name=f"fixture/{name}",
+        clone_url=f"https://example.invalid/fixture/{name}.git",
+        default_branch="main",
+        ci_mode=RepoCIMode.PLATFORM_RUNNERS,
+        protected_branch_rules_verified=False,
+        created_by=actor,
+    )
+    session.commit()
+    return repo
+
+
 def provision_repo(
     session: Session, vault: VaultClient, *, org_id: str, name: str, actor: str
 ) -> Repo:
@@ -173,6 +206,8 @@ def provision_repo(
     template = _template_repo()
     installation_id = _platform_installation_id()
     if not template or not installation_id:
+        if _fixture_provisioning_enabled():
+            return _provision_fixture_repo(session, org_id=org_id, name=name, actor=actor)
         raise GitHubAppNotConfigured()
 
     app_jwt = _mint_app_jwt(vault)

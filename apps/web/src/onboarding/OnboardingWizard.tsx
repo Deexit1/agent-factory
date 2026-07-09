@@ -5,24 +5,21 @@ import { RepoConnectPage } from "../admin/RepoConnectPage";
 import { useOnboardingStatus } from "../api/queries";
 import { useAuth } from "../auth/AuthContext";
 import { ByokSetupGuide } from "../docs/ByokSetupGuide";
-import { CreateFirstIdeaStep } from "./CreateFirstIdeaStep";
 import { CreateOrgStep } from "./CreateOrgStep";
 import { TosAcceptanceStep } from "./TosAcceptanceStep";
 
-type WizardStep = "tos" | "org" | "key" | "repo" | "idea";
+type WizardStep = "tos" | "org" | "key" | "repo";
 
 const STEPS: { key: WizardStep; label: string }[] = [
   { key: "tos", label: "Acceptable use" },
   { key: "key", label: "LLM key" },
   { key: "repo", label: "Repo" },
-  { key: "idea", label: "First idea" },
 ];
 
-interface OnboardingWizardProps {
-  onComplete: () => void;
-}
-
-export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.JSX.Element {
+// Board access is gated on exactly these three (App.tsx) — once `has_repo` flips
+// true, App.tsx swaps this wizard out for the real app on the next render, so there
+// is deliberately no step after "repo" to get cut off mid-flow.
+export function OnboardingWizard(): React.JSX.Element {
   const { orgId } = useAuth();
   const [step, setStep] = useState<WizardStep>("tos");
   const [stepInitialized, setStepInitialized] = useState(false);
@@ -39,8 +36,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
     if (stepInitialized || !status) return;
     if (!status.tos_accepted) setStep("tos");
     else if (!status.has_provider_key) setStep("key");
-    else if (!status.has_repo) setStep("repo");
-    else setStep("idea");
+    else setStep("repo");
     setStepInitialized(true);
   }, [status, stepInitialized]);
 
@@ -51,7 +47,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
       <div>
         <h1 className="text-xl font-bold text-gray-900">Get started</h1>
         <p className="mt-1 text-sm text-gray-500">
-          A few quick steps and you'll have your first agent-built PR.
+          A few quick steps and you'll have access to the board.
         </p>
       </div>
 
@@ -97,18 +93,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
       {step === "repo" && (
         <div className="flex flex-col gap-4">
           <RepoConnectPage />
-          <button
-            type="button"
-            onClick={() => setStep("idea")}
-            disabled={!status?.has_repo}
-            className="self-start rounded bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-          >
-            Continue
-          </button>
         </div>
       )}
-
-      {step === "idea" && <CreateFirstIdeaStep onCreated={onComplete} />}
     </main>
   );
 }

@@ -25,7 +25,21 @@ class InvalidProviderKey(Exception):
         super().__init__(f"could not validate a live {provider} key")
 
 
+def _validation_skipped() -> bool:
+    """Onboarding-gate enforcement needs `has_provider_key` to be reachable without a
+    live Anthropic/OpenAI account (no such credit exists in this environment — see
+    docs/06-tech-stack.md). Same precedent as AUTH_DEV_MODE: explicit, default-off,
+    and additionally requires AUTH_DEV_MODE=true so a lone misconfigured flag can't
+    matter in a real deployment. Never set both in production."""
+    return (
+        os.environ.get("PROVIDER_KEY_VALIDATION_SKIP", "").lower() == "true"
+        and os.environ.get("AUTH_DEV_MODE", "").lower() == "true"
+    )
+
+
 def validate_key(*, provider: str, api_key: str) -> None:
+    if _validation_skipped():
+        return
     try:
         if provider == "anthropic":
             anthropic.Anthropic(api_key=api_key).models.list(limit=1)

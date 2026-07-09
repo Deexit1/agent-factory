@@ -2076,3 +2076,60 @@ Format:
   text, no real product-analytics vendor, no live OIDC IdP in this
   environment (unchanged since T-008/T-201). See `tasks/BACKLOG.md`'s
   T-206 entry for the full per-AC evidence and architecture-decision list.
+
+## T-206 · Onboarding gate enforcement (post-merge correction) — 2026-07-09
+- What changed: a direct human instruction after PR #21 merged clarified the
+  actually-intended product behavior — board access should be *hard-gated*
+  on org/ToS/key/repo completion, not just offered via an optional "Get
+  started" nav entry. `apps/web/src/App.tsx` now blocks all app chrome
+  (no nav, no board) behind `tos_accepted && has_provider_key && has_repo`
+  for the session's current org, full-screen `OnboardingWizard` shown
+  instead, for anyone except impersonating staff. Re-scoped correctly
+  this time versus the first (reverted) attempt: gates on those three
+  booleans only, never `has_idea_ticket` — verified against the exact
+  scenario that broke the earlier design (an org that only ever works
+  with `task`-type tickets is unaffected once the three are true).
+  Dropped the wizard's "first idea" step (`CreateFirstIdeaStep.tsx`,
+  now unused) since the gate flips the instant `has_repo` becomes true,
+  cutting off any step after it. Added two new dev/CI-only bypass
+  flags, `PROVIDER_KEY_VALIDATION_SKIP` and `FIXTURE_REPO_PROVISIONING`
+  (`apps/api/src/api/services/provider_key_service.py`,
+  `github_repo_service.py`), following `AUTH_DEV_MODE`'s exact
+  precedent — needed because two of the three gate criteria require
+  live vendor infrastructure (a real Anthropic/OpenAI account; a
+  registered GitHub App) absent from this environment, so without a
+  bypass the gate would be un-satisfiable anywhere, including local
+  dev. New `apps/web/e2e/global-setup.ts` completes real onboarding for
+  the shared `default` org once, before the Playwright suite runs, via
+  the same live API calls a real browser makes — zero changes needed to
+  `board.spec.ts`/`smoke.spec.ts`.
+- Files touched: `apps/api/src/api/services/provider_key_service.py`,
+  `github_repo_service.py`; two new test files,
+  `apps/api/tests/integration/test_provider_key_validation_skip.py`,
+  `test_github_repo_fixture_provisioning.py`; `.env.example`;
+  `apps/web/src/App.tsx`, `src/onboarding/OnboardingWizard.tsx`,
+  `src/api/queries.ts` (onboarding-status invalidation on key/repo
+  mutations); `apps/web/e2e/global-setup.ts` (new),
+  `playwright.config.ts`; `apps/api/scripts/e2e-server.sh`;
+  `docs/06-tech-stack.md`, `docs/09-saas-model.md`.
+- Verification: `apps/api` 239/239 green (up from 233 — 6 new tests
+  covering both bypass flags' on/off/defense-in-depth-without-
+  `AUTH_DEV_MODE` paths), ruff/mypy clean, all 4 static gates pass.
+  `apps/web` `tsc -b`/`eslint`/`vitest run`/`vite build` clean; real
+  Playwright suite 5/5 green (`board.spec.ts`/`smoke.spec.ts`,
+  unmodified, now exercised against a for-real onboarded `default`
+  org). Additionally hand-verified via real headless Chromium against a
+  genuinely partially-onboarded org (ToS accepted at creation, key/repo
+  not yet) that the wizard resumes at the correct step (skips ToS,
+  starts at key) and the gate auto-flips to the real board the instant
+  `has_repo` becomes true — no "first idea" step ever appears.
+- Notes / follow-ups: no ticket-creation affordance exists anywhere in
+  `apps/web` outside the now-unused `CreateFirstIdeaStep.tsx` — a real
+  gap, flagged for the upcoming shadcn/ui frontend redesign (e.g. an
+  empty-board-state "New ticket" CTA). The old nav entry incidentally
+  let an already-onboarded user start a second, separate org; removing
+  it as a permanent gate removed that path too — there is currently no
+  UI way for a user in an already-onboarded org (including the shared
+  `default` org, now that it's onboarded) to create an additional org
+  of their own. Out of SPEC-206's original "first org" scope, but a
+  real follow-up, not silently dropped.

@@ -373,6 +373,7 @@ export function useAddProviderKey() {
     mutationFn: ({ orgId, ...body }) => addProviderKey(actorContext, orgId, body),
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: providerKeysQueryKey(variables.orgId) });
+      void queryClient.invalidateQueries({ queryKey: onboardingStatusQueryKey(variables.orgId) });
     },
   });
 }
@@ -473,6 +474,7 @@ export function useProvisionRepo() {
     mutationFn: ({ orgId, name }) => provisionRepo(actorContext, orgId, { name }),
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: reposQueryKey(variables.orgId) });
+      void queryClient.invalidateQueries({ queryKey: onboardingStatusQueryKey(variables.orgId) });
     },
   });
 }

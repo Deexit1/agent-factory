@@ -242,22 +242,46 @@ decision, no live account for either):**
   T-204 (`org_egress_rules`, staff-only `POST/DELETE /orgs/{id}/egress-rules`).
 
 **T-206 status (SPEC-206), real as of this session:**
-1. **Self-serve onboarding wizard (AC1).** `apps/web/src/onboarding/OnboardingWizard.tsx`
-   chains the pieces T-201–205 already built into one guided flow: ToS accept →
-   `POST /orgs` (ToS acceptance recorded transactionally) → `POST /auth/switch-org`
-   (a real trap this UI has to handle — org creation does NOT re-mint the caller's
-   session token) → the *existing* `ProviderKeysPage`/`RepoConnectPage` components
-   rendered inside wizard chrome (reused, not duplicated) → a new
-   `CreateFirstIdeaStep`, the first real ticket-creation UI surface in this app. A
-   fresh OIDC/dev-login still auto-joins the seeded default org as `viewer`
-   unchanged (T-008/T-201); the wizard is what gives that viewer a real path to
-   their OWN org, closing the gap where org creation was API-only. Reached via an
-   explicit "Get started" nav entry, NOT auto-triggered on login — an earlier design
-   that auto-redirected any session without an `idea`-type ticket into the wizard was
-   caught and reverted after it broke real usage (any org that only ever works with
-   `task`-type tickets directly would have been permanently locked out of the board),
-   surfaced for real by PR #21's own CI `e2e` job against the pre-existing Playwright
-   suite.
+1. **Self-serve onboarding wizard (AC1), board access hard-gated on it.**
+   `apps/web/src/onboarding/OnboardingWizard.tsx` chains the pieces T-201–205 already
+   built into one guided flow: ToS accept → `POST /orgs` (ToS acceptance recorded
+   transactionally) → `POST /auth/switch-org` (a real trap this UI has to handle — org
+   creation does NOT re-mint the caller's session token) → the *existing*
+   `ProviderKeysPage`/`RepoConnectPage` components rendered inside wizard chrome
+   (reused, not duplicated). `apps/web/src/App.tsx` gates the entire app on this: any
+   session whose current org hasn't accepted the ToS, added a BYOK key, and connected
+   a repo sees ONLY the wizard — no nav chrome, no board, regardless of `view` state.
+   Staff impersonation bypasses the gate unchanged (viewing the org's real state for
+   support, not going through its onboarding). A fresh OIDC/dev-login still
+   auto-joins the seeded default org as `viewer` unchanged (T-008/T-201) — the wizard
+   is what gives that viewer a real path to their OWN org. **Post-merge correction:**
+   an earlier design gated on `has_idea_ticket` and auto-redirected any session
+   missing an `idea`-type ticket into the wizard; that broke real usage (any org that
+   only ever works with `task`-type tickets would have been permanently locked out)
+   and was caught by PR #21's own CI `e2e` job, so it was reverted to an optional
+   "Get started" nav entry. A direct human instruction after that PR merged clarified
+   the actually-intended behavior — board access should be hard-gated on
+   org/ToS/key/repo completion, not left optional — so the gate was re-added, this
+   time scoped correctly (`tos_accepted && has_provider_key && has_repo`, not ticket
+   creation) and verified against the specific case that broke it the first time (a
+   task-only org is unaffected once those three are true, no `has_idea_ticket`
+   involved anywhere in the check).
+   **Two new dev/CI-only bypasses, needed because two of the three gate criteria
+   require live vendor infrastructure this environment doesn't have:**
+   `PROVIDER_KEY_VALIDATION_SKIP` skips `provider_key_service.validate_key`'s real
+   Anthropic/OpenAI ping; `FIXTURE_REPO_PROVISIONING` lets
+   `github_repo_service.provision_repo` record a clearly-marked fixture `Repo` row
+   instead of requiring a live, registered GitHub App. Both follow `AUTH_DEV_MODE`'s
+   exact precedent (explicit, default-off, require `AUTH_DEV_MODE=true` too, never
+   set in a deployed environment) — see `docs/06-tech-stack.md`.
+   **Known, disclosed limitation:** the old "Get started" nav entry also let an
+   already-onboarded user voluntarily start creating a SECOND, separate org; removing
+   it as a permanent gate incidentally removed that path too. There is currently no
+   UI way for an authenticated user sitting in an already-onboarded org (including
+   the shared default org, once it's onboarded) to start a brand-new org of their
+   own — a real gap for the general "self-serve signup" story, though out of
+   SPEC-206's original scope (which is about a user's *first* org). Flagged as a
+   follow-up, not silently dropped.
 2. **Automated intake screening (AC2), real, rule-based, zero LLM.**
    `api.services.intake_screening_service.screen_content` is a pure keyword/regex
    engine (malware, credential attacks, scraping farms, spam infra hard-reject;
