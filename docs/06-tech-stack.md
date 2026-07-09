@@ -33,6 +33,17 @@
   Vault topology (raft storage, auto-unseal, AppRole auth, TLS) is a deploy-time
   concern, not built here — same standing as MinIO standing in for real S3 in this
   same table.
+- **Onboarding-gate enforcement (post-T-206, `apps/web/src/App.tsx`) blocks board
+  access until an org has accepted the ToS, added a BYOK key, and connected a repo —
+  and the last two of those need live vendor infrastructure this environment doesn't
+  have.** `PROVIDER_KEY_VALIDATION_SKIP` (`provider_key_service.validate_key`) and
+  `FIXTURE_REPO_PROVISIONING` (`github_repo_service.provision_repo`) are two new,
+  narrowly-scoped dev/CI-only bypass flags — same precedent as `AUTH_DEV_MODE`
+  (explicit, default-off, `.env.example`-documented, and each additionally requires
+  `AUTH_DEV_MODE=true` to take effect as defense-in-depth). The fixture-repo path
+  creates a `Repo` row with a clearly-marked `github_full_name` (`fixture/<name>`) and
+  never calls `github_app_client`. Neither flag weakens anything for a real deployment;
+  both are off unless explicitly and deliberately turned on alongside dev mode.
 - **Repo delivery row — real as of T-203** for connect/provision/token-mint/webhook-
   disconnect: real RS256 JWT signing + real HTTP calls to `api.github.com`
   (`apps/api/src/api/github_app_client.py`, sole owner of those calls per

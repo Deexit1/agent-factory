@@ -23,6 +23,11 @@ export DATABASE_URL="postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@
 export AUTH_DEV_MODE=true
 export SESSION_JWT_SECRET="${SESSION_JWT_SECRET:-e2e-session-secret-at-least-32-bytes-long}"
 export AGENT_FACTORY_SERVICE_TOKEN="${AGENT_FACTORY_SERVICE_TOKEN:-e2e-service-token-at-least-32-bytes}"
+# Onboarding-gate enforcement (apps/web/src/App.tsx) needs the default org's BYOK key
+# and repo steps to be completable without live Anthropic/GitHub App accounts — neither
+# exists in CI. See .env.example for the full explanation of both flags.
+export PROVIDER_KEY_VALIDATION_SKIP=true
+export FIXTURE_REPO_PROVISIONING=true
 
 if [ ! -d .venv ]; then
   python3 -m venv .venv

@@ -1071,6 +1071,42 @@ pages were smoke-tested against the real running stack via real headless-Chromiu
 every new staff admin page, zero console errors, one real bug caught and fixed along
 the way (see AC1 evidence above).
 
+**Post-merge correction (`task/T-206-onboarding-gate-enforcement`, after PR #21
+merged):** a direct human instruction clarified that board access was meant to be
+hard-gated on org/ToS/key/repo completion, not merely offered via the optional "Get
+started" nav entry PR #21 shipped with (that design was chosen specifically to avoid
+re-breaking the `has_idea_ticket`-gating bug PR #21's own CI had already caught and
+fixed once). Re-added the gate scoped correctly this time — `apps/web/src/App.tsx`
+now hard-blocks all app chrome behind `tos_accepted && has_provider_key && has_repo`
+for the session's current org (never `has_idea_ticket`), verified against the exact
+scenario that broke the first attempt (a task-only org is unaffected). Two of those
+three criteria need live vendor infrastructure absent from this environment (a real
+Anthropic/OpenAI account to validate a BYOK key; a registered GitHub App to connect
+or provision a repo) — added `PROVIDER_KEY_VALIDATION_SKIP` and
+`FIXTURE_REPO_PROVISIONING`, two new dev/CI-only bypass flags following
+`AUTH_DEV_MODE`'s exact precedent (explicit, default-off, each also requires
+`AUTH_DEV_MODE=true`, `.env.example`-documented, never set in a deployed
+environment). The wizard's "first idea" step was dropped (the gate flips the instant
+`has_repo` becomes true, so a step after it would get cut off mid-flow) —
+`CreateFirstIdeaStep.tsx` is now unused; **disclosed, not fixed here:** there is no
+other ticket-creation affordance anywhere in `apps/web` outside that now-unused
+component, a real gap flagged for the upcoming frontend redesign. Also **disclosed:**
+the old nav entry incidentally let an already-onboarded user start a second, separate
+org; removing it as a permanent gate removed that path too — no UI way currently
+exists for an authenticated user in an already-onboarded org to create an additional
+one, out of SPEC-206's original "first org" scope but a real follow-up.
+`apps/api/scripts/e2e-server.sh` and a new `apps/web/e2e/global-setup.ts` complete
+real onboarding for the shared `default` org once, before the suite runs, via the
+same live API calls a real user's browser makes — zero changes needed to
+`board.spec.ts`/`smoke.spec.ts`, both re-verified green (5/5) against this.
+**Verification:** `apps/api` 239/239 green (6 new: 3 for each bypass flag's
+on/off/defense-in-depth paths), ruff/mypy clean, all 4 static gates pass; `apps/web`
+`tsc -b`/`eslint`/`vitest run`/`vite build` clean; real Playwright suite 5/5 green;
+additionally hand-verified via real headless Chromium against a genuinely
+partially-onboarded org (ToS done at creation, key/repo not) that the wizard resumes
+at the correct step and the gate auto-flips to the real board the instant `has_repo`
+becomes true, with no "first idea" step ever appearing.
+
 ## T-207 · Closed beta — `ready`
 **Spec:** docs/09-saas-model.md  **Est:** M
 5–10 external orgs, BYOK, own repos. Capture funnel conversion, first-PR time,

@@ -22,8 +22,15 @@ interface AuthContextValue {
 const AuthReactContext = createContext<AuthContextValue | null>(null);
 
 // /auth/callback redirects here as `#token=...` (a fragment, so it's never sent to the
-// server or logged) rather than a query string.
-function consumeTokenFromHash(): string | null {
+// server or logged) rather than a query string. Reads and strips the hash exactly
+// once, at module-evaluation time (ES modules only ever run once per page load) —
+// NOT inside a useState lazy initializer or render body. React.StrictMode
+// (main.tsx) intentionally double-invokes those in development to catch impure
+// code; this function is impure (it mutates the URL via replaceState), so a
+// double-invoke would consume+strip the hash on the first call and find nothing on
+// the second, silently discarding a real login token and leaving the app stuck on
+// the sign-in screen after a real OIDC redirect.
+const tokenFromRedirect: string | null = (() => {
   const match = /token=([^&]+)/.exec(window.location.hash);
   const rawToken = match?.[1];
   if (!rawToken) {
@@ -31,11 +38,11 @@ function consumeTokenFromHash(): string | null {
   }
   window.history.replaceState(null, "", window.location.pathname + window.location.search);
   return decodeURIComponent(rawToken);
-}
+})();
 
 export function AuthProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [token, setTokenState] = useState<string | null>(
-    () => consumeTokenFromHash() ?? localStorage.getItem(STORAGE_KEY),
+    () => tokenFromRedirect ?? localStorage.getItem(STORAGE_KEY),
   );
   const [actor, setActor] = useState<string | null>(null);
   const [role, setRole] = useState<Role | null>(null);

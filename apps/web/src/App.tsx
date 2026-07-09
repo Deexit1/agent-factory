@@ -14,7 +14,7 @@ import { DashboardPage } from "./dashboard/DashboardPage";
 import { CheckpointExplainerPage } from "./docs/CheckpointExplainerPage";
 import { OnboardingWizard } from "./onboarding/OnboardingWizard";
 import { PlanningReviewPage } from "./planning/PlanningReviewPage";
-import { useMyOrgs, usePageViewAudit, useSwitchOrg } from "./api/queries";
+import { useMyOrgs, useOnboardingStatus, usePageViewAudit, useSwitchOrg } from "./api/queries";
 
 type View =
   | "board"
@@ -24,7 +24,6 @@ type View =
   | "keys"
   | "repos"
   | "docs"
-  | "onboarding"
   | "impersonate"
   | "intake"
   | "strikes"
@@ -63,6 +62,7 @@ function AuthedApp(): React.JSX.Element {
   const { status, actor, isPlatformStaff, impersonating, orgId, logout } = useAuth();
   const [view, setView] = useState<View>("board");
   const auditPageView = usePageViewAudit();
+  const { data: onboardingStatus } = useOnboardingStatus(status === "authenticated" ? orgId : null);
 
   useEffect(() => {
     if (impersonating) {
@@ -77,6 +77,20 @@ function AuthedApp(): React.JSX.Element {
 
   if (status === "unauthenticated") {
     return <LoginPage />;
+  }
+
+  // Board access requires a real, fully-onboarded org: ToS accepted, a BYOK LLM key
+  // added, and a repo connected. Staff impersonation always bypasses this — they're
+  // viewing the org's real state for support, not going through its onboarding.
+  if (!impersonating) {
+    if (!onboardingStatus) {
+      return <p className="p-4 text-gray-500">Loading…</p>;
+    }
+    const onboardingComplete =
+      onboardingStatus.tos_accepted && onboardingStatus.has_provider_key && onboardingStatus.has_repo;
+    if (!onboardingComplete) {
+      return <OnboardingWizard />;
+    }
   }
 
   return (
@@ -140,15 +154,6 @@ function AuthedApp(): React.JSX.Element {
           >
             Docs
           </button>
-          {!impersonating && (
-            <button
-              type="button"
-              onClick={() => setView("onboarding")}
-              className={view === "onboarding" ? "font-semibold text-gray-900" : "text-gray-500"}
-            >
-              Get started
-            </button>
-          )}
           {isPlatformStaff && !impersonating && (
             <>
               <button
@@ -198,7 +203,6 @@ function AuthedApp(): React.JSX.Element {
         {view === "keys" && <ProviderKeysPage />}
         {view === "repos" && <RepoConnectPage />}
         {view === "docs" && <CheckpointExplainerPage />}
-        {view === "onboarding" && <OnboardingWizard onComplete={() => setView("board")} />}
         {view === "impersonate" && <ImpersonatePage />}
         {view === "intake" && <IntakeReviewPage />}
         {view === "strikes" && <OrgStrikesPage />}
