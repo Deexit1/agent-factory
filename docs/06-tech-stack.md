@@ -2,7 +2,7 @@
 
 | Concern | Choice |
 |---|---|
-| Frontend | React 18 + TypeScript + Vite, Tailwind CSS, shadcn/ui, dnd-kit, TanStack Query |
+| Frontend | React 18 + TypeScript + Vite, Tailwind CSS, shadcn/ui, dnd-kit, TanStack Query, TanStack Router |
 | Backend API | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 + Alembic |
 | Live updates | WebSockets fed by Redis pub/sub |
 | Auth | OIDC SSO (Authlib); RBAC: admin / approver / viewer |
@@ -112,7 +112,24 @@
   precedent — AC5's dashboard/Razorpay reconciliation is proven at the API layer); seats
   are stored but not enforced; no real cron/scheduler daemon runs the metering job
   (external trigger only, matching `provider_health_service.py`'s own disclosed
-  standing).
+  standing). **Superseded by T-208 below:** a read-only `apps/web` billing/usage page
+  now exists — the "no new UI" note above described the state as of T-205.
+- **Frontend routing + shadcn/ui shell — real as of T-208.** TanStack Router (file-based
+  routes under `apps/web/src/routes/`, generated `routeTree.gen.ts`, gitignored and
+  regenerated ahead of `typecheck`/`build`) replaced `App.tsx`'s manual `useState<View>`
+  page-switching — every page now has a real URL, survives refresh, and supports
+  browser back/forward. Auth/onboarding/staff gating is component-level (layout routes
+  rendering into `<Outlet/>`), not router `beforeLoad`, since gate state resolves
+  asynchronously (see `docs/07-conventions.md`). shadcn/ui (Base UI primitives, not
+  Radix — shadcn's current default registry) is installed and used for the shared shell
+  (nav, org switcher, impersonation banner) and two new pages: a read-only billing/usage
+  page (`/billing`, SPEC-205 AC5's dashboard finally built) and an org
+  members/invite page (`/members` + `/invite/$token`, SPEC-201's invite flow finally
+  wired to a UI). **Not yet done, disclosed and deferred:** the 11 pre-existing pages
+  (Board, Planning, Assignments, Dashboard, Keys, Repos, Docs, and the 4 staff pages)
+  keep their original pre-shadcn Tailwind markup — only how they're mounted/routed
+  changed, not their internals. Restyling them with shadcn components is scoped to
+  follow-up tasks, one or a few pages at a time.
 
 ## Phase-2 activations (pre-approved escalation paths)
 - **Runner pool → Kubernetes** (EKS/GKE + autoscaling runners) WHEN sustained parallel

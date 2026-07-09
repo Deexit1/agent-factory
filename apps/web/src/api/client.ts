@@ -2,6 +2,7 @@ import type {
   Approval,
   ApprovalDecision,
   ApprovalGate,
+  BillingUsage,
   CostRollup,
   CostSummary,
   CreateTicketRequest,
@@ -11,6 +12,7 @@ import type {
   IntakeQueuedResult,
   IntakeReview,
   OnboardingStatus,
+  OrgBilling,
   OrgStrike,
   Paginated,
   SpendBreakdown,
@@ -599,6 +601,24 @@ export function resolveStrikeAppeal(
     method: "POST",
     body: JSON.stringify({ decision }),
   });
+}
+
+// --- T-208: billing/usage display (SPEC-205 AC5 — backend already proven, never displayed) ---
+
+export function fetchOrgBilling(actorContext: ActorContext, orgId: string): Promise<OrgBilling> {
+  return request(`/orgs/${orgId}/billing`, actorContext);
+}
+
+export function fetchBillingUsage(
+  actorContext: ActorContext,
+  orgId: string,
+  params: { periodStart?: string; periodEnd?: string } = {},
+): Promise<BillingUsage> {
+  const query = new URLSearchParams();
+  if (params.periodStart) query.set("period_start", params.periodStart);
+  if (params.periodEnd) query.set("period_end", params.periodEnd);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request(`/orgs/${orgId}/billing/usage${suffix}`, actorContext);
 }
 
 export function fetchFunnelCohort(

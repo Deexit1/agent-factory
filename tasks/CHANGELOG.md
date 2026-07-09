@@ -2133,3 +2133,71 @@ Format:
   `default` org, now that it's onboarded) to create an additional org
   of their own. Out of SPEC-206's original "first org" scope, but a
   real follow-up, not silently dropped.
+
+## T-208 · Frontend infra migration — router + shell + shadcn/ui — 2026-07-09
+- What changed: replaced `App.tsx`'s manual `useState<View>` page-switching
+  (no URL, refresh lost the page, browser back/forward did nothing) with
+  TanStack Router — file-based routes under `apps/web/src/routes/`
+  (generated `routeTree.gen.ts`, gitignored, regenerated ahead of
+  `typecheck`/`build`). Auth/onboarding gating (T-206) is preserved as
+  component-level layout routes (`_loggedIn.tsx` → `_loggedIn/_onboarded.tsx`,
+  rendering into `<Outlet/>`), deliberately not router `beforeLoad`, since
+  both gates depend on async React state that doesn't reactively track
+  through `beforeLoad` without manually calling `router.invalidate()` — not
+  worth the reactivity-bug risk right after fixing a real StrictMode bug in
+  the same area this session. Staff-only pages now have a real `StaffGuard`
+  layout route redirecting non-staff direct URL nav to `/board` (previously
+  only the nav button was hidden — no guard existed because no URL existed).
+  Installed shadcn/ui (Base UI primitives, this CLI's current default, not
+  Radix) for the shared shell (`src/shell/`: `AppShell`, `TopNav`,
+  `OrgSwitcher`, `ImpersonationBanner`) and two new pages built shadcn-native:
+  a read-only billing/usage page (`/billing`, SPEC-205 AC5's dashboard,
+  previously proven server-side only, never displayed) and an org
+  members/invite flow end-to-end (`/members` list + invite dialog,
+  `/invite/$token` accept page) — `useOrgMembers`/`useInviteMember`/
+  `useAcceptInvite` existed in `queries.ts` since T-201/T-206 but were never
+  consumed by any page.
+- Files touched: new — `apps/web/src/router.tsx`, `src/routes/**` (15 route
+  files), `src/shell/**` (7 files), `src/billing/BillingPage.tsx`,
+  `src/members/{OrgMembersPage,AcceptInvitePage}.tsx`,
+  `src/components/ui/**` (shadcn-generated, plus a hand-authored
+  `form.tsx` — the CLI's `form` registry entry is currently an empty
+  stub), `src/lib/utils.ts`, `components.json`, `src/router.test.tsx`,
+  `e2e/routing.spec.ts`. Modified — `src/main.tsx`, `src/api/{client,
+  queries,types}.ts` (+billing hooks), `package.json` (+`routes:generate`
+  wired into `typecheck`/`build`), `vite.config.ts`, `tsconfig.json`,
+  `tsconfig.app.json`, `src/index.css` (shadcn theme), `src/setupTests.ts`
+  (jsdom `matchMedia`/`scrollTo` polyfills), `.gitignore`. Deleted —
+  `src/App.tsx`, `src/App.test.tsx`. Docs — `docs/06-tech-stack.md`
+  (locked Frontend row: +TanStack Router), `docs/07-conventions.md`
+  (routing/gating convention).
+- Test evidence: `apps/web` `tsc -b --noEmit`/`eslint`/`vitest run`/
+  `vite build` all clean. Real Playwright suite: `smoke.spec.ts` and all
+  3 new `routing.spec.ts` tests green (non-staff direct URL nav to
+  `/admin/impersonate` redirects to `/board`; `/billing` and `/members`
+  render for an onboarded org). `board.spec.ts`'s 4 `createTicket`-
+  dependent tests fail locally on the pre-existing, already-disclosed
+  "session-token trap" (this machine's real `.env` has a non-empty
+  `AGENT_FACTORY_SERVICE_TOKEN` overriding `e2e-server.sh`'s test-token
+  fallback; `.env.example`'s default is empty so CI is unaffected) —
+  confirmed unrelated to this change, not chased further, matching how
+  it was handled earlier in this same session. Additionally hand-verified
+  against a real running stack via headless Chromium: refresh on
+  `/planning` stays on `/planning`; browser back/forward moves between
+  `/board` and `/dashboard`; the full invite flow (dialog → zod
+  validation → submit → toast with copyable link) works end-to-end
+  against the real API and real Vault-backed billing data.
+- Notes / follow-ups: the 11 pre-existing pages (Board, Planning,
+  Assignments, Dashboard, Keys, Repos, Docs, and the 4 staff pages) keep
+  their original pre-shadcn Tailwind markup — only how they're
+  mounted/routed changed. Restyling them with shadcn is deliberately
+  scoped to follow-up tasks, per the human's explicit choice to ship
+  infra-first rather than one large all-pages-at-once PR. Mobile nav is
+  a horizontally-scrolling bar, not a `Sheet`-based drawer — a scope cut,
+  not yet revisited. A benign React dev-mode console warning ("Function
+  components cannot be given refs") fires on `Button`/`Input` composed
+  inside `Dialog`/`Sheet`/`DropdownMenu` triggers — this shadcn CLI
+  version generates those primitives assuming React 19's automatic ref
+  forwarding, and this repo is on React 18; doesn't affect functionality,
+  stripped in production builds, not hand-patched since these are
+  CLI-generated files. Worth revisiting on a future shadcn/React upgrade.

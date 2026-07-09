@@ -207,3 +207,34 @@ export interface FunnelCohort {
   cohort_end: string;
   stages: FunnelStageCount[];
 }
+
+export type BillingStatus = "active" | "past_due" | "paused";
+
+export interface OrgBilling {
+  org_id: string;
+  plan: string;
+  pending_plan: string | null;
+  pending_plan_effective_at: string | null;
+  current_period_end: string | null;
+  billing_status: BillingStatus;
+  dunning_grace_until: string | null;
+}
+
+export interface BillingUsageLine {
+  kind: string;
+  included: number;
+  used: number;
+  overage: number;
+  rate_inr: number | null;
+  amount_inr: number;
+}
+
+export interface BillingUsage {
+  org_id: string;
+  period_start: string;
+  period_end: string;
+  plan_key: string;
+  base_fee_inr: number;
+  total_inr: number;
+  line_items: BillingUsageLine[];
+}

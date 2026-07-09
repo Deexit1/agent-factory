@@ -1112,3 +1112,77 @@ becomes true, with no "first idea" step ever appearing.
 5–10 external orgs, BYOK, own repos. Capture funnel conversion, first-PR time,
 first-pass QA rate per provider, support load → `tasks/BETA-REPORT.md` with a
 Phase-3/GA recommendation.
+
+## T-208 · Frontend infra migration — router + shell + shadcn/ui — `done`
+**Spec:** docs/06-tech-stack.md (frontend stack row); SPEC-205 AC5 (billing) and
+SPEC-201 (members/invites) for the two new pages  **Est:** M
+Real URL routing for every page (replaces `App.tsx`'s manual `useState<View>`
+page-switching — refresh used to lose the page, browser back/forward did nothing);
+shadcn/ui component library adopted for the shared shell and two new pages.
+
+**Acceptance criteria**
+- [x] Every page has a real URL, survives refresh, and supports browser back/forward —
+  TanStack Router, file-based routes under `apps/web/src/routes/`
+  (`routeTree.gen.ts` generated, gitignored, regenerated ahead of `typecheck`/`build`
+  so a stale tree is a hard CI failure, not silent drift).
+- [x] Auth/onboarding gate behavior is unchanged from T-206's post-merge-corrected
+  version — ported as component-level layout routes (`_loggedIn.tsx` →
+  `_loggedIn/_onboarded.tsx`, rendering into `<Outlet/>`) rather than router
+  `beforeLoad`, since both gates depend on async React state (`useAuth()`'s `status`,
+  `useOnboardingStatus()`'s query result) that doesn't reactively track through
+  `beforeLoad`/router context without manually calling `router.invalidate()` on every
+  change — judged not worth the reactivity-bug risk for gates that were just fixed
+  after a real regression (`AuthContext.tsx`'s StrictMode token-parsing bug, same
+  session). `apps/web/e2e/board.spec.ts`/`smoke.spec.ts` needed zero changes and stay
+  green against the new routing.
+- [x] Staff-only pages (`/admin/impersonate`, `/admin/intake`, `/admin/strikes`,
+  `/admin/funnel`) reject direct URL navigation by non-staff, not just hide their nav
+  links — a new `StaffGuard` layout route (`admin/_staffOnly.tsx`) redirects to
+  `/board`. New e2e test (`e2e/routing.spec.ts`) proves this against a real URL
+  `page.goto`, the exact gap that couldn't exist before routes did. **Disclosed:**
+  this is a UX guard mirroring the old hidden-nav-button behavior, not the authz
+  boundary — the 4 underlying endpoints already enforce staff-only server-side,
+  independent of this guard.
+- [x] shadcn/ui installed (Base UI primitives — shadcn's current default registry, not
+  Radix; `components.json`, `src/components/ui/`, `src/lib/utils.ts`) and used for the
+  shared shell (`src/shell/`: `AppShell`, `TopNav`, `OrgSwitcher`, `ImpersonationBanner`)
+  plus two new pages built shadcn-native from the start.
+- [x] Billing/usage page (`/billing`) — SPEC-205 AC5's reconciliation was already
+  proven server-side (T-205) but never displayed; new read-only page (plan, billing
+  status, current-period usage line items) backed by two new `queries.ts` hooks
+  (`useOrgBilling`, `useBillingUsage`) against the already-real
+  `GET /orgs/{id}/billing` and `/billing/usage` endpoints — zero backend changes.
+- [x] Org members + invite flow, end-to-end (`/members`, `/invite/$token`) —
+  `useOrgMembers`/`useInviteMember`/`useAcceptInvite` (SPEC-201) existed in
+  `queries.ts` since T-201/T-206 but were never consumed by any page; new members
+  list + invite dialog (react-hook-form + zod) + a small accept-invite page for the
+  invitee's emailed link, so the invite flow isn't shipped half-built.
+- [x] `docs/06-tech-stack.md`'s locked Frontend row updated in this PR (adds "TanStack
+  Router"; shadcn/ui and TanStack Query were already listed). `docs/07-conventions.md`
+  documents the routing/gating pattern for future contributors.
+
+**Disclosed, not fixed here:** the 11 pre-existing pages (Board, Planning,
+Assignments, Dashboard, Keys, Repos, Docs, and the 4 staff pages) keep their original
+pre-shadcn Tailwind markup — only how they're mounted/routed changed, not their
+internals. Restyling them with shadcn is scoped to follow-up tasks, one or a few pages
+at a time, per the human's explicit choice to ship infra-first rather than one large
+all-pages-at-once PR. Mobile nav is a horizontally-scrolling bar, not a
+`Sheet`-based drawer — a reasonable scope cut for this pass, not yet revisited.
+Verified live against the running stack (`/members`' invite dialog, real Vault-backed
+`/billing` data): a benign React dev-mode console warning ("Function components
+cannot be given refs... Did you mean to use React.forwardRef()?") fires on
+`Button`/`Input` when composed inside `Dialog`/`Sheet`/`DropdownMenu` triggers —
+this shadcn CLI version generates those primitives assuming React 19's automatic ref
+forwarding, and this repo is on React 18. Doesn't affect functionality (confirmed:
+invite dialog, validation, and toast all work correctly) and React strips the warning
+in production builds; not hand-patched since these are CLI-generated files this repo's
+convention says not to hand-edit. Worth revisiting on a future shadcn/React upgrade.
+
+**Verification:** `apps/web` `tsc -b`/`eslint`/`vitest run`/`vite build` clean; real
+Playwright suite: `smoke.spec.ts` and the 3 new `routing.spec.ts` tests green;
+`board.spec.ts`'s 4 `createTicket`-dependent tests fail locally on a pre-existing,
+already-disclosed, environment-specific issue unrelated to this task (this
+machine's real `.env` has a non-empty `AGENT_FACTORY_SERVICE_TOKEN` that overrides
+`e2e-server.sh`'s test-token fallback — `.env.example`'s default is empty, so a CI
+run with a fresh `.env` is unaffected; verify green in this branch's own CI run
+before merge). `apps/api` untouched by this task — no backend changes.

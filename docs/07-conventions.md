@@ -13,6 +13,19 @@ Monorepo: `apps/api`, `apps/web`, `apps/orchestrator`, `apps/sandbox`, `packages
 ## TypeScript (web)
 - Strict tsconfig, eslint, no `any`.
 - Components: function components + hooks; server state via TanStack Query only.
+- Routing: TanStack Router, file-based routes under `src/routes/` (`routeTree.gen.ts`
+  is generated, not committed — `npm run routes:generate`, wired ahead of
+  `build`/`typecheck` so a stale route tree fails CI instead of drifting silently).
+  Auth/onboarding/staff gating is component-level (layout routes rendering into
+  `<Outlet/>`: `_loggedIn.tsx`, `_loggedIn/_onboarded.tsx`,
+  `.../admin/_staffOnly.tsx`), deliberately not `beforeLoad`+context+
+  `router.invalidate()` — the gates depend on async React state (`useAuth()`'s
+  `status`, TanStack Query results) that doesn't play well with router-level
+  reactivity. Reserve `beforeLoad` for state-independent redirects only (e.g. `/` →
+  `/board`).
+- UI components: shadcn/ui, generated into `src/components/ui/` — treat as
+  library code, don't hand-edit; re-run the `shadcn` CLI to update. Uses Base UI
+  primitives (shadcn's current default registry), not Radix.
 - Tests: Vitest + React Testing Library; e2e in `apps/web/e2e` (Playwright).
 
 ## Git
