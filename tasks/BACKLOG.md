@@ -1028,14 +1028,31 @@ cannot run its dev-agent pipeline against a freshly created, non-default org (a
 pre-existing "not multi-org-aware" gap disclosed since T-202/T-205, not created or
 closed here — see the AC1 evidence above).
 
-**Verification**: `apps/api` 232/232 green (up from 199 — 33 new: 9 pure
+**Verification**: `apps/api` 233/233 green (up from 199 — 34 new: 9 pure
 `intake_screening_service` unit + 6 intake-review-flow + 6 ToS-acceptance (incl. `GET
-/tos`) + 8 org-strikes + 2 funnel-dashboard + 2 onboarding-status), ruff/mypy clean, all four
-static gates pass (`llm-router-gate`, `tenant-scope-gate`, `github-app-gate`,
-`razorpay-gate` — no new gate needed, T-206 added no new external vendor client),
-migration verified reversible for real (`alembic upgrade head` → `downgrade -1` →
-`upgrade head` against a throwaway Postgres database). `apps/orchestrator` 83/83 green
-(up from 80 — 3 new `test_e2e_onboarding_flow.py` tests), ruff/mypy clean.
+/tos`) + 8 org-strikes + 2 funnel-dashboard + 2 onboarding-status + 1 membership-race
+regression), ruff/mypy clean, all four static gates pass (`llm-router-gate`,
+`tenant-scope-gate`, `github-app-gate`, `razorpay-gate` — no new gate needed, T-206
+added no new external vendor client), migration verified reversible for real (`alembic
+upgrade head` → `downgrade -1` → `upgrade head` against a throwaway Postgres
+database). `apps/orchestrator` 83/83 green (up from 80 — 3 new
+`test_e2e_onboarding_flow.py` tests), ruff/mypy clean.
+
+**Real bug caught by CI, not just local runs**: PR #21's own `e2e` GitHub Actions job
+(Playwright, `apps/web/e2e/board.spec.ts`) failed with a 500 from `POST /auth/
+dev-login` — `psycopg.errors.UniqueViolation` on `uq_org_members_org_user`.
+Root cause: `org_service.get_or_create_dev_membership`/`ensure_default_org_membership`
+had the exact same TOCTOU race `user_service.get_or_create_user` was already fixed for
+(check-then-insert with no `IntegrityError` recovery) — Playwright's parallel workers
+all log in as the same fixed email (`e2e-default@example.com`) in a `beforeEach`,
+so two workers' dev-logins can both pass the "no existing membership" check before
+either commits. Pre-existing, not introduced by this ticket's own new code, but
+directly triggered by it (this PR's `apps/web` bundle size/timing shift was enough to
+make a previously-rare race reproducible in CI); fixed with the exact same
+`except IntegrityError: rollback(); re-fetch` recovery `get_or_create_user` already
+uses, plus a regression test (`test_duplicate_membership_insert_raises_integrity_error`)
+proving the repository layer raises the specific exception type the recovery depends
+on — same testing shape as `get_or_create_user`'s own existing regression guard.
 `apps/web` `tsc -b`/`eslint`/`vitest run`/`vite build` all clean; the new
 `OnboardingWizard`/`IntakeReviewPage`/`OrgStrikesPage`/`FunnelDashboardPage`/docs
 pages were smoke-tested against the real running stack via real headless-Chromium

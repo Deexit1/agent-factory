@@ -1992,10 +1992,10 @@ Format:
   `apps/api/tests/`; docs: `docs/02-data-model.md`,
   `docs/03-state-machine.md`, `docs/04-agent-specs.md`,
   `docs/09-saas-model.md`.
-- Test evidence: `apps/api` 232/232 green (up from 199 — 33 new: 9 pure
+- Test evidence: `apps/api` 233/233 green (up from 199 — 34 new: 9 pure
   `intake_screening_service` unit tests, 6 intake-review-flow, 6
   ToS-acceptance incl. `GET /tos`, 8 org-strikes, 2 funnel-dashboard, 2
-  onboarding-status), ruff/mypy clean, all four static gates pass
+  onboarding-status, 1 membership-race regression), ruff/mypy clean, all four static gates pass
   (`llm-router-gate`, `tenant-scope-gate`, `github-app-gate`,
   `razorpay-gate` — no new gate needed, T-206 added no new external
   vendor client). Migration verified reversible for real (`alembic
@@ -2023,6 +2023,20 @@ Format:
   org — added `_require_member_or_staff` (staff already sees everything
   about any org via impersonation, T-201) and a dedicated regression
   test proving staff can list a non-member org's strikes for real.
+  (3) PR #21's own real CI `e2e` job (Playwright, `e2e/board.spec.ts`)
+  failed with a 500 from `POST /auth/dev-login` —
+  `psycopg.errors.UniqueViolation` on `uq_org_members_org_user`.
+  `org_service.get_or_create_dev_membership`/`ensure_default_org_membership`
+  had the exact same check-then-insert TOCTOU race
+  `user_service.get_or_create_user` was already fixed for; Playwright's
+  parallel workers all log in as the same fixed email in a
+  `beforeEach`, so two workers' dev-logins can race past the
+  "no existing membership" check before either commits. Pre-existing,
+  not introduced by this ticket's own new code, but directly triggered
+  by it. Fixed with the same `except IntegrityError: rollback();
+  re-fetch` recovery `get_or_create_user` already uses, plus a
+  regression test proving the repository layer raises the specific
+  exception type the recovery depends on.
 - Notes / follow-ups: no haiku-class LLM intake-screening layer was
   built at all (scoped but zero prompt/schema/router scaffolding exists
   — a disclosed gap, not a partial feature, see `docs/04-agent-specs.md`

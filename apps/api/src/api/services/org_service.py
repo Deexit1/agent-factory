@@ -1,6 +1,7 @@
 import os
 from datetime import UTC, datetime
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.db.models import Org, OrgInvite, OrgInviteStatus, OrgMember, UserRole
@@ -49,17 +50,32 @@ def ensure_default_org_membership(session: Session, *, user_email: str) -> OrgMe
     membership anywhere gets auto-joined into the seeded default org —
     ADMIN_EMAILS -> owner, else viewer. Users who arrive via an accepted invite
     already have a membership by the time they first log in, so this is a no-op
-    for them (list_orgs_for_user already returns something)."""
+    for them (list_orgs_for_user already returns something).
+
+    Two concurrent first-logins for the same email (e.g. two tabs, or two parallel
+    Playwright workers hitting the same fixed test email) can both pass the
+    "no existing membership" check before either commits; the loser's INSERT hits
+    `uq_org_members_org_user`, so we catch that and re-fetch the winner's row
+    instead of 500ing — same pattern as `user_service.get_or_create_user`."""
     existing = repo.list_orgs_for_user(session, user_email=user_email)
     if existing:
-        member = repo.get_membership(session, org_id=existing[0].id, user_email=user_email)
-        assert member is not None
-        return member
+        first_org_member = repo.get_membership(
+            session, org_id=existing[0].id, user_email=user_email
+        )
+        assert first_org_member is not None
+        return first_org_member
+
     role = UserRole.OWNER if user_email.lower() in _admin_emails() else UserRole.VIEWER
-    member = repo.create_membership(
-        session, org_id=DEFAULT_ORG_ID, user_email=user_email, role=role
-    )
-    session.commit()
+    member: OrgMember | None
+    try:
+        member = repo.create_membership(
+            session, org_id=DEFAULT_ORG_ID, user_email=user_email, role=role
+        )
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        member = repo.get_membership(session, org_id=DEFAULT_ORG_ID, user_email=user_email)
+    assert member is not None
     return member
 
 
@@ -83,15 +99,28 @@ def get_or_create_dev_membership(
     """Dev-login only (AUTH_DEV_MODE) — never used by the real OIDC path. Mirrors
     the old get_or_create_user's role_override convenience, now at the membership
     level: first login into an org wins, a later dev-login for the same (org,
-    email) pair is a no-op regardless of the role param."""
+    email) pair is a no-op regardless of the role param.
+
+    Same concurrent-first-login race as `ensure_default_org_membership` above —
+    two dev-login calls for the same (org_id, email) racing past the initial
+    `get_membership` check both attempt the INSERT; the loser's hits
+    `uq_org_members_org_user` and is caught here rather than 500ing. Real-world
+    trigger: Playwright's parallel workers all logging in as the same fixed test
+    email in a `beforeEach` (e2e/board.spec.ts)."""
     existing = repo.get_membership(session, org_id=org_id, user_email=user_email)
     if existing is not None:
         return existing
     role = role_override or (
         UserRole.OWNER if user_email.lower() in _admin_emails() else UserRole.VIEWER
     )
-    member = repo.create_membership(session, org_id=org_id, user_email=user_email, role=role)
-    session.commit()
+    member: OrgMember | None
+    try:
+        member = repo.create_membership(session, org_id=org_id, user_email=user_email, role=role)
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        member = repo.get_membership(session, org_id=org_id, user_email=user_email)
+        assert member is not None
     return member
 
 
