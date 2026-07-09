@@ -251,7 +251,13 @@ decision, no live account for either):**
    `CreateFirstIdeaStep`, the first real ticket-creation UI surface in this app. A
    fresh OIDC/dev-login still auto-joins the seeded default org as `viewer`
    unchanged (T-008/T-201); the wizard is what gives that viewer a real path to
-   their OWN org, closing the gap where org creation was API-only.
+   their OWN org, closing the gap where org creation was API-only. Reached via an
+   explicit "Get started" nav entry, NOT auto-triggered on login — an earlier design
+   that auto-redirected any session without an `idea`-type ticket into the wizard was
+   caught and reverted after it broke real usage (any org that only ever works with
+   `task`-type tickets directly would have been permanently locked out of the board),
+   surfaced for real by PR #21's own CI `e2e` job against the pre-existing Playwright
+   suite.
 2. **Automated intake screening (AC2), real, rule-based, zero LLM.**
    `api.services.intake_screening_service.screen_content` is a pure keyword/regex
    engine (malware, credential attacks, scraping farms, spam infra hard-reject;

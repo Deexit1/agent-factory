@@ -947,7 +947,18 @@ Self-serve signup → first PR wizard; intake screening; ToS + strikes; funnel t
   reaches the BYOK key step (real Vault write path rendered correctly) — this caught
   and fixed a real bug (the wizard's initial-step logic used `orgId` truthiness, which
   is always true, instead of `onboardingStatus.tos_accepted`, so it always skipped
-  straight to the key step).
+  straight to the key step). **A second, more serious design flaw was caught by PR
+  #21's own real CI `e2e` job** (Playwright, `e2e/board.spec.ts`, unrelated to this
+  ticket's own new code): the wizard was originally auto-triggered on login whenever
+  `!onboardingStatus.has_idea_ticket`, hijacking ANY session that hasn't created an
+  `idea`-type ticket yet — including the pre-existing e2e suite's fixed
+  `e2e-default@example.com` fixture user, which only ever creates `task`-type tickets
+  and expects direct board access after login. This wasn't just a test artifact: it
+  would have permanently blocked board access for any real org that only ever works
+  with tasks directly, not just ideas. Fixed by making the wizard a normal, explicit
+  "Get started" nav entry (like every other page in this app) instead of an
+  auto-redirect gate — `apps/web`'s real Playwright e2e suite (5/5) re-verified
+  locally against real manually-started dev servers before pushing the fix.
 - [x] Seeded prohibited-use fixtures are rejected at intake with an audit trail; seeded
   borderline fixtures land in the review queue —
   `apps/api/tests/test_intake_screening_service.py` (9 pure unit tests, zero I/O, zero

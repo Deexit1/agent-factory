@@ -1930,12 +1930,17 @@ Format:
 
 ## T-206 · Onboarding & abuse controls — 2026-07-09
 - What changed: Implemented SPEC-206 — a self-serve org-creation wizard
-  chained after OIDC/dev-login (`apps/web/src/onboarding/
-  OnboardingWizard.tsx`: ToS accept → `POST /orgs` → mandatory
-  `POST /auth/switch-org` → the *existing* `ProviderKeysPage`/
-  `RepoConnectPage` reused inside wizard chrome → a new
-  `CreateFirstIdeaStep`, the first real ticket-creation UI surface in
-  this app); a real, deterministic (zero-LLM) intake-screening rules
+  reached via an explicit "Get started" nav entry after OIDC/dev-login
+  (`apps/web/src/onboarding/OnboardingWizard.tsx`: ToS accept →
+  `POST /orgs` → mandatory `POST /auth/switch-org` → the *existing*
+  `ProviderKeysPage`/`RepoConnectPage` reused inside wizard chrome → a
+  new `CreateFirstIdeaStep`, the first real ticket-creation UI surface
+  in this app). Originally auto-triggered on login for any session
+  without an `idea`-type ticket; reverted to an explicit nav entry after
+  PR #21's own CI `e2e` job showed this broke the pre-existing Playwright
+  suite (and would have broken any real org that only ever works with
+  `task`-type tickets directly) — see the dedicated bug-fix bullet
+  below. A real, deterministic (zero-LLM) intake-screening rules
   engine (`api/services/intake_screening_service.py`) gating
   `POST /tickets` for idea/task submissions, with a staff-only review
   queue (`intake_reviews` table, `POST /admin/intake-reviews/{id}/
@@ -2036,7 +2041,20 @@ Format:
   by it. Fixed with the same `except IntegrityError: rollback();
   re-fetch` recovery `get_or_create_user` already uses, plus a
   regression test proving the repository layer raises the specific
-  exception type the recovery depends on.
+  exception type the recovery depends on. (4) After that fix, CI's
+  `e2e` job failed a different way: `board.spec.ts` timed out unable to
+  find the board at all. Root cause: `App.tsx`'s wizard trigger
+  (`!onboardingStatus.has_idea_ticket`) auto-redirected ANY session
+  without an `idea`-type ticket into the wizard — including the
+  pre-existing e2e suite's fixed `e2e-default@example.com` fixture user,
+  which only ever creates `task`-type tickets via `e2e/api.ts` and
+  expects direct board access. This was a real design flaw, not just a
+  test-compatibility issue: any real org that only ever works with tasks
+  directly would have been permanently locked out of the board. Fixed by
+  making the wizard a normal, explicit "Get started" nav entry instead
+  of an auto-redirect gate; re-verified locally with the real Playwright
+  suite (5/5 passing) against manually-started real dev servers before
+  pushing the fix.
 - Notes / follow-ups: no haiku-class LLM intake-screening layer was
   built at all (scoped but zero prompt/schema/router scaffolding exists
   — a disclosed gap, not a partial feature, see `docs/04-agent-specs.md`
