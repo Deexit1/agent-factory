@@ -2202,6 +2202,58 @@ Format:
   stripped in production builds, not hand-patched since these are
   CLI-generated files. Worth revisiting on a future shadcn/React upgrade.
 
+## T-210 · Fix shared-org signup bug — 2026-07-10
+- What changed: root-caused a real bug reported from live manual testing
+  (two different real Google accounts landing on the identical board,
+  no onboarding flow for either) to `org_service.
+  ensure_default_org_membership` — every brand-new real login with zero
+  org memberships was silently auto-joined into the single hardcoded
+  seeded `default` org, which was already fully onboarded from earlier
+  testing this session, so any new signup skipped the wizard entirely.
+  Fixed `resolve_login_membership` so a brand-new non-admin user gets an
+  **unpersisted** sentinel membership (`PENDING_ORG_ID = "pending"`,
+  `apps/api/src/api/tenancy.py`) instead — never written to the DB, just
+  enough to mint a session that satisfies every `org_id: str` type
+  contract while `GET /orgs/pending/onboarding-status` naturally returns
+  all-`false` (no rows exist for that id), so `OnboardingGate.tsx`
+  already renders the wizard correctly with **zero frontend changes**.
+  `ADMIN_EMAILS` accounts (platform-staff/pilot-admin tooling) keep the
+  exact old default-org bootstrap. Confirmed by direct code reading (not
+  assumed) that `POST /orgs` and `POST /auth/switch-org` only ever need
+  the caller's proven email, never their *current* org_id — so
+  `CreateOrgStep.tsx`'s existing real-org-creation flow works unmodified
+  from a pending session. `DevLoginRequest.org_id` is now `str | None`
+  (`org_id: null` simulates a brand-new signup for e2e testing, since
+  real OIDC is never mocked anywhere in this repo); omitting it is
+  unchanged, defaulting to `default` exactly as before.
+- Files touched: `apps/api/src/api/tenancy.py` (+`PENDING_ORG_ID`),
+  `apps/api/src/api/services/org_service.py` (`resolve_login_membership`),
+  `apps/api/src/api/routers/auth.py` (`dev_login` branches on
+  `org_id is None`, stale comment fixed), `apps/api/src/api/contracts.py`
+  (`DevLoginRequest.org_id: str | None`); new
+  `apps/api/tests/integration/test_login_membership_resolution.py` (7
+  tests); `apps/web/e2e/api.ts` (`loginAs` gained an optional 4th
+  `orgId` param); new `apps/web/e2e/pending-signup.spec.ts` (2 tests).
+- Test evidence: `apps/api` 246/246 green (7 new), ruff/mypy clean, all
+  4 static gates pass. `apps/web` `tsc -b`/`eslint`/`vitest run`/
+  `vite build` clean; real Playwright suite 6/6 relevant tests green
+  (both new `pending-signup.spec.ts` tests + `smoke.spec.ts` + all 3
+  `routing.spec.ts`); `board.spec.ts`'s 4 `createTicket` tests hit the
+  same pre-existing, already-disclosed local `.env` service-token
+  override from T-208/T-209 — confirmed unrelated.
+- Notes / follow-ups: the two real accounts already stuck sharing
+  `default` from before this fix will still land back there together on
+  next login (existing membership found first) — this fix only prevents
+  *future* new logins from joining it. Handled as a one-time manual
+  dev-DB cleanup (delete their `org_members` rows for `org_id=
+  "default"`), not a code change, since it's this session's own test
+  data. Two much larger, separately-scoped follow-ups were identified
+  while investigating this bug and deliberately deferred to their own
+  tasks: making the orchestrator's agent dispatch multi-org-aware
+  (currently hard-locked to the single `default` org — a real,
+  pre-existing gap disclosed three times before, T-201/T-202/T-206), and
+  extending onboarding to require an approved plan before board access
+  (depends on the dispatch fix landing first for real production use).
 ## T-209 · Full shadcn redesign — sidebar shell + onboarding flow + all pages — 2026-07-09
 - What changed: replaced the top nav with a fixed, always-expanded shadcn
   `Sidebar` (`src/shell/AppSidebar.tsx`, grouped Workspace/Org/Staff nav,

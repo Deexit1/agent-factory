@@ -54,10 +54,12 @@ async def callback(request: Request, db: Session = Depends(get_db)) -> RedirectR
         raise HTTPException(status_code=401, detail="OIDC provider did not return an email claim")
 
     user = user_service.get_or_create_user(db, userinfo["email"])
-    # T-201: picks the user's first org membership (auto-joining the default org if
-    # they have none yet) — a multi-org user who wants a DIFFERENT org at login uses
-    # the org switcher (POST /auth/switch-org) after landing; a full interactive
-    # "choose an org at login" flow is deliberately out of scope, see CHANGELOG.
+    # T-201/T-210: picks the user's first org membership; a brand-new user with no
+    # membership anywhere gets routed into onboarding to create their own org (see
+    # org_service.resolve_login_membership's docstring) rather than auto-joining a
+    # shared org. A multi-org user who wants a DIFFERENT org at login uses the org
+    # switcher (POST /auth/switch-org) after landing; a full interactive "choose an
+    # org at login" flow is deliberately out of scope, see CHANGELOG.
     membership = org_service.resolve_login_membership(db, user_email=user.email)
     session_token = mint_session_token(
         user.email,
@@ -75,9 +77,15 @@ def dev_login(request: DevLoginRequest, db: Session = Depends(get_db)) -> Sessio
         raise HTTPException(status_code=404, detail="not found")
 
     user = user_service.get_or_create_user(db, request.email)
-    membership = org_service.get_or_create_dev_membership(
-        db, org_id=request.org_id, user_email=user.email, role_override=request.role
-    )
+    if request.org_id is None:
+        # T-210: simulate a brand-new real signup (no membership anywhere) via the
+        # exact same resolution real OIDC uses, ignoring role_override — a pending
+        # session is always viewer until the user creates their own org for real.
+        membership = org_service.resolve_login_membership(db, user_email=user.email)
+    else:
+        membership = org_service.get_or_create_dev_membership(
+            db, org_id=request.org_id, user_email=user.email, role_override=request.role
+        )
     return SessionOut(
         token=mint_session_token(
             user.email,
