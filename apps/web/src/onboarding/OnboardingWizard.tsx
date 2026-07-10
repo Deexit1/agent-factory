@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
 
+import { CheckIcon } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { ProviderKeysPage } from "../admin/ProviderKeysPage";
 import { RepoConnectPage } from "../admin/RepoConnectPage";
 import { useOnboardingStatus } from "../api/queries";
@@ -16,9 +21,16 @@ const STEPS: { key: WizardStep; label: string }[] = [
   { key: "repo", label: "Repo" },
 ];
 
-// Board access is gated on exactly these three (App.tsx) — once `has_repo` flips
-// true, App.tsx swaps this wizard out for the real app on the next render, so there
-// is deliberately no step after "repo" to get cut off mid-flow.
+// "org" isn't in the visible stepper (it's a sub-step of "Acceptable use" — collecting
+// the org name right after ToS accept) but should still visually count step 1 as
+// active/complete rather than showing no step highlighted while it's active.
+function stepperIndex(step: WizardStep): number {
+  return step === "org" ? 0 : STEPS.findIndex((s) => s.key === step);
+}
+
+// Board access is gated on exactly these three (OnboardingGate) — once `has_repo` flips
+// true, the gate swaps this wizard out for the real app on the next render, so there is
+// deliberately no step after "repo" to get cut off mid-flow.
 export function OnboardingWizard(): React.JSX.Element {
   const { orgId } = useAuth();
   const [step, setStep] = useState<WizardStep>("tos");
@@ -40,61 +52,88 @@ export function OnboardingWizard(): React.JSX.Element {
     setStepInitialized(true);
   }, [status, stepInitialized]);
 
-  const stepIndex = STEPS.findIndex((s) => s.key === step);
+  const stepIndex = stepperIndex(step);
 
   return (
-    <main className="mx-auto flex max-w-2xl flex-col gap-6 p-6">
-      <div>
-        <h1 className="text-xl font-bold text-gray-900">Get started</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          A few quick steps and you'll have access to the board.
-        </p>
+    <main className="flex min-h-screen items-start justify-center bg-muted/30 p-6">
+      <div className="mt-12 flex w-full max-w-2xl flex-col gap-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Get started</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            A few quick steps and you'll have access to the board.
+          </p>
+        </div>
+
+        <ol className="flex items-center gap-2">
+          {STEPS.map((s, index) => {
+            const complete = index < stepIndex;
+            const active = index === stepIndex;
+            return (
+              <li key={s.key} className="flex flex-1 items-center gap-2 last:flex-none">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                      complete && "bg-primary text-primary-foreground",
+                      active && !complete && "bg-primary text-primary-foreground",
+                      !complete && !active && "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {complete ? <CheckIcon className="size-3.5" /> : index + 1}
+                  </span>
+                  <span
+                    className={cn(
+                      "text-xs whitespace-nowrap",
+                      active || complete ? "font-semibold text-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    {s.label}
+                  </span>
+                </div>
+                {index < STEPS.length - 1 && (
+                  <div className={cn("h-px flex-1", complete ? "bg-primary" : "bg-border")} />
+                )}
+              </li>
+            );
+          })}
+        </ol>
+
+        <Card>
+          <CardHeader className="sr-only">
+            <span>{STEPS[stepIndex >= 0 ? stepIndex : 0]?.label}</span>
+          </CardHeader>
+          <CardContent className="pt-4">
+            {step === "tos" && (
+              <TosAcceptanceStep
+                onAccept={(version) => {
+                  setTosVersion(version);
+                  setStep("org");
+                }}
+              />
+            )}
+
+            {step === "org" && tosVersion && (
+              <CreateOrgStep tosVersion={tosVersion} onCreated={() => setStep("key")} />
+            )}
+
+            {step === "key" && (
+              <div className="flex flex-col gap-4">
+                <ByokSetupGuide provider="anthropic" />
+                <ProviderKeysPage />
+                <Button onClick={() => setStep("repo")} disabled={!status?.has_provider_key} className="self-start">
+                  Continue
+                </Button>
+              </div>
+            )}
+
+            {step === "repo" && (
+              <div className="flex flex-col gap-4">
+                <RepoConnectPage />
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
-
-      <ol className="flex gap-4 text-xs text-gray-500">
-        {STEPS.map((s, index) => (
-          <li
-            key={s.key}
-            className={index <= stepIndex ? "font-semibold text-gray-900" : ""}
-          >
-            {index + 1}. {s.label}
-          </li>
-        ))}
-      </ol>
-
-      {step === "tos" && (
-        <TosAcceptanceStep
-          onAccept={(version) => {
-            setTosVersion(version);
-            setStep("org");
-          }}
-        />
-      )}
-
-      {step === "org" && tosVersion && (
-        <CreateOrgStep tosVersion={tosVersion} onCreated={() => setStep("key")} />
-      )}
-
-      {step === "key" && (
-        <div className="flex flex-col gap-4">
-          <ByokSetupGuide provider="anthropic" />
-          <ProviderKeysPage />
-          <button
-            type="button"
-            onClick={() => setStep("repo")}
-            disabled={!status?.has_provider_key}
-            className="self-start rounded bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-          >
-            Continue
-          </button>
-        </div>
-      )}
-
-      {step === "repo" && (
-        <div className="flex flex-col gap-4">
-          <RepoConnectPage />
-        </div>
-      )}
     </main>
   );
 }

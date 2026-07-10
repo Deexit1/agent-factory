@@ -1,3 +1,5 @@
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
 interface ByokSetupGuideProps {
   provider: "anthropic" | "openai";
 }
@@ -26,17 +28,21 @@ const GUIDES: Record<ByokSetupGuideProps["provider"], { title: string; steps: st
 export function ByokSetupGuide({ provider }: ByokSetupGuideProps): React.JSX.Element {
   const guide = GUIDES[provider];
   return (
-    <div className="rounded border border-gray-200 p-4 text-sm">
-      <h3 className="font-semibold text-gray-900">Getting a {guide.title} API key</h3>
-      <ol className="mt-2 list-decimal space-y-1 pl-5 text-gray-600">
-        {guide.steps.map((step) => (
-          <li key={step}>{step}</li>
-        ))}
-      </ol>
-      <p className="mt-2 text-xs text-gray-500">
-        Your key is written straight to our secrets store and never stored in our database,
-        logs, or event history — only the last 4 characters are shown here for identification.
-      </p>
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">Getting a {guide.title} API key</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+          {guide.steps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Your key is written straight to our secrets store and never stored in our database,
+          logs, or event history — only the last 4 characters are shown here for identification.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
