@@ -1187,6 +1187,80 @@ machine's real `.env` has a non-empty `AGENT_FACTORY_SERVICE_TOKEN` that overrid
 run with a fresh `.env` is unaffected; verify green in this branch's own CI run
 before merge). `apps/api` untouched by this task — no backend changes.
 
+## T-211 · Orchestrator multi-org agent dispatch — `done`
+**Spec:** docs/09-saas-model.md (T-201/T-202/T-206 status notes)  **Est:** L
+Three prior tasks (T-201, T-202, T-206) disclosed the same gap and deferred it: the
+orchestrator's agent-dispatch mechanism could only ever act on the single seeded
+`default` org. The prior disclosures described this slightly imprecisely as
+"`get_runtime_keys` is service-principal-only, blocking multi-org" — direct code
+reading plus `test_byok_attribution.py::
+test_runtime_keys_never_cross_contaminate_between_orgs` prove `get_runtime_keys`/
+`resolve_runtime_credentials`/Vault resolution were **already correctly multi-org and
+tested**. The actual, narrower lock: `get_actor_context`'s service-token branch
+(`apps/api/src/api/auth.py`) constructed `ActorContext(actor=SERVICE_ACTOR,
+role="owner")` with no `org_id` override, falling through to the dataclass default
+`DEFAULT_ORG_ID` — so `ticket_service`'s `org_id=actor_context.org_id`-scoped routes
+could never see any org besides `default` via the shared service token, even though
+`get_runtime_keys` itself would have worked fine for any org.
+
+**Acceptance criteria**
+- [x] `get_actor_context`'s service-token branch reads an optional, trusted
+  `X-Org-Id` request header; if present, `ActorContext(actor=SERVICE_ACTOR,
+  role="owner", org_id=header_value)`, else keeps the old `DEFAULT_ORG_ID` default —
+  fully backward-compatible, every existing service-token caller that doesn't send
+  the header is unaffected. The session-JWT branch is untouched (a human's org_id is
+  already embedded in their signed JWT; this header is never consulted for it, so a
+  human token can't spoof another org via it).
+- [x] `orchestrator.api_client.ApiClient.__init__` gains an optional
+  `org_id: str | None = None` param; when set, adds `X-Org-Id: org_id` to the
+  client's headers. New `list_dispatchable_tickets()` method calls the new discovery
+  endpoint below.
+- [x] New service-principal-only cross-org endpoint, `GET /admin/dispatch/
+  ready-tickets` (same actor gate as `get_runtime_keys` — `actor_context.actor !=
+  SERVICE_ACTOR → 403`), returns idea tickets in `approved` state and task tickets in
+  `ready` state across **every** org, not filtered by `actor_context.org_id` — backed
+  by a new, deliberately cross-org `ticket_repository.list_dispatchable_tickets`.
+- [x] New ops script `apps/orchestrator/scripts/run_dispatcher.py` (mirrors
+  `run_pilot.py`'s "one-off script, not a daemon" framing): calls the discovery
+  endpoint, constructs an org-scoped `ApiClient` per (ticket_id, org_id) pair, runs
+  `run_planner_agent` per approved idea and `run_delivery_manager_agent` once per org
+  with ready tasks. **Disclosed scope cut:** deliberately Planner + Delivery Manager
+  only — both are git-workspace-free; dev-agent/review-agent stages need real
+  per-org git clone + GitHub App token resolution (already-built machinery for a
+  single known ticket via `run_pilot.py`, but not yet assembled into a generic
+  multi-org loop), left as separate, non-auth-lock integration work.
+- [x] Fixed a second, independent hardcoded-org bug found along the way:
+  `webhook_service.handle_ci_result` hardcoded `org_id=DEFAULT_ORG_ID` — the CI
+  webhook's HMAC-signed payload carries a `ticket_id` but no actor/org context at
+  all, so it now derives the real org via a new `ticket_repository.get_ticket_org_id`
+  cross-org lookup instead of guessing.
+- [x] `scripts/check_tenant_scope_gate.py`'s `_ALLOWLIST` extended (with inline
+  justification comments, matching the file's established pattern) for the two new
+  deliberately-cross-org repository functions.
+- [x] New test coverage, previously zero: `apps/orchestrator/tests/
+  test_dispatch_gate.py` (6 unit tests against a fake `ApiClient` double — allowed /
+  no-key-refused / eval-floor-refused / opted-in / primary-provider-only /
+  cross-org-independence branches, none of which had any dedicated test before this).
+  New `apps/orchestrator/tests/integration/test_multi_org_dispatch.py` (2 tests) is
+  the definitive proof the gap is closed: a real Planner run succeeds end-to-end for
+  a brand-new, never-logged-into org using only the service token + `X-Org-Id`
+  header; a second test proves isolation still holds — a default-scoped service
+  client gets a real 404 trying to see the new org's ticket.
+- [x] `test_e2e_onboarding_flow.py`'s module docstring updated to remove the
+  now-resolved disclosure (it previously stated multi-org continuation was blocked);
+  `docs/09-saas-model.md`'s T-201/T-202/T-206 status notes updated to stop claiming
+  the service token "only ever sees DEFAULT_ORG_ID's tickets."
+
+**Verification:** `apps/api` — 239 passed, `ruff check` clean, `mypy src` clean (74
+files); `apps/orchestrator` — 91 passed (incl. the 6 new dispatch-gate unit tests and
+2 new multi-org integration tests), `ruff check` clean, `mypy src` clean (29 files).
+All 4 `apps/api` static gates green, including `tenant_scope` after the allowlist
+addition.
+
+**Disclosed, not fixed here:** dev-agent/review-agent stages are not wired into the
+cross-org dispatcher yet (needs real per-org git clone + GitHub App token machinery —
+separate integration work, not an auth-lock problem); see `run_dispatcher.py`'s
+module docstring and `docs/09-saas-model.md`'s T-211 status note.
 ## T-210 · Fix shared-org signup bug — `done`
 **Spec:** none (bug report from live manual testing — see docs/09-saas-model.md's
 onboarding section for the surrounding design)  **Est:** S

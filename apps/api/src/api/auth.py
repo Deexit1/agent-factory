@@ -85,13 +85,21 @@ def _service_token() -> str:
 
 def get_actor_context(
     authorization: str | None = Header(default=None),
+    x_org_id: str | None = Header(default=None),
 ) -> ActorContext:
     """Every route except /health, /webhooks/* and /auth/* depends on this (SPEC-006 AC1).
 
-    Two ways in: the shared service token (orchestrator/sandbox, full trust, role=owner,
-    stays on DEFAULT_ORG_ID — T-201 doesn't make the orchestrator org-aware, see
-    tasks/CHANGELOG.md) or a session JWT minted at OIDC login / dev-login. Anything else
-    is 401.
+    Two ways in: the shared service token (orchestrator/sandbox, full trust, role=owner)
+    or a session JWT minted at OIDC login / dev-login. Anything else is 401.
+
+    T-211: the service-token branch used to always resolve to DEFAULT_ORG_ID, which is
+    why the orchestrator's agent dispatch could only ever act on that one seeded org
+    (disclosed and deferred across T-201/T-202/T-206 — see tasks/CHANGELOG.md). It now
+    honors an optional `X-Org-Id` header, trusted ONLY on this branch — a human's
+    org_id is already embedded in their signed session JWT and this header is never
+    consulted for that branch, so a human token can't spoof another org via it. Every
+    existing service-token caller that doesn't send the header (tests, run_pilot.py)
+    is unaffected — still defaults to DEFAULT_ORG_ID exactly as before.
     """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="missing bearer token")
@@ -99,6 +107,6 @@ def get_actor_context(
 
     service_token = _service_token()
     if service_token and hmac.compare_digest(token, service_token):
-        return ActorContext(actor=SERVICE_ACTOR, role="owner")
+        return ActorContext(actor=SERVICE_ACTOR, role="owner", org_id=x_org_id or DEFAULT_ORG_ID)
 
     return _verify_session_token(token)

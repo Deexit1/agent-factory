@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from schemas import DEFAULT_REPO
 from schemas.redaction import scrub_payload
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from api.db.models import (
@@ -73,6 +73,16 @@ def get_ticket(session: Session, ticket_id: str, *, org_id: str) -> Ticket | Non
     return ticket
 
 
+def get_ticket_org_id(session: Session, ticket_id: str) -> str | None:
+    """T-211: the one other deliberately cross-org lookup in this module, alongside
+    list_dispatchable_tickets — for a request that's authenticated by something other
+    than an org-scoped actor context (webhook_service.handle_ci_result's HMAC-signed
+    CI webhook has a ticket_id but no actor/org at all), this is how it discovers
+    which real org actually owns that ticket instead of guessing DEFAULT_ORG_ID."""
+    ticket = session.get(Ticket, ticket_id)
+    return ticket.org_id if ticket is not None else None
+
+
 def list_tickets(
     session: Session,
     *,
@@ -100,6 +110,39 @@ def list_tickets(
         .all()
     )
     return list(items), total
+
+
+# T-211: (type, state) pairs that mean "an agent needs to act on this" — idea tickets
+# a human already approved (need a Planner run) and task tickets a Delivery Manager
+# already assigned capacity to (need a dev-agent run). Deliberately narrow: this isn't
+# a general work-queue, just enough for the dispatcher to discover cross-org work.
+_DISPATCHABLE_STATES = (
+    (TicketType.IDEA, TicketState.APPROVED),
+    (TicketType.TASK, TicketState.READY),
+)
+
+
+def list_dispatchable_tickets(session: Session, *, limit: int = 200) -> list[Ticket]:
+    """Deliberately NOT filtered by org_id, unlike every other query in this module —
+    the one intentional exception. The orchestrator's service-token client is always
+    resolved to exactly one org per request (api.auth.get_actor_context), so nothing
+    else in this codebase can discover work sitting in an org the caller doesn't
+    already know about; this is what the dispatcher calls first to learn which
+    (ticket_id, org_id) pairs exist before constructing an org-scoped ApiClient for
+    each one. Service-principal-only at the router layer (same actor gate as
+    get_runtime_keys) — never exposed to a human-scoped session."""
+    filters = or_(
+        *(
+            and_(Ticket.type == ticket_type, Ticket.state == state)
+            for ticket_type, state in _DISPATCHABLE_STATES
+        )
+    )
+    items = (
+        session.execute(select(Ticket).where(filters).order_by(Ticket.id).limit(limit))
+        .scalars()
+        .all()
+    )
+    return list(items)
 
 
 def get_descendants(session: Session, ticket_id: str, *, org_id: str) -> list[Ticket]:

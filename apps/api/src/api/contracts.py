@@ -97,6 +97,24 @@ class PaginatedTickets(BaseModel):
     offset: int
 
 
+class DispatchableTicketOut(BaseModel):
+    """T-211: the one deliberately cross-org shape in this file — lets the
+    orchestrator's dispatcher discover (ticket_id, org_id) pairs across every org
+    before constructing an org-scoped ApiClient for each, since every other ticket
+    endpoint is scoped to whatever single org the caller is already resolved to."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    org_id: str
+    type: TicketType
+    state: TicketState
+
+
+class DispatchableTicketListOut(BaseModel):
+    items: list[DispatchableTicketOut]
+
+
 class PaginatedEvents(BaseModel):
     items: list[EventOut]
     total: int

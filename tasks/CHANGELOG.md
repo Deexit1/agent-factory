@@ -2202,6 +2202,52 @@ Format:
   stripped in production builds, not hand-patched since these are
   CLI-generated files. Worth revisiting on a future shadcn/React upgrade.
 
+## T-211 · Orchestrator multi-org agent dispatch — 2026-07-10
+- What changed: closed a gap disclosed and deferred three times (T-201,
+  T-202, T-206). Direct code reading plus `test_byok_attribution.py::
+  test_runtime_keys_never_cross_contaminate_between_orgs` showed the
+  prior disclosures were imprecise — `get_runtime_keys`/
+  `resolve_runtime_credentials`/Vault resolution were already correctly
+  multi-org. The real, narrower lock was `get_actor_context`'s
+  service-token branch (`apps/api/src/api/auth.py`) always falling back
+  to `DEFAULT_ORG_ID`, so ticket routes scoped by `actor_context.org_id`
+  could never see any org but `default` via the shared service token.
+  Fixed by having that branch read a trusted `X-Org-Id` header (service-
+  token branch only; the session-JWT branch is untouched, so a human
+  can't spoof another org via it) — fully backward-compatible for every
+  existing service-token caller that doesn't send it. Added `org_id` to
+  `ApiClient`, a new service-principal-only cross-org discovery endpoint
+  (`GET /admin/dispatch/ready-tickets`), and a new ops script
+  (`run_dispatcher.py`) that dispatches Planner/Delivery-Manager runs
+  across every org's ready work. Also fixed a second, independent
+  hardcoded-org bug found along the way: `webhook_service.
+  handle_ci_result` hardcoded `DEFAULT_ORG_ID` for the CI webhook, now
+  derives the ticket's real org instead of guessing. Proved the fix with
+  a new integration test: a real Planner run for a brand-new,
+  never-logged-into org, using only the service token + the new header.
+- Files touched: `apps/api/src/api/auth.py`, `apps/api/src/api/
+  contracts.py`, `apps/api/src/api/repositories/ticket_repository.py`,
+  `apps/api/src/api/routers/admin.py`, `apps/api/src/api/services/
+  webhook_service.py`, `apps/orchestrator/src/orchestrator/
+  api_client.py`, `apps/orchestrator/scripts/run_dispatcher.py` (new),
+  `apps/orchestrator/tests/test_dispatch_gate.py` (new), `apps/
+  orchestrator/tests/integration/test_multi_org_dispatch.py` (new),
+  `apps/orchestrator/tests/integration/test_e2e_onboarding_flow.py`
+  (docstring only), `scripts/check_tenant_scope_gate.py` (allowlist),
+  `docs/09-saas-model.md`.
+- Test evidence: `apps/api` 239 passed, `ruff check` clean, `mypy src`
+  clean (74 files); `apps/orchestrator` 91 passed (incl. 6 new
+  dispatch-gate unit tests, 2 new multi-org integration tests), `ruff
+  check` clean, `mypy src` clean (29 files). All 4 `apps/api` static
+  gates green, including `tenant_scope` after the new allowlist entries.
+- Notes / follow-ups: dev-agent/review-agent stages are not wired into
+  the cross-org dispatcher — they need real per-org git clone + GitHub
+  App token machinery, already built for a single known ticket via
+  `run_pilot.py` but not yet assembled into a generic multi-org loop.
+  Disclosed in `run_dispatcher.py`'s module docstring and
+  `docs/09-saas-model.md`, not silently dropped. T-212 (the
+  plan-approval onboarding gate the human originally asked for) depends
+  on this task and starts next.
 ## T-210 · Fix shared-org signup bug — 2026-07-10
 - What changed: root-caused a real bug reported from live manual testing
   (two different real Google accounts landing on the identical board,
