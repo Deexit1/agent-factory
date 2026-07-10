@@ -208,11 +208,17 @@ class CostRollupOut(BaseModel):
 
 
 class DevLoginRequest(BaseModel):
-    """Dev/test-only stand-in for the Google OIDC round-trip (AUTH_DEV_MODE=true)."""
+    """Dev/test-only stand-in for the Google OIDC round-trip (AUTH_DEV_MODE=true).
+
+    T-210: `org_id: None` (explicit, not just omitted — omitting still defaults to
+    DEFAULT_ORG_ID for backward compatibility) simulates a brand-new real signup with
+    no membership anywhere, reusing org_service.resolve_login_membership's exact
+    logic — lets e2e tests exercise the "new user routed into onboarding" path
+    without needing to mock the OIDC round-trip, which nothing in this repo does."""
 
     email: str
     role: UserRole | None = None
-    org_id: str = DEFAULT_ORG_ID
+    org_id: str | None = DEFAULT_ORG_ID
 
 
 class SessionOut(BaseModel):
