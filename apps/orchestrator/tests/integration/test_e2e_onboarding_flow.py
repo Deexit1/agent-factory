@@ -4,30 +4,21 @@ trip, same convention as every other orchestrator/apps/api test in this repo), r
 ToS acceptance, and real intake screening — proven against the live HTTP API (not a
 bare service-token dogfood ticket in the pre-seeded default org).
 
-**Disclosed scope limit** (same category as T-202's/T-205's own disclosed gaps, not
-something T-206 created or is scoped to fix): this test does NOT continue the new
-org's idea through planner/dev/review/merge-queue to `done`. Every agent entry point
-(`run_planner_agent`/`run_delivery_manager_agent`/`run_dev_agent`/`run_review_agent`)
-calls `dispatch_gate.resolve_dispatch`, which calls `ApiClient.get_runtime_keys` —
-hard-gated server-side to the literal service-principal actor
-(`api.auth.SERVICE_ACTOR`, checked in `provider_keys.py::get_runtime_keys`).
-`api.auth.get_actor_context` always resolves the shared service token to
-`DEFAULT_ORG_ID`. There is no way for a single `ApiClient` instance to both (a)
-create/transition tickets scoped to an arbitrary new org (requires a real per-org
-session token, since `ticket_service.create_ticket`'s `org_id` comes from
-`actor_context.org_id`, not a caller-supplied parameter) and (b) pass the dispatch
-gate's service-principal check (requires the literal shared secret) at the same time —
-confirmed by reading `dispatch_gate.py`/`provider_keys.py` directly this session, not
-assumed. This is the same "orchestrator is not multi-org-aware" gap T-202/T-205 already
-disclosed (`docs/09-saas-model.md`: "in practice today it only ever sees
-DEFAULT_ORG_ID's tickets"). The full idea -> done pipeline mechanics are independently,
-already proven for real by `test_e2e_management_flow.py` (T-109), nightly, against the
-one org the orchestrator can currently dispatch against — re-running that same proof
-under a different org_id would need the (out-of-scope) multi-org dispatch work this
-ticket doesn't build. Faking a same-org continuation here (e.g. by passing the org
-owner's session token into `resolve_dispatch`) would just 403 for real, or by silently
-falling back to the service token would silently dispatch into the WRONG org — neither
-is acceptable, so this test stops at the point that's honestly provable today.
+**Formerly-disclosed scope limit, resolved by T-211:** this test still does not
+continue the new org's idea all the way through planner/dev/review/merge-queue to
+`done` — that remains covered nightly, for the one org it's wired for, by
+`test_e2e_management_flow.py` (T-109). But the specific blocker that used to make a
+non-default-org continuation impossible — `api.auth.get_actor_context` always
+resolving the shared service token to `DEFAULT_ORG_ID`, so no single `ApiClient`
+could both create/transition tickets in an arbitrary new org AND pass
+`get_runtime_keys`'s service-principal check at the same time — is fixed. See
+`test_multi_org_dispatch.py::test_planner_agent_runs_for_a_brand_new_non_default_org`
+for the actual proof: an `ApiClient(service_token=..., org_id=new_org_id)`, using the
+new `X-Org-Id` header (trusted only on the literal service-token auth branch), can
+now dispatch a real Planner run for an org it was never a human member of. Extending
+*this* test to continue past idea creation into a full agent run is still deferred —
+not because it's blocked anymore, just because `test_multi_org_dispatch.py` already
+covers the mechanism, and duplicating a full idea-to-done run here isn't necessary.
 """
 
 import json

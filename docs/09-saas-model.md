@@ -11,16 +11,36 @@ still not real (no metering exists to enforce against).
 
 **T-202 status**: real BYOK key management (add/rotate/delete, Vault storage, last-4
 UI), a real provider router with Anthropic+OpenAI fallover/retries, per-provider eval
-floors with an "unverified quality" opt-in gate, and a real key-hygiene scrubber. The
-orchestrator's service-token path still resolves the org whose ticket is in play per
-call (via the ticket's own `org_id`, fetched fresh) rather than being multi-org-aware
-in the sense of dispatching across many orgs' ready queues at once — in practice today
-it only ever sees `DEFAULT_ORG_ID`'s tickets (T-201's disclosed single-org dispatch
-scope still applies), so BYOK is real and per-org by construction, just exercised
-against one org in this environment. Not yet real: a third provider (Gemini, etc.), a
-live eval run against OpenAI (no OpenAI credits in this environment — `providers.openai`
-entries in `evals/thresholds.yaml` honestly ship `not_yet_enforced: true`), and real
-production Vault topology (dev-mode only, see docs/06-tech-stack.md).
+floors with an "unverified quality" opt-in gate, and a real key-hygiene scrubber. BYOK
+credential resolution (`get_runtime_keys`/`resolve_runtime_credentials`) was always
+correctly multi-org — the single-org limitation lived one layer up, in how the
+orchestrator's shared service token resolved its own `org_id` (see T-211 below). Not
+yet real: a third provider (Gemini, etc.), a live eval run against OpenAI (no OpenAI
+credits in this environment — `providers.openai` entries in `evals/thresholds.yaml`
+honestly ship `not_yet_enforced: true`), and real production Vault topology (dev-mode
+only, see docs/06-tech-stack.md).
+
+**T-211 status — real, resolves a gap disclosed three times (T-201/T-202/T-206):**
+the orchestrator's service token used to always resolve to `DEFAULT_ORG_ID`
+(`api.auth.get_actor_context`'s service-token branch had no way to assert a
+different org), so agent dispatch could only ever act on the one seeded org, no
+matter which org a ticket actually belonged to. Fixed with a trusted `X-Org-Id`
+request header, honored only on the literal-shared-secret auth branch (a human's
+org_id is already embedded in their signed session JWT and this header is never
+consulted for that branch, so it can't be spoofed). `ApiClient` gained a matching
+`org_id` constructor param, and a new service-principal-only `GET
+/admin/dispatch/ready-tickets` endpoint lets the orchestrator discover
+`(ticket_id, org_id)` pairs across every org before constructing the right-scoped
+client for each — see `apps/orchestrator/tests/integration/test_multi_org_dispatch.py`
+for the proof (a Planner run for a brand-new org the service token was never a member
+of) and `apps/orchestrator/scripts/run_dispatcher.py` for the ops-script that ties it
+together. **Disclosed, not built here:** the dispatcher script covers the Planner and
+Delivery Manager stages only (both git-workspace-free); wiring the dev-agent/
+review-agent stages into the same cross-org loop needs real per-org git clone + GitHub
+App token resolution — already-real, already-built machinery for a single known
+ticket/repo (`run_pilot.py`), just not yet assembled into a generic multi-org loop.
+That's genuinely separate integration work, not an auth/dispatch-lock problem — the
+lock itself (the actual disclosed gap) is fully closed.
 
 - `orgs` table; every domain table carries `org_id` (FK, NOT NULL). All repository-layer
   queries are tenant-scoped by construction (scoped session), verified by tests that
@@ -330,14 +350,13 @@ decision, no live account for either):**
    real product-analytics vendor; no live OIDC IdP registered in this environment
    (unchanged since T-008/T-201); no real legal ToS/AUP text. The orchestrator's
    dev-agent pipeline (planner → Delivery Manager → dev → review → merge queue)
-   still cannot run against a freshly created, non-default org — `dispatch_gate.
-   resolve_dispatch`'s service-principal-only `runtime-keys` check and
-   `ticket_service`'s actor-derived `org_id` scoping can't both be satisfied by one
-   `ApiClient` instance today. This is the same "orchestrator isn't multi-org-aware"
-   gap T-202/T-205 already disclosed, not something T-206 created or closes — see
-   `apps/orchestrator/tests/integration/test_e2e_onboarding_flow.py`'s own
-   docstring for the full explanation. That test proves the real, new onboarding
-   mechanics (signup → ToS → org → intake screening, landing a real ticket in the
-   correct new org); `test_e2e_management_flow.py` (T-109) independently, already
-   proves the full idea-to-done pipeline mechanics, nightly, against the one org the
-   orchestrator can currently dispatch against.
+   used to be unable to run against a freshly created, non-default org at all — that
+   specific lock is fixed as of T-211 (see the T-211 status note above); the dev-agent
+   and review-agent stages just aren't wired into the new cross-org dispatcher script
+   yet, a separate, disclosed integration gap, not an auth/dispatch-lock problem.
+   `test_e2e_onboarding_flow.py` proves the real, new onboarding mechanics (signup →
+   ToS → org → intake screening, landing a real ticket in the correct new org);
+   `test_multi_org_dispatch.py` (T-211) proves a real Planner run for that same kind
+   of brand-new org; `test_e2e_management_flow.py` (T-109) independently, already
+   proves the full idea-to-done pipeline mechanics, nightly, against the seeded
+   default org.

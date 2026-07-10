@@ -1,13 +1,20 @@
-"""T-201 AC5: platform-staff impersonation ("view as org") + per-page audit trail."""
+"""T-201 AC5: platform-staff impersonation ("view as org") + per-page audit trail.
+T-211: cross-org agent-dispatch discovery (service-principal only, see below)."""
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from api.auth import ActorContext, get_actor_context, mint_session_token
-from api.contracts import PageViewAuditRequest, SessionOut
+from api.auth import SERVICE_ACTOR, ActorContext, get_actor_context, mint_session_token
+from api.contracts import (
+    DispatchableTicketListOut,
+    DispatchableTicketOut,
+    PageViewAuditRequest,
+    SessionOut,
+)
 from api.db.models import UserRole
 from api.db.session import get_db
 from api.repositories import org_repository
+from api.repositories import ticket_repository as ticket_repo
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(get_actor_context)])
 
@@ -68,3 +75,22 @@ def audit_page_view(
     )
     db.commit()
     return {"ok": True}
+
+
+@router.get("/dispatch/ready-tickets", response_model=DispatchableTicketListOut)
+def list_dispatchable_tickets(
+    actor_context: ActorContext = Depends(get_actor_context),
+    db: Session = Depends(get_db),
+) -> DispatchableTicketListOut:
+    """T-211: cross-org, deliberately not filtered by actor_context.org_id — the one
+    thing the orchestrator's dispatcher needs that no org-scoped endpoint can give it:
+    which (ticket_id, org_id) pairs need an agent run, across every org at once.
+    Gated the same way GET /orgs/{org_id}/llm/runtime-keys already is (actor ==
+    SERVICE_ACTOR), not is_platform_staff — a human staff session, even impersonating,
+    still only ever sees one org at a time by design."""
+    if actor_context.actor != SERVICE_ACTOR:
+        raise HTTPException(status_code=403, detail="dispatch discovery is service-principal only")
+    tickets = ticket_repo.list_dispatchable_tickets(db)
+    return DispatchableTicketListOut(
+        items=[DispatchableTicketOut.model_validate(t) for t in tickets]
+    )

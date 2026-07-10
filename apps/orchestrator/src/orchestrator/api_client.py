@@ -12,17 +12,32 @@ class ApiClient:
     Authenticates as the trusted service principal (SPEC-006 AC1: every apps/api route
     except /health, /webhooks/*, /auth/* requires a bearer token) via the shared secret
     both sides read from AGENT_FACTORY_SERVICE_TOKEN.
+
+    T-211: `org_id`, when given, sends `X-Org-Id` alongside the service token so
+    `apps/api`'s `get_actor_context` resolves this client's `ActorContext.org_id` to
+    that org instead of the default — this is what actually makes agent dispatch
+    multi-org-capable (the endpoints it unlocks, e.g. `get_runtime_keys`, were already
+    org-parametric and multi-org-safe; only the caller's own resolved org_id was ever
+    the lock). Cheap to construct one client per org — this is a thin httpx.Client
+    wrapper, not a pooled/shared resource.
     """
 
     def __init__(
-        self, base_url: str, actor: str = "system", service_token: str | None = None
+        self,
+        base_url: str,
+        actor: str = "system",
+        service_token: str | None = None,
+        org_id: str | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._actor = actor
         token = service_token or os.environ.get("AGENT_FACTORY_SERVICE_TOKEN", "")
+        headers = {"Authorization": f"Bearer {token}"}
+        if org_id is not None:
+            headers["X-Org-Id"] = org_id
         self._client = httpx.Client(
             base_url=self._base_url,
-            headers={"Authorization": f"Bearer {token}"},
+            headers=headers,
             timeout=10.0,
         )
 
@@ -205,6 +220,16 @@ class ApiClient:
         )
         response.raise_for_status()
         return response.json()  # type: ignore[no-any-return]
+
+    def list_dispatchable_tickets(self) -> list[dict[str, Any]]:
+        """T-211: cross-org — GET /admin/dispatch/ready-tickets, service-principal
+        only. Returns [{id, org_id, type, state}] across every org, not just this
+        client's own resolved org_id; the dispatcher uses this to learn which orgs
+        to construct an org-scoped ApiClient for, since every other ticket endpoint
+        is scoped to whatever single org the caller is already resolved to."""
+        response = self._client.get("/admin/dispatch/ready-tickets")
+        response.raise_for_status()
+        return response.json()["items"]  # type: ignore[no-any-return]
 
     def get_runtime_keys(self, org_id: str) -> list[dict[str, str]]:
         """T-202: real key material for org_id, in fallback order, ACTIVE only —

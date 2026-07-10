@@ -62,6 +62,13 @@ _ALLOWLIST = {
     # org_ids_with_tos_acceptance above
     "org_ids_with_merged_pr",  # funnel_repository.py: T-206 — see
     # org_ids_with_tos_acceptance above
+    "get_ticket_org_id",  # ticket_repository.py: T-211 — webhook_service.
+    # handle_ci_result's HMAC-signed CI webhook has a ticket_id but no actor/org at
+    # all; this is how it discovers the ticket's real org instead of guessing
+    "list_dispatchable_tickets",  # ticket_repository.py: T-211 — the orchestrator's
+    # cross-org dispatcher's one legitimate cross-tenant sweep (which (ticket_id,
+    # org_id) pairs need an agent run, across every org), same shape as
+    # billing_repository.list_all_org_ids above
 }
 
 

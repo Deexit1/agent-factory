@@ -5,8 +5,8 @@ import os
 from sqlalchemy.orm import Session
 
 from api.db.models import EventKind, Ticket, TicketState
+from api.repositories import ticket_repository
 from api.services import failure_distiller, ticket_service
-from api.tenancy import DEFAULT_ORG_ID
 
 CI_ACTOR = "system:ci"
 
@@ -86,12 +86,22 @@ def apply_ci_result(
 def handle_ci_result(
     session: Session, ticket_id: str, *, conclusion: str, suite: str, raw_log: str
 ) -> Ticket:
-    # CI webhooks aren't behind an authenticated actor context; scoped to the single
-    # seeded org until T-201 gives webhooks a per-org auth token.
+    """T-211: CI webhooks aren't behind an authenticated actor context — the HMAC
+    signature (verify_signature, checked by the caller before this runs) is what
+    proves the request is legitimately from our own agent-pr-gate workflow, not an
+    org_id claim. This used to hardcode DEFAULT_ORG_ID (the same "only one org
+    exists" assumption T-211 fixes elsewhere), silently misattributing or 404ing any
+    ticket belonging to a different org. Now derives the ticket's real org from the
+    ticket itself (github_webhook_service.handle_check_run_completed, T-203's other
+    CI-result path, already did this correctly via the repo's own org_id — this
+    brings the older custom route in line with that established, correct pattern)."""
+    org_id = ticket_repository.get_ticket_org_id(session, ticket_id)
+    if org_id is None:
+        raise ticket_service.TicketNotFound(ticket_id)
     return apply_ci_result(
         session,
         ticket_id,
-        org_id=DEFAULT_ORG_ID,
+        org_id=org_id,
         conclusion=conclusion,
         suite=suite,
         raw_log=raw_log,
