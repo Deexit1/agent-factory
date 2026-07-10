@@ -46,15 +46,15 @@ export function BoardPage(): React.JSX.Element {
   };
 
   return (
-    <main className="flex h-full flex-col gap-4 bg-white p-4">
+    <main className="flex h-full flex-col gap-4 bg-background p-4">
       <header className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">Agent Factory — Board</h1>
+        <h1 className="text-xl font-bold text-foreground">Agent Factory — Board</h1>
       </header>
 
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
-      {isLoading && <p className="text-gray-500">Loading tickets…</p>}
-      {isError && <p className="text-red-600">Failed to load tickets.</p>}
+      {isLoading && <p className="text-muted-foreground">Loading tickets…</p>}
+      {isError && <p className="text-destructive">Failed to load tickets.</p>}
 
       {data && (
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>

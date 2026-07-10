@@ -1,5 +1,8 @@
 import { useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useCreateOrg, useSwitchOrg } from "../api/queries";
 import { useAuth } from "../auth/AuthContext";
 
@@ -31,24 +34,26 @@ export function CreateOrgStep({ tosVersion, onCreated }: CreateOrgStepProps): Re
 
   return (
     <div className="flex flex-col gap-4">
-      <h2 className="text-lg font-semibold text-gray-900">Name your organization</h2>
-      <input
-        type="text"
-        placeholder="Acme Inc."
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        aria-label="Organization name"
-        className="rounded border border-gray-300 px-3 py-2 text-sm"
-      />
-      <button
-        type="button"
+      <h2 className="text-lg font-semibold text-foreground">Name your organization</h2>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="org-name">Organization name</Label>
+        <Input
+          id="org-name"
+          type="text"
+          placeholder="Acme Inc."
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          aria-label="Organization name"
+        />
+      </div>
+      <Button
         onClick={() => void handleCreate()}
         disabled={!name || createOrg.isPending || switchOrg.isPending}
-        className="self-start rounded bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+        className="self-start"
       >
         Create organization
-      </button>
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      </Button>
+      {error && <p className="text-sm text-destructive">{error}</p>}
     </div>
   );
 }

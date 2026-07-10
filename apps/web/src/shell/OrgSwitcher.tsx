@@ -19,7 +19,7 @@ export function OrgSwitcher(): React.JSX.Element | null {
         void switchOrg.mutateAsync({ orgId: value }).then((session) => setToken(session.token));
       }}
     >
-      <SelectTrigger aria-label="Switch org" size="sm">
+      <SelectTrigger aria-label="Switch org" size="sm" className="w-full">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

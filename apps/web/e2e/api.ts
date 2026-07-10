@@ -49,11 +49,20 @@ export async function loginAs(
   page: Page,
   email: string,
   role: "viewer" | "approver" | "member" | "owner",
+  // T-210: omitted (default) lands in the shared default org, exactly as before.
+  // Pass `orgId: null` explicitly to simulate a brand-new signup with no org
+  // membership anywhere — the same path a real, never-before-seen Google account
+  // takes, without needing to mock the OIDC round-trip.
+  orgId?: string | null,
 ): Promise<void> {
+  const body: Record<string, unknown> = { email, role };
+  if (orgId !== undefined) {
+    body.org_id = orgId;
+  }
   const response = await fetch(`${API_URL}/auth/dev-login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, role }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) {
     throw new Error(`dev-login failed: ${response.status} ${await response.text()}`);

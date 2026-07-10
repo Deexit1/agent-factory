@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from api.db.models import Org, OrgInvite, OrgInviteStatus, OrgMember, UserRole
 from api.repositories import org_repository as repo
 from api.repositories import tos_repository
-from api.tenancy import DEFAULT_ORG_ID
+from api.tenancy import DEFAULT_ORG_ID, PENDING_ORG_ID
 
 
 class OrgNotFound(Exception):
@@ -81,16 +81,28 @@ def ensure_default_org_membership(session: Session, *, user_email: str) -> OrgMe
 
 def resolve_login_membership(session: Session, *, user_email: str) -> OrgMember:
     """Picks which org a login lands in when none is explicitly requested: the
-    user's first org membership (auto-joining the default org if they have none at
-    all yet). Multi-org users who want a DIFFERENT org use the org switcher
-    (POST /auth/switch-org) after landing — a full interactive "choose an org at
-    login" flow is deliberately out of scope (disclosed in tasks/CHANGELOG.md)."""
+    user's first org membership. Multi-org users who want a DIFFERENT org use the
+    org switcher (POST /auth/switch-org) after landing — a full interactive "choose
+    an org at login" flow is deliberately out of scope (disclosed in
+    tasks/CHANGELOG.md).
+
+    T-210: a user with NO membership anywhere used to be silently auto-joined into
+    the shared seeded default org — which meant every brand-new real signup landed
+    in the same org as every other one, skipping onboarding entirely the moment that
+    org was itself onboarded (the actual bug this fixed). ADMIN_EMAILS-seeded
+    accounts (platform-staff/pilot-admin tooling) still get the old bootstrap
+    behavior verbatim. Everyone else gets an unpersisted "pending" membership
+    (PENDING_ORG_ID) instead — never written to the DB, just enough for the caller
+    to mint a session that correctly routes into the onboarding wizard's own
+    "create your org" step, where the user creates a real org of their own."""
     orgs = repo.list_orgs_for_user(session, user_email=user_email)
-    if not orgs:
+    if orgs:
+        member = repo.get_membership(session, org_id=orgs[0].id, user_email=user_email)
+        assert member is not None
+        return member
+    if user_email.lower() in _admin_emails():
         return ensure_default_org_membership(session, user_email=user_email)
-    member = repo.get_membership(session, org_id=orgs[0].id, user_email=user_email)
-    assert member is not None
-    return member
+    return OrgMember(org_id=PENDING_ORG_ID, user_email=user_email, role=UserRole.VIEWER)
 
 
 def get_or_create_dev_membership(

@@ -1261,3 +1261,142 @@ addition.
 cross-org dispatcher yet (needs real per-org git clone + GitHub App token machinery —
 separate integration work, not an auth-lock problem); see `run_dispatcher.py`'s
 module docstring and `docs/09-saas-model.md`'s T-211 status note.
+## T-210 · Fix shared-org signup bug — `done`
+**Spec:** none (bug report from live manual testing — see docs/09-saas-model.md's
+onboarding section for the surrounding design)  **Est:** S
+Two different real Google accounts landed on the identical board with no onboarding
+flow. Root-caused (confirmed by direct code reading, not guessed): every brand-new
+real login with zero org memberships was silently auto-joined into the single
+hardcoded seeded `"default"` org (`org_service.ensure_default_org_membership`, called
+via `resolve_login_membership`, called only from `GET /auth/callback`) — no code path
+anywhere gave a new user their own org automatically. Since `default` was already
+fully onboarded from earlier manual testing this session, any new signup landing
+there skipped the wizard entirely and saw that org's board.
+
+**Acceptance criteria**
+- [x] A brand-new real login (zero memberships, not an `ADMIN_EMAILS` account) no
+  longer joins the shared `default` org — `org_service.resolve_login_membership`
+  returns an **unpersisted** `OrgMember(org_id=PENDING_ORG_ID, role=viewer)`
+  (`apps/api/src/api/tenancy.py`'s new `PENDING_ORG_ID = "pending"`, documented as
+  never a real `Org` row). `ADMIN_EMAILS` accounts keep the exact old behavior
+  (bootstrapped into `default` as owner — platform-staff/pilot-admin tooling access,
+  unchanged).
+- [x] No frontend changes needed — proven, not assumed: `GET /orgs/pending/
+  onboarding-status` naturally returns all-`false` (no rows exist for that id, and
+  `actor_context.org_id == org_id` both being `"pending"` means the existing
+  `_require_member` check passes rather than 404ing), so `OnboardingGate.tsx` already
+  renders the wizard correctly, unmodified. `TosAcceptanceStep`/`CreateOrgStep` both
+  already work unmodified for a pending-sentinel session (`POST /orgs` and
+  `POST /auth/switch-org` were confirmed, by direct code reading, to only ever need
+  the caller's proven email — neither reads the caller's *current* org_id).
+- [x] `apps/api/tests/integration/test_login_membership_resolution.py` (new, 7
+  tests): new non-admin user → unpersisted pending sentinel, nothing written to the
+  DB; new admin-email user → still gets `default`/owner exactly as before; existing
+  membership → unchanged; dev-login `org_id: null` reaches the identical pending
+  path via a real HTTP round-trip; dev-login with `org_id` omitted still defaults to
+  `default` (backward-compat guard for every existing dev-login call site); a pending
+  session's `onboarding-status` call is a clean all-`false` 200, not a crash; and a
+  full end-to-end proof that a pending session can complete the real
+  `POST /orgs` → `POST /auth/switch-org` flow and land in a real, ToS-accepted org.
+- [x] `DevLoginRequest.org_id` is now `str | None` (was `str`, defaulting to
+  `DEFAULT_ORG_ID`) — passing `org_id: null` explicitly simulates a brand-new signup
+  for e2e testing (real OIDC is never mocked anywhere in this repo, so this was the
+  only way to exercise the new-user path from a real Playwright test); omitting it
+  entirely is unchanged. `apps/web/e2e/api.ts`'s `loginAs` gained an optional 4th
+  `orgId` param for the same reason — every existing call site is unaffected.
+- [x] New `apps/web/e2e/pending-signup.spec.ts`: a brand-new signup lands in the
+  wizard (not a board, no nav chrome); two independent brand-new signups don't see
+  each other's anything (proves the actual reported bug is fixed, not just the
+  mechanism).
+
+**Verification:** `apps/api` 246/246 green (up from 239 — 7 new), ruff/mypy clean,
+all 4 static gates pass. `apps/web` `tsc -b`/`eslint`/`vitest run`/`vite build` clean;
+real Playwright suite 6/6 relevant tests green (2 new `pending-signup.spec.ts` +
+`smoke.spec.ts` + all 3 `routing.spec.ts`); `board.spec.ts`'s 4 `createTicket` tests
+hit the same pre-existing, already-disclosed local `.env` service-token override
+disclosed in T-208/T-209 — confirmed unrelated, unaffected by this change.
+
+**Disclosed, not fixed here:** the two real accounts already stuck sharing `default`
+from before this fix will still find their existing membership on next login and
+land back in `default` together — this fix only prevents *future* new logins from
+joining it. Handled as a one-time manual dev-DB cleanup (delete their `org_members`
+rows for `org_id="default"`), not a code change, since it's this session's own test
+data, not a general migration concern.
+## T-209 · Full shadcn redesign — sidebar shell + onboarding flow + all pages — `done`
+**Spec:** docs/06-tech-stack.md (frontend stack); follows directly from T-208's explicit
+scope cut  **Est:** L
+T-208 shipped the router/shadcn infrastructure and shell but deliberately left the 11
+pre-existing pages' markup and the onboarding wizard unstyled. This task is the full
+follow-through: a fixed, always-expanded sidebar replaces the top nav; the onboarding
+wizard gets a proper multi-step visual design; and every remaining page is restyled
+with shadcn components. Human confirmed full scope (all pages, not just the shell) and
+sidebar style (fixed/always-expanded, no collapse toggle) via AskUserQuestion.
+
+**Acceptance criteria**
+- [x] Sidebar layout — new `src/shell/AppSidebar.tsx` (shadcn `Sidebar
+  collapsible="none"`, grouped nav: Workspace / Org / conditional Staff, same
+  `isPlatformStaff && !impersonating` gating as before), `TopNav.tsx` deleted,
+  `AppShell.tsx` rebuilt on `SidebarProvider`/`SidebarInset`. `OrgSwitcher` restyled
+  into the sidebar header; sign-out `DropdownMenu` moved to the sidebar footer.
+- [x] All routes confirmed still blocked until onboarding completes — re-verified
+  `OnboardingGate.tsx`'s existing logic (unchanged, no code edits needed: it already
+  renders `OnboardingWizard` as a full replacement of `AppShell`, not a nested overlay,
+  for any org where `!(tos_accepted && has_provider_key && has_repo)` and not
+  impersonating) — this pass makes that visually unmistakable (numbered-circle
+  stepper, full-screen `Card`, zero nav/sidebar chrome) rather than changing the gate
+  itself, which was already correct.
+- [x] Onboarding flow redesigned — `OnboardingWizard.tsx` (hand-built numbered-circle
+  stepper with connecting line and checkmark-on-complete, `org` step visually folded
+  into step 1 per its own conceptual role), `TosAcceptanceStep.tsx` (shadcn
+  `Checkbox`+`Label`), `CreateOrgStep.tsx` (`Input`+`Label`), `ByokSetupGuide.tsx`
+  (→ `Card`) — the 4-state step machine, resume-on-load `useEffect`, and every
+  mutation call preserved exactly (confirmed zero e2e DOM dependency on this flow
+  before starting — only its API endpoints are exercised, by `global-setup.ts`).
+- [x] All 11 pre-existing pages restyled with shadcn (`Card`/`Table`/`Badge`/`Button`/
+  `Input`/`Textarea`/`Progress`/`Alert`), business logic/hooks/state untouched:
+  Board suite, `PlanningReviewPage`, `AssignmentQueuePage`, `DashboardPage`,
+  `ProviderKeysPage`, `RepoConnectPage`, `ImpersonatePage`, `IntakeReviewPage`,
+  `OrgStrikesPage`, `FunnelDashboardPage`, `CheckpointExplainerPage`.
+- [x] Board's dnd-kit wiring preserved exactly — `TicketCard.tsx`'s draggable ref/
+  listeners/attributes and `Column.tsx`'s droppable ref stay on native button/div
+  elements (NOT wrapped in shadcn `Card`, which isn't `React.forwardRef`-wrapped in
+  this Base UI/React-19-shaped CLI output on a React-18 app — wrapping would have
+  silently broken the drag ref), styled with `Card`'s own utility-class recipe
+  applied directly instead. Every `data-testid` from Board/Planning/Assignments
+  preserved character-for-character (`` column-${state} ``, `ticket-card`,
+  `ticket-drawer`, `bounce-count`, `cost-rollup`, `event-feed`, `transition-error`,
+  `` task-${id} ``, `` idea-${id} ``, `` ready-task-${id} ``,
+  `` utilisation-${profile} ``), confirmed by the real Playwright suite staying green
+  with zero test-file changes.
+- [x] `TicketDrawer.tsx` rebuilt on shadcn `Sheet` (was a hand-rolled `<aside>` with no
+  overlay/focus-trap/Escape-close). **Disclosed, intentional small behavior addition,
+  not silent scope creep:** Sheet adds Escape-to-close and backdrop-click-to-close for
+  free (Base UI Dialog primitive) — verified live via headless browser (click opens,
+  Escape closes, drag-and-drop still moves tickets between columns correctly).
+
+**Verification:** `apps/web` `tsc -b`/`eslint`/`vitest run`/`vite build` clean after
+every batch. Real Playwright suite: `smoke.spec.ts` + all 3 `routing.spec.ts` tests
+green; `board.spec.ts`'s 4 `createTicket`-dependent tests hit the same pre-existing,
+already-disclosed local `.env` service-token override as T-208 (confirmed unrelated —
+CI is unaffected). Since that trap blocked the suite's own drag-and-drop test locally,
+independently hand-verified drag-and-drop + drawer open/click/Escape-close via a real
+headless-Chromium script against a dedicated `AUTH_DEV_MODE=true` instance
+(`apps/api/scripts/e2e-server.sh`), using the real service token passed via an
+environment variable (not hardcoded — corrected after the auto-mode classifier
+correctly flagged an initial hardcoded-credential attempt): ticket created, card
+rendered, drawer opened on click, closed on Escape, drag from Ready → In Progress
+succeeded, zero page errors. Additionally verified the onboarding wizard's redesigned
+"key" step, sidebar (grouped nav, active-route highlighting, org switcher, user menu),
+Dashboard, and Docs pages via screenshots against the real running `docker compose`
+stack (api + web containers, real Postgres/Vault) — all render correctly with no
+console errors.
+
+**Notes / follow-ups:** mobile nav/sidebar responsiveness not addressed (fixed sidebar
+only, no `Sheet`-based mobile drawer — consistent with T-208's same disclosed scope
+cut, now doubly true since the user explicitly chose the simpler fixed-sidebar option
+over the collapsible one). The `docs/ByokSetupGuide.tsx` and admin pages embedded
+inside the onboarding wizard (`ProviderKeysPage`, `RepoConnectPage`) had their own
+`<main>` page wrapper removed so they don't double-wrap when embedded — the two
+now-headless-when-standalone route files (`routes/_loggedIn/_onboarded/{keys,repos}.tsx`)
+gained a small inline `<main>` wrapper instead, so the standalone `/keys` and `/repos`
+routes render identically to before.

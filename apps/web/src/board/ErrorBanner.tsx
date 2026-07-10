@@ -1,3 +1,8 @@
+import { XIcon } from "lucide-react";
+
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+
 export function ErrorBanner({
   message,
   onDismiss,
@@ -6,20 +11,22 @@ export function ErrorBanner({
   onDismiss: () => void;
 }): React.JSX.Element {
   return (
-    <div
-      role="alert"
+    <Alert
+      variant="destructive"
       data-testid="transition-error"
-      className="flex items-center justify-between rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-800"
+      className="flex items-center justify-between gap-2"
     >
-      <span>{message}</span>
-      <button
+      <AlertDescription className="text-destructive/90">{message}</AlertDescription>
+      <Button
         type="button"
+        variant="ghost"
+        size="icon-sm"
         onClick={onDismiss}
         aria-label="Dismiss error"
-        className="ml-4 font-bold text-red-600 hover:text-red-800"
+        className="shrink-0"
       >
-        ×
-      </button>
-    </div>
+        <XIcon />
+      </Button>
+    </Alert>
   );
 }

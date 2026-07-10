@@ -1,3 +1,5 @@
+import { Card, CardContent } from "@/components/ui/card";
+
 const CHECKPOINTS: { title: string; description: string }[] = [
   {
     title: "Idea approval",
@@ -34,18 +36,22 @@ const CHECKPOINTS: { title: string; description: string }[] = [
 export function CheckpointExplainerPage(): React.JSX.Element {
   return (
     <main className="mx-auto max-w-2xl p-6">
-      <h1 className="text-xl font-bold text-gray-900">How work moves through the board</h1>
-      <p className="mt-1 text-sm text-gray-500">
+      <h1 className="text-xl font-bold text-foreground">How work moves through the board</h1>
+      <p className="mt-1 text-sm text-muted-foreground">
         Every ticket passes through a handful of human checkpoints on its way to done —
         here's what each one means.
       </p>
       <ol className="mt-4 flex flex-col gap-3">
         {CHECKPOINTS.map((checkpoint, index) => (
-          <li key={checkpoint.title} className="rounded border border-gray-200 p-3 text-sm">
-            <span className="font-semibold text-gray-900">
-              {index + 1}. {checkpoint.title}
-            </span>
-            <p className="mt-1 text-gray-600">{checkpoint.description}</p>
+          <li key={checkpoint.title}>
+            <Card>
+              <CardContent className="text-sm">
+                <span className="font-semibold text-foreground">
+                  {index + 1}. {checkpoint.title}
+                </span>
+                <p className="mt-1 text-muted-foreground">{checkpoint.description}</p>
+              </CardContent>
+            </Card>
           </li>
         ))}
       </ol>
