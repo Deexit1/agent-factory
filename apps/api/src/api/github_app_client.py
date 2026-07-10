@@ -40,6 +40,11 @@ PLATFORM_INSTALLATION_PERMISSIONS = {
     "pull_requests": "write",
     "administration": "write",
 }
+# GET .../branches/{branch}/protection 403s without at least read-level `administration`
+# (confirmed against a real GitHub App, not just docs) — a customer's routine PR-pushing
+# token (DEFAULT_INSTALLATION_PERMISSIONS) doesn't need this, so it's requested only for
+# the one connect-time call that does, not baked into the default.
+CONNECT_TIME_PERMISSIONS = {**DEFAULT_INSTALLATION_PERMISSIONS, "administration": "read"}
 
 
 class GitHubApiError(Exception):
@@ -264,6 +269,7 @@ def verify_webhook_signature(raw_body: bytes, signature_header: str | None, *, s
 
 
 __all__ = [
+    "CONNECT_TIME_PERMISSIONS",
     "DEFAULT_INSTALLATION_PERMISSIONS",
     "PLATFORM_INSTALLATION_PERMISSIONS",
     "BranchProtection",

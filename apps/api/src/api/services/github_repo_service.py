@@ -131,8 +131,13 @@ def handle_connect_callback(
     app_jwt = _mint_app_jwt(vault)
     # repository_ids=None: this installation's already-selected repos, all of them —
     # we don't know their ids yet, that's what list_installation_repositories is for.
+    # CONNECT_TIME_PERMISSIONS (not the DEFAULT_INSTALLATION_PERMISSIONS every other
+    # caller uses): the branch-protection check below 403s without administration:read.
     install_token = github_app_client.mint_installation_token(
-        app_jwt=app_jwt, installation_id=installation_id, repository_ids=None
+        app_jwt=app_jwt,
+        installation_id=installation_id,
+        repository_ids=None,
+        permissions=github_app_client.CONNECT_TIME_PERMISSIONS,
     )
     remote_repos = github_app_client.list_installation_repositories(token=install_token.token)
 
