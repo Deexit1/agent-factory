@@ -12,8 +12,20 @@ from pathlib import Path
 
 import yaml
 
-# apps/api/src/api/eval_floors.py -> repo root is 4 parents up.
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+
+def _find_repo_root(marker: str = "capability_registry.yaml") -> Path:
+    """Same rationale as capability_registry.py's identical helper: a fixed
+    `.parents[N]` index breaks once this file's depth below the repo root differs
+    between the host checkout and the Docker image (which flattens the `apps/api/`
+    prefix). Walking up for a marker file present at the repo root in both
+    environments works unmodified in both."""
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / marker).exists():
+            return candidate
+    raise FileNotFoundError(f"could not locate repo root (no {marker} found above {__file__})")
+
+
+_REPO_ROOT = _find_repo_root()
 _THRESHOLDS_FILE = _REPO_ROOT / "evals" / "thresholds.yaml"
 
 

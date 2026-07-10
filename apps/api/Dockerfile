@@ -13,6 +13,11 @@ COPY apps/api/src ./src
 
 RUN pip install --no-cache-dir -e .
 
+# capability_registry.py / eval_floors.py locate the repo root by walking up for this
+# file (present at the real repo root on the host too) — never hardcode a `.parents[N]`
+# depth here, since COPY flattens the `apps/api/` prefix relative to a host checkout.
+COPY capability_registry.yaml ./
+
 RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
