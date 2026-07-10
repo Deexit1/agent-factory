@@ -151,8 +151,8 @@ def _service_auth() -> dict[str, str]:
 _TOKEN_EXPIRES_AT = (datetime.now(UTC) + timedelta(minutes=55)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _mock_installation_token(installation_id: int = 42) -> None:
-    respx.post(
+def _mock_installation_token(installation_id: int = 42) -> respx.Route:
+    return respx.post(
         f"https://api.github.com/app/installations/{installation_id}/access_tokens"
     ).mock(
         return_value=httpx.Response(

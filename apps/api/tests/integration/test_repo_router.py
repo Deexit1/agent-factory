@@ -4,6 +4,7 @@ generated throwaway keypair, GitHub's own HTTP boundary fault-injected via respx
 live GitHub App exists in this environment — same T-202 packages/llm_router precedent).
 """
 
+import json
 from typing import Any
 
 import httpx
@@ -58,7 +59,7 @@ def test_connect_callback_creates_repo_rows(
     connect = client.get(f"/orgs/{org_id}/repos/connect-url", headers=_auth(owner_token))
     state = connect.json()["url"].split("state=")[1]
 
-    _mock_installation_token()
+    token_route = _mock_installation_token()
     respx.get("https://api.github.com/installation/repositories").mock(
         return_value=httpx.Response(
             200,
@@ -93,6 +94,13 @@ def test_connect_callback_creates_repo_rows(
     # connect, just leaves the verified flag false.
     assert repos[0]["protected_branch_rules_verified"] is False
     assert repos[0]["status"] == "active"
+
+    # Regression guard: a real GitHub App 403s the branch-protection call below without
+    # administration:read on the minted token — this respx mock alone can't catch that
+    # (it isn't GitHub's real permission enforcement), so assert the request explicitly
+    # asked for it instead.
+    sent_permissions = json.loads(token_route.calls.last.request.content)["permissions"]
+    assert sent_permissions.get("administration") == "read"
 
 
 def test_connect_callback_rejects_a_tampered_state(
