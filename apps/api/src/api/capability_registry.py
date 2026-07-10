@@ -9,7 +9,22 @@ from pathlib import Path
 
 import yaml
 
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+
+def _find_repo_root(marker: str = "capability_registry.yaml") -> Path:
+    """A fixed `.parents[N]` index breaks the moment this file's depth below the repo
+    root differs between environments — which it does here: on the host this file
+    lives at `apps/api/src/api/capability_registry.py` (4 parents up to repo root),
+    but the Docker image (`apps/api/Dockerfile`) copies `apps/api/src` straight to
+    `/app/src`, flattening the `apps/api/` prefix (3 parents up to `/app`, which is
+    where the Dockerfile also copies this same marker file). Walking up for the
+    marker itself works unmodified in both."""
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / marker).exists():
+            return candidate
+    raise FileNotFoundError(f"could not locate repo root (no {marker} found above {__file__})")
+
+
+_REPO_ROOT = _find_repo_root()
 DEFAULT_REGISTRY_PATH = _REPO_ROOT / "capability_registry.yaml"
 
 
