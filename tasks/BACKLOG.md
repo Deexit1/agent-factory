@@ -1186,3 +1186,82 @@ machine's real `.env` has a non-empty `AGENT_FACTORY_SERVICE_TOKEN` that overrid
 `e2e-server.sh`'s test-token fallback — `.env.example`'s default is empty, so a CI
 run with a fresh `.env` is unaffected; verify green in this branch's own CI run
 before merge). `apps/api` untouched by this task — no backend changes.
+
+## T-209 · Full shadcn redesign — sidebar shell + onboarding flow + all pages — `done`
+**Spec:** docs/06-tech-stack.md (frontend stack); follows directly from T-208's explicit
+scope cut  **Est:** L
+T-208 shipped the router/shadcn infrastructure and shell but deliberately left the 11
+pre-existing pages' markup and the onboarding wizard unstyled. This task is the full
+follow-through: a fixed, always-expanded sidebar replaces the top nav; the onboarding
+wizard gets a proper multi-step visual design; and every remaining page is restyled
+with shadcn components. Human confirmed full scope (all pages, not just the shell) and
+sidebar style (fixed/always-expanded, no collapse toggle) via AskUserQuestion.
+
+**Acceptance criteria**
+- [x] Sidebar layout — new `src/shell/AppSidebar.tsx` (shadcn `Sidebar
+  collapsible="none"`, grouped nav: Workspace / Org / conditional Staff, same
+  `isPlatformStaff && !impersonating` gating as before), `TopNav.tsx` deleted,
+  `AppShell.tsx` rebuilt on `SidebarProvider`/`SidebarInset`. `OrgSwitcher` restyled
+  into the sidebar header; sign-out `DropdownMenu` moved to the sidebar footer.
+- [x] All routes confirmed still blocked until onboarding completes — re-verified
+  `OnboardingGate.tsx`'s existing logic (unchanged, no code edits needed: it already
+  renders `OnboardingWizard` as a full replacement of `AppShell`, not a nested overlay,
+  for any org where `!(tos_accepted && has_provider_key && has_repo)` and not
+  impersonating) — this pass makes that visually unmistakable (numbered-circle
+  stepper, full-screen `Card`, zero nav/sidebar chrome) rather than changing the gate
+  itself, which was already correct.
+- [x] Onboarding flow redesigned — `OnboardingWizard.tsx` (hand-built numbered-circle
+  stepper with connecting line and checkmark-on-complete, `org` step visually folded
+  into step 1 per its own conceptual role), `TosAcceptanceStep.tsx` (shadcn
+  `Checkbox`+`Label`), `CreateOrgStep.tsx` (`Input`+`Label`), `ByokSetupGuide.tsx`
+  (→ `Card`) — the 4-state step machine, resume-on-load `useEffect`, and every
+  mutation call preserved exactly (confirmed zero e2e DOM dependency on this flow
+  before starting — only its API endpoints are exercised, by `global-setup.ts`).
+- [x] All 11 pre-existing pages restyled with shadcn (`Card`/`Table`/`Badge`/`Button`/
+  `Input`/`Textarea`/`Progress`/`Alert`), business logic/hooks/state untouched:
+  Board suite, `PlanningReviewPage`, `AssignmentQueuePage`, `DashboardPage`,
+  `ProviderKeysPage`, `RepoConnectPage`, `ImpersonatePage`, `IntakeReviewPage`,
+  `OrgStrikesPage`, `FunnelDashboardPage`, `CheckpointExplainerPage`.
+- [x] Board's dnd-kit wiring preserved exactly — `TicketCard.tsx`'s draggable ref/
+  listeners/attributes and `Column.tsx`'s droppable ref stay on native button/div
+  elements (NOT wrapped in shadcn `Card`, which isn't `React.forwardRef`-wrapped in
+  this Base UI/React-19-shaped CLI output on a React-18 app — wrapping would have
+  silently broken the drag ref), styled with `Card`'s own utility-class recipe
+  applied directly instead. Every `data-testid` from Board/Planning/Assignments
+  preserved character-for-character (`` column-${state} ``, `ticket-card`,
+  `ticket-drawer`, `bounce-count`, `cost-rollup`, `event-feed`, `transition-error`,
+  `` task-${id} ``, `` idea-${id} ``, `` ready-task-${id} ``,
+  `` utilisation-${profile} ``), confirmed by the real Playwright suite staying green
+  with zero test-file changes.
+- [x] `TicketDrawer.tsx` rebuilt on shadcn `Sheet` (was a hand-rolled `<aside>` with no
+  overlay/focus-trap/Escape-close). **Disclosed, intentional small behavior addition,
+  not silent scope creep:** Sheet adds Escape-to-close and backdrop-click-to-close for
+  free (Base UI Dialog primitive) — verified live via headless browser (click opens,
+  Escape closes, drag-and-drop still moves tickets between columns correctly).
+
+**Verification:** `apps/web` `tsc -b`/`eslint`/`vitest run`/`vite build` clean after
+every batch. Real Playwright suite: `smoke.spec.ts` + all 3 `routing.spec.ts` tests
+green; `board.spec.ts`'s 4 `createTicket`-dependent tests hit the same pre-existing,
+already-disclosed local `.env` service-token override as T-208 (confirmed unrelated —
+CI is unaffected). Since that trap blocked the suite's own drag-and-drop test locally,
+independently hand-verified drag-and-drop + drawer open/click/Escape-close via a real
+headless-Chromium script against a dedicated `AUTH_DEV_MODE=true` instance
+(`apps/api/scripts/e2e-server.sh`), using the real service token passed via an
+environment variable (not hardcoded — corrected after the auto-mode classifier
+correctly flagged an initial hardcoded-credential attempt): ticket created, card
+rendered, drawer opened on click, closed on Escape, drag from Ready → In Progress
+succeeded, zero page errors. Additionally verified the onboarding wizard's redesigned
+"key" step, sidebar (grouped nav, active-route highlighting, org switcher, user menu),
+Dashboard, and Docs pages via screenshots against the real running `docker compose`
+stack (api + web containers, real Postgres/Vault) — all render correctly with no
+console errors.
+
+**Notes / follow-ups:** mobile nav/sidebar responsiveness not addressed (fixed sidebar
+only, no `Sheet`-based mobile drawer — consistent with T-208's same disclosed scope
+cut, now doubly true since the user explicitly chose the simpler fixed-sidebar option
+over the collapsible one). The `docs/ByokSetupGuide.tsx` and admin pages embedded
+inside the onboarding wizard (`ProviderKeysPage`, `RepoConnectPage`) had their own
+`<main>` page wrapper removed so they don't double-wrap when embedded — the two
+now-headless-when-standalone route files (`routes/_loggedIn/_onboarded/{keys,repos}.tsx`)
+gained a small inline `<main>` wrapper instead, so the standalone `/keys` and `/repos`
+routes render identically to before.

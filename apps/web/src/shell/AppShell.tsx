@@ -2,9 +2,10 @@ import { useEffect } from "react";
 
 import { Outlet, useRouterState } from "@tanstack/react-router";
 
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { useAuth } from "@/auth/AuthContext";
 import { usePageViewAudit } from "@/api/queries";
-import { TopNav } from "@/shell/TopNav";
+import { AppSidebar } from "@/shell/AppSidebar";
 import { ImpersonationBanner } from "@/shell/ImpersonationBanner";
 
 export function AppShell(): React.JSX.Element {
@@ -22,10 +23,12 @@ export function AppShell(): React.JSX.Element {
   return (
     <div className="flex h-screen flex-col">
       {impersonating && <ImpersonationBanner />}
-      <TopNav />
-      <div className="flex-1 overflow-hidden">
-        <Outlet />
-      </div>
+      <SidebarProvider className="min-h-0 flex-1">
+        <AppSidebar />
+        <SidebarInset className="overflow-y-auto">
+          <Outlet />
+        </SidebarInset>
+      </SidebarProvider>
     </div>
   );
 }

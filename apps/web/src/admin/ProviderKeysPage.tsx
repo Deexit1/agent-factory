@@ -1,5 +1,12 @@
 import { useState } from "react";
 
+import { ArrowDown, ArrowUp } from "lucide-react";
+
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { ProviderName } from "../api/client";
 import {
   useAddProviderKey,
@@ -16,10 +23,10 @@ import { useAuth } from "../auth/AuthContext";
 const PROVIDERS: ProviderName[] = ["anthropic", "openai"];
 const AGENT_ROLES = ["dev", "planner", "delivery-manager", "review"];
 
-function statusColor(status: string): string {
-  if (status === "active") return "bg-green-100 text-green-800";
-  if (status === "revoked") return "bg-gray-200 text-gray-600";
-  return "bg-red-100 text-red-800";
+function statusBadgeClassName(status: string): string {
+  if (status === "active") return "border-green-300 bg-green-50 text-green-800";
+  if (status === "revoked") return "border-transparent bg-muted text-muted-foreground";
+  return "border-red-300 bg-red-50 text-red-800";
 }
 
 function EvalFloorRow({
@@ -45,14 +52,15 @@ function EvalFloorRow({
         {floor.opted_in ? " (opted in)" : ""}
       </span>
       {!floor.opted_in && (
-        <button
-          type="button"
+        <Button
+          size="xs"
+          variant="outline"
           onClick={() => void optIn.mutateAsync({ orgId, agent_role: agentRole, provider })}
           disabled={optIn.isPending}
-          className="rounded border border-amber-400 px-2 py-0.5 text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+          className="border-amber-400 text-amber-700 hover:bg-amber-50"
         >
           Opt in
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -73,7 +81,7 @@ export function ProviderKeysPage(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
 
   if (!orgId) {
-    return <p className="p-4 text-gray-500">Loading…</p>;
+    return <p className="p-4 text-muted-foreground">Loading…</p>;
   }
 
   const items = keys?.items ?? [];
@@ -104,61 +112,63 @@ export function ProviderKeysPage(): React.JSX.Element {
   };
 
   return (
-    <main className="mx-auto max-w-2xl p-6">
-      <h1 className="text-xl font-bold text-gray-900">Provider keys (BYOK)</h1>
-      <p className="mt-1 text-sm text-gray-500">
-        Bring your own LLM provider keys. Keys are stored in Vault — never in this app's
-        database, logs, or events. Only the last 4 characters are ever shown here.
-      </p>
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="text-xl font-bold text-foreground">Provider keys (BYOK)</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Bring your own LLM provider keys. Keys are stored in Vault — never in this app's
+          database, logs, or events. Only the last 4 characters are ever shown here.
+        </p>
+      </div>
 
       {anyUnhealthy && (
-        <div role="alert" className="mt-4 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-          At least one provider key is not active. Agent runs using that provider are paused
-          until it's fixed.
-        </div>
+        <Alert variant="destructive" role="alert">
+          <AlertDescription>
+            At least one provider key is not active. Agent runs using that provider are paused
+            until it's fixed.
+          </AlertDescription>
+        </Alert>
       )}
 
-      <ul className="mt-4 flex flex-col gap-2">
+      <ul className="flex flex-col gap-2">
         {items.map((key, index) => (
-          <li
-            key={key.provider}
-            className="flex flex-col gap-1 rounded border border-gray-200 p-3 text-sm"
-          >
+          <li key={key.provider} className="flex flex-col gap-1 rounded-lg border p-3 text-sm">
             <div className="flex items-center justify-between">
               <span className="font-medium">{key.provider}</span>
-              <span className={`rounded px-2 py-0.5 text-xs ${statusColor(key.status)}`}>
+              <Badge variant="outline" className={statusBadgeClassName(key.status)}>
                 {key.status}
-              </span>
+              </Badge>
             </div>
-            <span className="text-xs text-gray-500">••••{key.last4}</span>
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <button
-                type="button"
+            <span className="text-xs text-muted-foreground">••••{key.last4}</span>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Button
+                size="icon-xs"
+                variant="outline"
                 onClick={() => moveProvider(index, index - 1)}
                 disabled={index === 0 || !isOwner}
-                className="rounded border border-gray-300 px-1.5 disabled:opacity-30"
                 aria-label={`Move ${key.provider} up in fallback order`}
               >
-                ↑
-              </button>
-              <button
-                type="button"
+                <ArrowUp />
+              </Button>
+              <Button
+                size="icon-xs"
+                variant="outline"
                 onClick={() => moveProvider(index, index + 1)}
                 disabled={index === items.length - 1 || !isOwner}
-                className="rounded border border-gray-300 px-1.5 disabled:opacity-30"
                 aria-label={`Move ${key.provider} down in fallback order`}
               >
-                ↓
-              </button>
+                <ArrowDown />
+              </Button>
               {isOwner && (
-                <button
-                  type="button"
+                <Button
+                  variant="link"
+                  size="sm"
                   onClick={() => void deleteKey.mutateAsync({ orgId, provider: key.provider as ProviderName })}
                   disabled={deleteKey.isPending}
-                  className="ml-auto text-red-600 hover:underline disabled:opacity-50"
+                  className="ml-auto h-auto p-0 text-destructive"
                 >
                   Delete
-                </button>
+                </Button>
               )}
             </div>
             {AGENT_ROLES.map((agentRole) => (
@@ -172,52 +182,51 @@ export function ProviderKeysPage(): React.JSX.Element {
           </li>
         ))}
         {items.length === 0 && (
-          <li className="text-sm text-gray-500">No provider keys configured yet.</li>
+          <li className="text-sm text-muted-foreground">No provider keys configured yet.</li>
         )}
       </ul>
 
       {isOwner && (
-        <div className="mt-6 flex flex-col gap-2 rounded border border-gray-200 p-4">
-          <h2 className="text-sm font-semibold text-gray-900">Add or rotate a key</h2>
-          <select
-            aria-label="Provider"
-            value={provider}
-            onChange={(event) => setProvider(event.target.value as ProviderName)}
-            className="rounded border border-gray-300 px-2 py-1 text-sm"
-          >
-            {PROVIDERS.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-          <input
+        <div className="flex flex-col gap-2 rounded-lg border p-4">
+          <h2 className="text-sm font-semibold text-foreground">Add or rotate a key</h2>
+          <Select value={provider} onValueChange={(value) => value && setProvider(value as ProviderName)}>
+            <SelectTrigger aria-label="Provider" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PROVIDERS.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {p}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
             type="password"
             placeholder="API key"
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
             aria-label="API key"
-            className="rounded border border-gray-300 px-2 py-1 text-sm"
           />
-          <button
-            type="button"
+          <Button
             onClick={() => void handleAdd()}
             disabled={!apiKey || addKey.isPending || rotateKey.isPending}
-            className="rounded bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+            className="self-start"
           >
             Save key
-          </button>
-          {error && <p className="text-xs text-red-600">{error}</p>}
-          <button
-            type="button"
+          </Button>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <Button
+            variant="link"
+            size="sm"
             onClick={() => void healthCheck.mutateAsync({ orgId })}
             disabled={healthCheck.isPending}
-            className="mt-2 self-start text-xs text-gray-500 hover:underline disabled:opacity-50"
+            className="mt-2 h-auto self-start p-0 text-xs text-muted-foreground"
           >
             Re-check key health
-          </button>
+          </Button>
         </div>
       )}
-    </main>
+    </div>
   );
 }

@@ -1,13 +1,16 @@
 import { useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useOrgStrikes, useResolveStrikeAppeal, useStrikeOrg } from "../api/queries";
 import type { OrgStrike } from "../api/types";
 
-function statusColor(status: OrgStrike["status"]): string {
-  if (status === "active") return "bg-red-100 text-red-800";
-  if (status === "appealed") return "bg-amber-100 text-amber-800";
-  if (status === "reinstated") return "bg-green-100 text-green-800";
-  return "bg-gray-200 text-gray-600";
+function statusBadgeClassName(status: OrgStrike["status"]): string {
+  if (status === "active") return "border-red-300 bg-red-50 text-red-800";
+  if (status === "appealed") return "border-amber-300 bg-amber-50 text-amber-800";
+  if (status === "reinstated") return "border-green-300 bg-green-50 text-green-800";
+  return "border-transparent bg-muted text-muted-foreground";
 }
 
 function StrikeRow({ orgId, strike }: { orgId: string; strike: OrgStrike }): React.JSX.Element {
@@ -16,40 +19,39 @@ function StrikeRow({ orgId, strike }: { orgId: string; strike: OrgStrike }): Rea
   return (
     <li
       data-testid={`org-strike-${strike.id}`}
-      className="flex flex-col gap-2 rounded border border-gray-200 p-3 text-sm"
+      className="flex flex-col gap-2 rounded-lg border p-3 text-sm"
     >
       <div className="flex items-center justify-between">
-        <span className="font-medium text-gray-900">{strike.reason}</span>
-        <span className={`rounded px-2 py-0.5 text-xs ${statusColor(strike.status)}`}>
+        <span className="font-medium text-foreground">{strike.reason}</span>
+        <Badge variant="outline" className={statusBadgeClassName(strike.status)}>
           {strike.status}
-        </span>
+        </Badge>
       </div>
-      <p className="text-xs text-gray-500">struck by {strike.struck_by}</p>
+      <p className="text-xs text-muted-foreground">struck by {strike.struck_by}</p>
       {strike.appeal_note && (
-        <p className="text-xs text-gray-600">Appeal: {strike.appeal_note}</p>
+        <p className="text-xs text-muted-foreground">Appeal: {strike.appeal_note}</p>
       )}
       {strike.status === "appealed" && (
         <div className="flex gap-2">
-          <button
-            type="button"
+          <Button
+            size="sm"
             onClick={() =>
               void resolveAppeal.mutateAsync({ strikeId: strike.id, decision: "reinstate", orgId })
             }
             disabled={resolveAppeal.isPending}
-            className="rounded bg-green-700 px-3 py-1 text-xs font-medium text-white hover:bg-green-800 disabled:opacity-50"
           >
             Reinstate
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
             onClick={() =>
               void resolveAppeal.mutateAsync({ strikeId: strike.id, decision: "deny", orgId })
             }
             disabled={resolveAppeal.isPending}
-            className="rounded bg-gray-700 px-3 py-1 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
           >
             Deny appeal
-          </button>
+          </Button>
         </div>
       )}
     </li>
@@ -77,38 +79,36 @@ export function OrgStrikesPage(): React.JSX.Element {
 
   return (
     <main className="mx-auto max-w-2xl p-6">
-      <h1 className="text-xl font-bold text-gray-900">Org strikes</h1>
-      <p className="mt-1 text-sm text-gray-500">
+      <h1 className="text-xl font-bold text-foreground">Org strikes</h1>
+      <p className="mt-1 text-sm text-muted-foreground">
         Imposing a strike blocks every in-flight ticket for the org (never deletes them).
         Appeal decisions are staff-only.
       </p>
 
-      <div className="mt-4 flex flex-col gap-2 rounded border border-gray-200 p-4">
-        <input
+      <div className="mt-4 flex flex-col gap-2 rounded-lg border p-4">
+        <Input
           type="text"
           placeholder="org id"
           value={orgId}
           onChange={(event) => setOrgId(event.target.value)}
           aria-label="Org id"
-          className="rounded border border-gray-300 px-2 py-1 text-sm"
         />
-        <input
+        <Input
           type="text"
           placeholder="reason"
           value={reason}
           onChange={(event) => setReason(event.target.value)}
           aria-label="Strike reason"
-          className="rounded border border-gray-300 px-2 py-1 text-sm"
         />
-        <button
-          type="button"
+        <Button
+          variant="destructive"
           onClick={() => void handleStrike()}
           disabled={!orgId || !reason || strikeOrg.isPending}
-          className="self-start rounded bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-800 disabled:opacity-50"
+          className="self-start"
         >
           Strike org
-        </button>
-        {error && <p className="text-xs text-red-600">{error}</p>}
+        </Button>
+        {error && <p className="text-sm text-destructive">{error}</p>}
       </div>
 
       {orgId && (
@@ -116,7 +116,7 @@ export function OrgStrikesPage(): React.JSX.Element {
           {strikes.map((strike) => (
             <StrikeRow key={strike.id} orgId={orgId} strike={strike} />
           ))}
-          {strikes.length === 0 && <li className="text-sm text-gray-400">No strikes for this org</li>}
+          {strikes.length === 0 && <li className="text-sm text-muted-foreground">No strikes for this org</li>}
         </ul>
       )}
     </main>
